@@ -1,15 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Send, Square } from "lucide-react";
+import { Send, Square, Mic, MicOff } from "lucide-react";
 import { getHistory, postChat } from "../../lib/ghostApi";
 
 const SESSION_KEY = "gh05t3.session";
+const SR = typeof window !== "undefined" ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
 
 export const ChatInterface = ({ onEngine }) => {
   const [sessionId, setSessionId] = useState(() => localStorage.getItem(SESSION_KEY) || "");
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [listening, setListening] = useState(false);
   const scrollRef = useRef(null);
+  const srRef = useRef(null);
 
   useEffect(() => {
     if (sessionId) {
@@ -22,6 +25,33 @@ export const ChatInterface = ({ onEngine }) => {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, sending]);
+
+  const toggleVoice = () => {
+    if (!SR) {
+      alert("SpeechRecognition not supported in this browser. Android Chrome works.");
+      return;
+    }
+    if (listening) {
+      srRef.current?.stop();
+      return;
+    }
+    const r = new SR();
+    srRef.current = r;
+    r.continuous = false;
+    r.interimResults = true;
+    r.lang = "en-US";
+    r.onresult = (e) => {
+      let transcript = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript;
+      }
+      setInput(transcript);
+    };
+    r.onend = () => setListening(false);
+    r.onerror = () => setListening(false);
+    r.start();
+    setListening(true);
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -151,6 +181,16 @@ export const ChatInterface = ({ onEngine }) => {
           disabled={sending}
           className="flex-1 bg-transparent resize-none outline-none text-[15px] text-zinc-100 placeholder:text-zinc-600 font-sans py-1.5"
         />
+        {SR && (
+          <button
+            data-testid="voice-btn"
+            onClick={toggleVoice}
+            disabled={sending}
+            className={`font-mono-term text-[10px] tracking-[0.25em] uppercase px-2 py-1.5 flex items-center gap-1.5 border ${listening ? "text-rose-300 border-rose-500/40 animate-pulse" : "text-zinc-400 border-white/10 hover:text-amber-400"}`}
+          >
+            {listening ? <MicOff size={12} /> : <Mic size={12} />}
+          </button>
+        )}
         <button
           data-testid="send-btn"
           onClick={send}

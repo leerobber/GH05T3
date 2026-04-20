@@ -1,0 +1,19 @@
+{
+  "name": "GH05T3 · The Ghost",
+  "short_name": "GH05T3",
+  "description": "Self-improving AI super-agent — chat, live dashboard, nightly self-training.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#050505",
+  "theme_color": "#f59e0b",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "https://static.prod-images.emergentagent.com/jobs/06fdcb8c-33a5-4174-95f1-33dbc522a489/images/32fd0e23bdba2cf3e72d95424a016d05dcb9ed8c835316976707685cd91bece4.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

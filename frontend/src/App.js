@@ -18,6 +18,7 @@ import { TranscriptPanel } from "./components/ghost/TranscriptPanel";
 import { MemoryStreamPanel } from "./components/ghost/MemoryStreamPanel";
 import { JournalPanel } from "./components/ghost/JournalPanel";
 import { LlmConfigPanel } from "./components/ghost/LlmConfigPanel";
+import { CompanionPanel } from "./components/ghost/CompanionPanel";
 
 function App() {
   const [state, setState] = useState(null);
@@ -142,6 +143,7 @@ function App() {
             <GhostProtocolPanel gp={state.ghost_protocol} />
             <SeancePanel seance={state.seance} />
             <TelegramPanel />
+            <CompanionPanel />
           </div>
           <div className="md:col-span-6 flex flex-col gap-6">
             <div className="panel">

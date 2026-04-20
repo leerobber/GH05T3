@@ -51,6 +51,7 @@ from memory_engine import (
 from stego import DEFAULT_COVER, decode as stego_decode, encode as stego_encode, max_bytes
 from telegram_bot import TelegramPoller
 from ws_manager import WSManager
+from companion import router as companion_router, bind_ws as companion_accept_ws
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -836,6 +837,12 @@ async def root():
 
 
 app.include_router(api)
+app.include_router(companion_router)
+
+
+@app.websocket("/api/companion/ws")
+async def companion_ws(ws: WebSocket):
+    await companion_accept_ws(ws)
 
 app.add_middleware(
     CORSMiddleware,
