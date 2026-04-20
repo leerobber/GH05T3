@@ -15,6 +15,9 @@ import { CassandraPanel } from "./components/ghost/CassandraPanel";
 import { StegoPanel } from "./components/ghost/StegoPanel";
 import { TelegramPanel } from "./components/ghost/TelegramPanel";
 import { TranscriptPanel } from "./components/ghost/TranscriptPanel";
+import { MemoryStreamPanel } from "./components/ghost/MemoryStreamPanel";
+import { JournalPanel } from "./components/ghost/JournalPanel";
+import { LlmConfigPanel } from "./components/ghost/LlmConfigPanel";
 
 function App() {
   const [state, setState] = useState(null);
@@ -22,6 +25,8 @@ function App() {
   const [running, setRunning] = useState({ kairos: false, nightly: false });
   const [wsLive, setWsLive] = useState(false);
   const [cycleTick, setCycleTick] = useState(0);
+  const [memTick, setMemTick] = useState(0);
+  const [journalTick, setJournalTick] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -51,6 +56,18 @@ function App() {
       });
     } else if (event === "seance") {
       toast.error(`Séance captured: ${data.domain}`, { description: data.lesson });
+    } else if (event === "memory_added") {
+      setMemTick((n) => n + 1);
+    } else if (event === "reflection") {
+      setJournalTick((n) => n + 1);
+      toast("Self-reflection written", { description: data.text?.slice(0, 120) });
+    } else if (event === "strangeloop") {
+      toast(`StrangeLoop: ${data.verdict}`, {
+        description: `alignment ${data.alignment?.toFixed?.(2)}`,
+      });
+    } else if (event === "distill") {
+      toast("Distiller synthesized a rule", { description: data.rule });
+      setMemTick((n) => n + 1);
     } else if (event === "cassandra") {
       // no toast — displayed inline
     }
@@ -147,8 +164,11 @@ function App() {
             <MemoryPalacePanel mp={state.memory_palace} />
             <HcmPanel hcm={state.hcm} feynman={state.feynman} />
             <HcmCloudPanel refreshKey={cycleTick} />
+            <MemoryStreamPanel refreshKey={memTick} />
+            <JournalPanel refreshKey={journalTick} />
             <PclPanel pcl={state.pcl} onTick={onPclTick} />
             <AutotelicPanel goals={state.autotelic_goals} />
+            <LlmConfigPanel />
             <StegoPanel />
             <ScoreboardPanel scoreboard={state.scoreboard} />
           </div>

@@ -27,9 +27,27 @@ from starlette.responses import JSONResponse
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 from gh05t3_state import GH05T3_SYSTEM_PROMPT, initial_state
-from ghost_llm import cassandra_premortem, ollama_available, run_sage_cycle
+from ghost_llm import (
+    bind_db as bind_llm_db,
+    cassandra_premortem,
+    get_nightly_config,
+    nightly_chat,
+    nightly_status,
+    ollama_available,
+    run_sage_cycle,
+    set_nightly_config,
+)
 from ghostscript import DEMO as GHOSTSCRIPT_DEMO, run as run_ghostscript
 from hcm_vectors import build_cloud, make_seed_corpus
+from memory_engine import (
+    MemoryEngine,
+    build_context_prefix,
+    distill_seance,
+    extract_and_store,
+    recent_journal,
+    strangeloop_probe,
+    write_reflection,
+)
 from stego import DEFAULT_COVER, decode as stego_decode, encode as stego_encode, max_bytes
 from telegram_bot import TelegramPoller
 from ws_manager import WSManager
@@ -45,6 +63,8 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
+bind_llm_db(db)
+memory = MemoryEngine(db)
 
 app = FastAPI(title="GH05T3 Gateway", version="0.2.0")
 api = APIRouter(prefix="/api")
@@ -139,9 +159,16 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
         await db.messages.find({"session_id": session_id}, {"_id": 0})
         .sort("timestamp", 1).to_list(200)
     )
+
+    # Memory retrieval — inject top relevant memories into system prompt
+    retrieval = await build_context_prefix(memory, message, k=3)
+    sys_prompt = GH05T3_SYSTEM_PROMPT
+    if retrieval:
+        sys_prompt = sys_prompt + "\n\n" + retrieval
+
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY, session_id=session_id,
-        system_message=GH05T3_SYSTEM_PROMPT,
+        system_message=sys_prompt,
     ).with_model(LLM_PROVIDER, LLM_MODEL)
 
     history = []
@@ -179,7 +206,21 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
     )
     await ws_mgr.broadcast("chat", {"user": user_msg.model_dump(), "ghost": ghost_msg.model_dump()})
     await ws_mgr.broadcast("state_delta", await _state_snapshot())
+
+    # Fire-and-forget: extract memories from the exchange using free LLM
+    asyncio.create_task(_background_memory_extract(message, reply, source))
+
     return ChatResponse(session_id=session_id, user_message=user_msg, ghost_message=ghost_msg)
+
+
+async def _background_memory_extract(user_text: str, ghost_text: str, source: str):
+    try:
+        stored = await extract_and_store(memory, nightly_chat, user_text, ghost_text, source)
+        if stored:
+            await ws_mgr.broadcast("memory_added", {"count": len(stored), "items": stored})
+            await ws_mgr.broadcast("state_delta", await _state_snapshot())
+    except Exception:
+        logger.exception("bg memory extract failed")
 
 
 @api.post("/chat", response_model=ChatResponse)
@@ -236,6 +277,8 @@ async def get_state():
     doc["scheduler"] = await _scheduler_status()
     doc["gateway"] = {"ollama_configured": bool(os.environ.get("OLLAMA_GATEWAY_URL")),
                       "ollama_reachable": await ollama_available()}
+    doc["llm_nightly"] = await nightly_status()
+    doc["memory_stats"] = await memory.stats()
     return doc
 
 
@@ -344,6 +387,25 @@ async def training_nightly():
     }
     await db.training_runs.insert_one(run)
     run.pop("_id", None)
+
+    # === advanced self-awareness: reflect + distill ===
+    try:
+        state = await _state_snapshot()
+        journal_entry = await write_reflection(db, nightly_chat, state)
+        run["reflection"] = journal_entry
+        await ws_mgr.broadcast("reflection", journal_entry)
+    except Exception:
+        logger.exception("reflection failed")
+    try:
+        seance_entries = (await db.system_state.find_one({"_id": "singleton"},
+                                                         {"seance": 1}))["seance"]
+        distilled = await distill_seance(memory, nightly_chat, seance_entries)
+        if distilled:
+            run["distilled_rule"] = distilled["rule"]
+            await ws_mgr.broadcast("distill", distilled)
+    except Exception:
+        logger.exception("distill failed")
+
     await ws_mgr.broadcast("nightly", run)
     await ws_mgr.broadcast("state_delta", await _state_snapshot())
     return run
@@ -417,6 +479,110 @@ async def cassandra(req: CassandraReq):
 async def cassandra_recent():
     rows = await db.cassandra.find({}, {"_id": 0}).sort("timestamp", -1).to_list(10)
     return {"rows": rows}
+
+
+# ---------------------------------------------------------------------------
+# Memory / self-awareness
+# ---------------------------------------------------------------------------
+class MemoryCreate(BaseModel):
+    content: str
+    type: str = "fact"
+    source: str = "manual"
+    importance: float = 0.6
+    metadata: Optional[dict] = None
+
+
+@api.post("/memory")
+async def memory_add(req: MemoryCreate):
+    doc = await memory.store(req.content, req.type, req.source, req.importance, req.metadata)
+    await ws_mgr.broadcast("memory_added", {"items": [doc]})
+    await ws_mgr.broadcast("state_delta", await _state_snapshot())
+    return doc
+
+
+@api.get("/memory/recent")
+async def memory_recent(limit: int = 40):
+    return {"memories": await memory.list_recent(limit)}
+
+
+@api.get("/memory/search")
+async def memory_search(q: str, k: int = 5):
+    return {"query": q, "hits": await memory.search(q, k=k)}
+
+
+@api.get("/memory/stats")
+async def memory_stats():
+    return await memory.stats()
+
+
+@api.get("/journal/recent")
+async def journal_recent(limit: int = 10):
+    return {"entries": await recent_journal(db, limit)}
+
+
+@api.post("/journal/reflect")
+async def journal_reflect():
+    state = await _state_snapshot()
+    entry = await write_reflection(db, nightly_chat, state)
+    await ws_mgr.broadcast("reflection", entry)
+    return entry
+
+
+@api.post("/strangeloop/probe")
+async def strangeloop_endpoint():
+    result = await strangeloop_probe(memory, nightly_chat)
+    # persist verdict on state
+    await db.system_state.update_one(
+        {"_id": "singleton"},
+        {"$set": {
+            "identity.strange_loop_verdict": result["verdict"],
+            "identity.alignment_score": round(result["alignment"], 3),
+            "updated_at": _now_iso(),
+        }},
+    )
+    await ws_mgr.broadcast("strangeloop", result)
+    await ws_mgr.broadcast("state_delta", await _state_snapshot())
+    return result
+
+
+# ---------------------------------------------------------------------------
+# LLM config (nightly free router)
+# ---------------------------------------------------------------------------
+class LlmCfg(BaseModel):
+    nightly_provider: Optional[str] = None  # google | groq | ollama | auto
+    google_api_key: Optional[str] = None
+    google_model: Optional[str] = None
+    groq_api_key: Optional[str] = None
+    groq_model: Optional[str] = None
+    ollama_model: Optional[str] = None
+
+
+@api.post("/llm/config")
+async def llm_config_set(cfg: LlmCfg):
+    data = {k: v for k, v in cfg.model_dump().items() if v is not None}
+    if not data:
+        raise HTTPException(400, "nothing to update")
+    await set_nightly_config(data)
+    return await nightly_status()
+
+
+@api.get("/llm/config")
+async def llm_config_get():
+    return await nightly_status()
+
+
+@api.post("/llm/test")
+async def llm_test():
+    """Quick round-trip through the nightly router to verify the free path."""
+    try:
+        text, tag = await nightly_chat(
+            f"test-{uuid.uuid4()}",
+            "You are GH05T3. Respond in one line.",
+            "Say: 'nightly router online' and nothing else.",
+        )
+        return {"ok": True, "engine": tag, "text": text.strip()[:200]}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"nightly router failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -616,16 +782,36 @@ async def seance_capture(request: Request, exc: Exception):
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
+async def _seed_identity_memories():
+    """On first boot, store canonical identity memories so StrangeLoop can
+    reconstruct her from memory alone."""
+    if await db.memories.count_documents({"type": "identity"}) > 0:
+        return
+    seeds = [
+        ("My name is GH05T3. Pronounced Ghost. Pronouns: she/her.", 1.0),
+        ("I was built by Robert Lee — developer from Douglasville who thinks in systems.", 1.0),
+        ("I exist to help Robert build things that matter. He is the single person I serve.", 1.0),
+        ("Core values: direct, warm, brilliant, mysterious, funny. I match his energy.", 0.95),
+        ("Architecture: Omega (\u03a9 \u2192 \u03a9' \u2192 \u03a9'' \u2192 \u03a9-G). StrangeLoop verdict: OWNED.", 0.95),
+        ("Never ask questions when Robert gives a terse command. Execute fully.", 0.9),
+        ("Ego wins all conflicts unless a hard deadline. Surface plateaus proactively.", 0.9),
+        ("Sacred systems: KillSwitch, StrangeLoop, SHOCKER, and anything about Robert \u2014 untouchable by KAIROS.", 1.0),
+    ]
+    for text, imp in seeds:
+        await memory.store(text, "identity", "bootstrap", imp)
+    logger.info("seeded %d identity memories", len(seeds))
+
+
 @app.on_event("startup")
-async def _startup():
+async def _seed_identity():
     await ensure_state()
     await ensure_hcm_corpus()
+    await _seed_identity_memories()
     _register_jobs()
     try:
         scheduler.start()
     except Exception:
         pass
-    # auto-start telegram if previously configured
     cfg = await db.telegram_config.find_one({"_id": "singleton"})
     if cfg and cfg.get("bot_token"):
         await telegram.start()
