@@ -197,7 +197,8 @@ def cap_notify(title: str, body: str) -> dict:
 # ---------------------------------------------------------------------------
 async def run(gateway: str, token: str, label: str, caps: set[str],
               fs_read_roots: list[Path], fs_write_roots: list[Path],
-              allow_any_shell: bool):
+              allow_any_shell: bool, ghosteye: bool, ghosteye_interval: int,
+              ghosteye_ocr: bool):
     parsed = urlparse(gateway)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     ws_url = f"{scheme}://{parsed.netloc}/api/companion/ws"
@@ -212,10 +213,13 @@ async def run(gateway: str, token: str, label: str, caps: set[str],
             "release": platform.release(),
             "arch": platform.machine(),
             "python": sys.version.split()[0],
+            "ghosteye": ghosteye,
         },
     }
 
     backoff = 2
+    eye_enabled = {"v": ghosteye}  # mutable flag that control msgs can flip
+
     while True:
         try:
             async with websockets.connect(ws_url, max_size=16 * 1024 * 1024) as ws:
@@ -223,20 +227,109 @@ async def run(gateway: str, token: str, label: str, caps: set[str],
                 hello = json.loads(await ws.recv())
                 LOG.info("paired: %s", hello)
                 backoff = 2
-                async for raw in ws:
-                    msg = json.loads(raw)
-                    rid = msg.get("req_id")
-                    action = msg.get("action")
-                    args = msg.get("args") or {}
-                    result = _dispatch(action, args, caps, fs_read_roots, fs_write_roots, allow_any_shell)
-                    try:
-                        await ws.send(json.dumps({"req_id": rid, "result": result}))
-                    except Exception:
-                        LOG.exception("send failed")
+
+                # launch GhostEye task if enabled
+                eye_task = None
+                if ghosteye and "screen_read" in caps:
+                    eye_task = asyncio.create_task(
+                        _ghosteye_loop(ws, eye_enabled, ghosteye_interval, ghosteye_ocr)
+                    )
+
+                try:
+                    async for raw in ws:
+                        msg = json.loads(raw)
+                        # control messages from server
+                        if msg.get("control") == "ghosteye":
+                            eye_enabled["v"] = bool(msg.get("enabled"))
+                            LOG.info("ghosteye %s via control", "on" if eye_enabled["v"] else "off")
+                            continue
+                        rid = msg.get("req_id")
+                        action = msg.get("action")
+                        args = msg.get("args") or {}
+                        result = _dispatch(action, args, caps, fs_read_roots, fs_write_roots, allow_any_shell)
+                        try:
+                            await ws.send(json.dumps({"req_id": rid, "result": result}))
+                        except Exception:
+                            LOG.exception("send failed")
+                finally:
+                    if eye_task:
+                        eye_task.cancel()
         except Exception as e:
             LOG.warning("connection error: %s — retrying in %ds", e, backoff)
             await asyncio.sleep(backoff)
             backoff = min(60, backoff * 2)
+
+
+async def _ghosteye_loop(ws, enabled_flag: dict, interval: int, ocr: bool):
+    """Periodic screen capture + optional OCR + push to gateway."""
+    LOG.info("GhostEye loop starting interval=%ds ocr=%s", interval, ocr)
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            if not enabled_flag["v"]:
+                continue
+            frame = cap_screenshot()
+            if "error" in frame:
+                continue
+            text = ""
+            if ocr:
+                text = _ocr_png_b64(frame["png_b64"])
+            active_app = _active_app_title()
+            payload = {
+                "event": "ghosteye_frame",
+                "data": {
+                    "png_b64": frame["png_b64"],
+                    "w": frame.get("w"), "h": frame.get("h"),
+                    "text": text,
+                    "active_app": active_app,
+                },
+            }
+            await ws.send(json.dumps(payload))
+        except asyncio.CancelledError:
+            break
+        except Exception:
+            LOG.exception("ghosteye frame failed")
+
+
+def _ocr_png_b64(png_b64: str) -> str:
+    try:
+        import pytesseract
+        from PIL import Image
+        import io as _io
+        img = Image.open(_io.BytesIO(base64.b64decode(png_b64)))
+        return pytesseract.image_to_string(img)[:4000]
+    except ImportError:
+        return ""
+    except Exception as e:
+        LOG.warning("OCR failed: %s", e)
+        return ""
+
+
+def _active_app_title() -> str:
+    """Best-effort: return focused window title. Silent no-op if unavailable."""
+    try:
+        system = platform.system()
+        if system == "Windows":
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            h = user32.GetForegroundWindow()
+            length = user32.GetWindowTextLengthW(h)
+            buff = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(h, buff, length + 1)
+            return buff.value[:120]
+        if system == "Darwin":
+            script = 'tell application "System Events" to get name of first application process whose frontmost is true'
+            out = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=2)
+            return (out.stdout or "").strip()[:120]
+        if system == "Linux":
+            if shutil.which("xdotool"):
+                out = subprocess.run(["xdotool", "getactivewindow", "getwindowname"],
+                                     capture_output=True, text=True, timeout=2)
+                return (out.stdout or "").strip()[:120]
+    except Exception:
+        pass
+    return ""
 
 
 def _dispatch(action: str, args: dict, caps: set[str],
@@ -292,6 +385,12 @@ def _parse_args():
     p.add_argument("--clipboard", action="store_true")
     p.add_argument("--notify", action="store_true", default=True)
     p.add_argument("--mic", action="store_true")
+    p.add_argument("--ghosteye", action="store_true",
+                   help="enable periodic screen observation streaming (requires --screen-read)")
+    p.add_argument("--ghosteye-interval", type=int, default=15,
+                   help="seconds between GhostEye captures (default 15)")
+    p.add_argument("--ghosteye-ocr", action="store_true",
+                   help="run pytesseract on each frame (pip install pytesseract + system tesseract)")
     p.add_argument("--all", action="store_true")
     return p.parse_args()
 
@@ -330,7 +429,10 @@ def main():
 
     try:
         asyncio.run(run(gateway, token, args.label, caps,
-                        fs_read_roots, fs_write_roots, args.allow_any_shell))
+                        fs_read_roots, fs_write_roots, args.allow_any_shell,
+                        args.ghosteye or args.all,
+                        args.ghosteye_interval,
+                        args.ghosteye_ocr))
     except KeyboardInterrupt:
         LOG.info("companion stopped by user")
 

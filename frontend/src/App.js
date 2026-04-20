@@ -19,6 +19,7 @@ import { MemoryStreamPanel } from "./components/ghost/MemoryStreamPanel";
 import { JournalPanel } from "./components/ghost/JournalPanel";
 import { LlmConfigPanel } from "./components/ghost/LlmConfigPanel";
 import { CompanionPanel } from "./components/ghost/CompanionPanel";
+import { GhostEyePanel } from "./components/ghost/GhostEyePanel";
 
 function App() {
   const [state, setState] = useState(null);
@@ -28,6 +29,7 @@ function App() {
   const [cycleTick, setCycleTick] = useState(0);
   const [memTick, setMemTick] = useState(0);
   const [journalTick, setJournalTick] = useState(0);
+  const [eyeFrame, setEyeFrame] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -69,6 +71,8 @@ function App() {
     } else if (event === "distill") {
       toast("Distiller synthesized a rule", { description: data.rule });
       setMemTick((n) => n + 1);
+    } else if (event === "ghosteye") {
+      setEyeFrame(data);
     } else if (event === "cassandra") {
       // no toast — displayed inline
     }
@@ -144,6 +148,7 @@ function App() {
             <SeancePanel seance={state.seance} />
             <TelegramPanel />
             <CompanionPanel />
+            <GhostEyePanel liveFrame={eyeFrame} />
           </div>
           <div className="md:col-span-6 flex flex-col gap-6">
             <div className="panel">

@@ -163,9 +163,19 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
 
     # Memory retrieval — inject top relevant memories into system prompt
     retrieval = await build_context_prefix(memory, message, k=3)
+    # GhostEye context — if a recent frame has text, inject "what Robert is looking at"
+    eye = await db.ghosteye.find_one({}, {"_id": 0, "png_b64": 0}, sort=[("timestamp", -1)])
+    eye_prefix = ""
+    if eye and eye.get("text"):
+        eye_prefix = (f"(GhostEye — what Robert is looking at, via {eye.get('active_app') or 'screen'}, "
+                      f"{eye.get('timestamp')})\n{eye['text'][:1200]}\n\n")
     sys_prompt = GH05T3_SYSTEM_PROMPT
+    extras = ""
     if retrieval:
-        sys_prompt = sys_prompt + "\n\n" + retrieval
+        extras += "\n\n" + retrieval
+    if eye_prefix:
+        extras += "\n\n" + eye_prefix
+    sys_prompt = sys_prompt + extras
 
     chat = LlmChat(
         api_key=EMERGENT_LLM_KEY, session_id=session_id,
@@ -586,6 +596,24 @@ async def llm_test():
         raise HTTPException(502, f"nightly router failed: {e}")
 
 
+@api.get("/ghosteye/recent")
+async def ghosteye_recent(limit: int = 12):
+    rows = await db.ghosteye.find({}, {"png_b64": 0}).sort("timestamp", -1).to_list(limit)
+    for r in rows:
+        r["id"] = r.pop("_id")
+        r["has_image"] = True
+    return {"frames": rows}
+
+
+@api.get("/ghosteye/frame/{frame_id}")
+async def ghosteye_frame(frame_id: str):
+    row = await db.ghosteye.find_one({"_id": frame_id})
+    if not row:
+        raise HTTPException(404, "frame not found")
+    row["id"] = row.pop("_id")
+    return row
+
+
 # ---------------------------------------------------------------------------
 # GhostScript
 # ---------------------------------------------------------------------------
@@ -842,7 +870,47 @@ app.include_router(companion_router)
 
 @app.websocket("/api/companion/ws")
 async def companion_ws(ws: WebSocket):
-    await companion_accept_ws(ws)
+    await companion_accept_ws(ws, event_handler=_companion_event)
+
+
+async def _companion_event(companion, event_name: str, data: dict):
+    """Handle unsolicited push from companion (GhostEye frames, notifications)."""
+    if event_name == "ghosteye_frame":
+        frame = {
+            "_id": str(uuid.uuid4()),
+            "label": companion.label,
+            "timestamp": _now_iso(),
+            "png_b64": (data.get("png_b64") or "")[:900_000],  # cap ~700KB
+            "w": int(data.get("w") or 0),
+            "h": int(data.get("h") or 0),
+            "text": (data.get("text") or "")[:4000],
+            "active_app": (data.get("active_app") or "")[:120],
+        }
+        await db.ghosteye.insert_one(frame)
+        # retain only newest 50 frames
+        total = await db.ghosteye.count_documents({})
+        if total > 50:
+            olds = await db.ghosteye.find({}, {"_id": 1}).sort("timestamp", 1).to_list(total - 50)
+            if olds:
+                await db.ghosteye.delete_many({"_id": {"$in": [o["_id"] for o in olds]}})
+        # store text as an observation memory (importance low, but still indexed)
+        text = frame["text"].strip()
+        if text and len(text) > 20:
+            try:
+                await memory.store(
+                    f"[GhostEye @ {frame['active_app'] or 'screen'}] {text[:500]}",
+                    "observation", "ghosteye", 0.35,
+                    metadata={"frame_id": frame["_id"], "app": frame["active_app"]},
+                )
+            except Exception:
+                pass
+        # broadcast to dashboard (strip heavy png)
+        light = {k: v for k, v in frame.items() if k != "png_b64"}
+        light["id"] = light.pop("_id")
+        light["has_image"] = bool(frame["png_b64"])
+        await ws_mgr.broadcast("ghosteye", light)
+    elif event_name == "notification":
+        await ws_mgr.broadcast("companion_notification", data)
 
 app.add_middleware(
     CORSMiddleware,

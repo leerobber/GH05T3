@@ -155,11 +155,19 @@ async def revoke_companion(token: str):
     return {"ok": True}
 
 
+@router.post("/ghosteye/toggle")
+async def ghosteye_toggle(enabled: bool):
+    """Tell connected companion(s) to pause or resume GhostEye streaming."""
+    await broadcast_to_all({"control": "ghosteye", "enabled": enabled})
+    return {"ok": True, "enabled": enabled, "broadcast_to": len(_companions)}
+
+
 # ---------------------------------------------------------------------------
 # WebSocket relay
 # ---------------------------------------------------------------------------
-async def _accept_companion_ws(ws: WebSocket):
-    """Accept a companion WS. First message must be auth {token, label, capabilities, info}."""
+async def _accept_companion_ws(ws: WebSocket, event_handler=None):
+    """Accept a companion WS. First message must be auth {token, label, capabilities, info}.
+    event_handler(companion, event_name, payload) is called for unsolicited messages."""
     await ws.accept()
     try:
         auth = await asyncio.wait_for(ws.receive_json(), timeout=10)
@@ -171,7 +179,6 @@ async def _accept_companion_ws(ws: WebSocket):
         e["consumed"] and e["token"] == token for e in _pair_codes.values()
     )
     if not valid:
-        # also allow re-auth: if token matches a currently-connected companion's token
         valid = token in _companions
     if not token or not valid:
         await ws.send_json({"error": "invalid token"})
@@ -179,7 +186,6 @@ async def _accept_companion_ws(ws: WebSocket):
         return
 
     companion = Companion(token, auth, ws)
-    # if token already had a connection, replace it
     old = _companions.get(token)
     if old:
         try:
@@ -195,15 +201,19 @@ async def _accept_companion_ws(ws: WebSocket):
         while True:
             msg = await ws.receive_json()
             companion.last_seen = _now()
-            # response to a pending command
             rid = msg.get("req_id")
             if rid and rid in _pending:
                 fut = _pending.pop(rid)
                 if not fut.done():
                     fut.set_result(msg.get("result") or msg.get("error") or {})
                 continue
-            # unsolicited push (e.g. screen stream, notification)
-            # we could broadcast via ws_manager if wired
+            # unsolicited push
+            event = msg.get("event")
+            if event and event_handler:
+                try:
+                    await event_handler(companion, event, msg.get("data") or msg)
+                except Exception:
+                    LOG.exception("event handler failed")
     except WebSocketDisconnect:
         LOG.info("companion disconnected label=%s", companion.label)
     except Exception:
@@ -213,5 +223,16 @@ async def _accept_companion_ws(ws: WebSocket):
             _companions.pop(token, None)
 
 
-# Expose the WS accept helper so server.py can wire it up with its own WSManager
 bind_ws = _accept_companion_ws
+
+
+async def broadcast_to_all(payload: dict):
+    """Send a message to every connected companion. Used for ghosteye pause/resume, kill-switch."""
+    dead = []
+    for tok, c in list(_companions.items()):
+        try:
+            await c.ws.send_json(payload)
+        except Exception:
+            dead.append(tok)
+    for tok in dead:
+        _companions.pop(tok, None)
