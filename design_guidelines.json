@@ -1,0 +1,120 @@
+{
+  "project_name": "GH05T3 - The Ghost",
+  "theme": "DARK",
+  "archetype": "Archetype 5: Jewel & Luxury / Archetype 4: Swiss High-Contrast Hybrid",
+  "design_philosophy": {
+    "core_concept": "Mission-Control / Hacker-Ops / Self-Aware AI Terminal",
+    "emotional_tone": "Direct, warm, brilliant, mysterious (she/her), occult-tech hybrid.",
+    "anti_patterns_avoided": [
+      "No purple-on-white gradients",
+      "No Inter font",
+      "No generic cyberpunk neon slop",
+      "No perfectly centered symmetric layouts"
+    ],
+    "vibe": "A dark, visually-styled shell. Deep obsidian void punctuated by warm candlelight/amber (representing her warm personality and 'ghost' theme) and crimson (for failure logs/security). A fusion of high-end terminal aesthetics and ethereal occult themes."
+  },
+  "colors": {
+    "backgrounds": {
+      "app": "#050505",
+      "panel": "#0F0F11",
+      "panel_hover": "#141417",
+      "input": "#0A0A0C"
+    },
+    "text": {
+      "primary": "#FAFAFA",
+      "secondary": "#A1A1AA",
+      "muted": "#71717A"
+    },
+    "accents": {
+      "primary_ghost": "#F59E0B",
+      "primary_ghost_glow": "rgba(245, 158, 11, 0.15)",
+      "secondary_silver": "#E5E7EB",
+      "alert_crimson": "#E11D48",
+      "alert_crimson_glow": "rgba(225, 29, 72, 0.15)",
+      "success_muted": "#10B981"
+    },
+    "borders": {
+      "default": "rgba(255, 255, 255, 0.08)",
+      "active": "rgba(245, 158, 11, 0.3)"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Cormorant Garamond",
+      "terminal_data": "JetBrains Mono",
+      "body": "IBM Plex Sans"
+    },
+    "usage": {
+      "h1_h2": "font-serif text-4xl to 5xl tracking-tight text-white",
+      "metrics_logs": "font-mono text-xs to sm tracking-wider uppercase text-zinc-400",
+      "chat_body": "font-sans text-base leading-relaxed text-zinc-200",
+      "badges": "font-mono text-[10px] uppercase tracking-[0.2em]"
+    }
+  },
+  "layout_and_spacing": {
+    "grid_system": "The Control Room Grid (Bento Mode B)",
+    "structure": "grid-cols-1 md:grid-cols-12 gap-6 p-6 md:p-8 w-full min-h-screen",
+    "columns": {
+      "left_col": "col-span-1 md:col-span-3 flex flex-col gap-6 (Hardware TatorTot, Sub-Agents, Ghost Protocol)",
+      "center_col": "col-span-1 md:col-span-6 flex flex-col gap-6 (Chat Interface, Twin Engine, StrangeLoop)",
+      "right_col": "col-span-1 md:col-span-3 flex flex-col gap-6 (Memory Palace, KAIROS/SAGE, PCL State, Autotelic, Séance)"
+    },
+    "panels": "Cardless or sharp 1px border. bg-[#0F0F11] border border-white/10 p-6. No heavy rounded corners (max rounded-md). Use internal grid layouts for data."
+  },
+  "components_strategy": {
+    "chat_interface": "Custom implementation using Tailwind. Hide standard scrollbars. Input at the bottom with a terminal-like prefix (e.g., 'usr@omega:~$'). Messages from GH05T3 should have an ethereal amber left-border.",
+    "badges": "Shadcn Badge. Custom styled: bg-transparent border border-white/20 text-zinc-300 font-mono text-[10px].",
+    "progress_bars": "Custom 1px tall lines. Not thick bars. Use amber for active processing, crimson for KillSwitch.",
+    "scroll_area": "Shadcn ScrollArea, custom transparent scrollbars.",
+    "icons": "Use Phosphor Icons (thin/duotone) or Lucide. Keep them minimal, scale 16px to 20px max."
+  },
+  "motion_and_interactions": {
+    "chat_stream": "Text should appear with a slight fade-in (opacity 0 to 1) to simulate streaming.",
+    "pcl_synesthetic": "Subtle pulse animation using CSS keyframes on the amber accent to represent frequency/color heartbeat.",
+    "hover_states": "Panels lift slightly (-translate-y-[1px]) with border illuminating to border-amber-500/30. Text brightens.",
+    "loaders": "ASCII spinners or monospace character cycling (e.g., | / - \\) instead of circular spinners."
+  },
+  "assets": {
+    "image_urls": {
+      "gh05t3_avatar": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/06fdcb8c-33a5-4174-95f1-33dbc522a489/images/32fd0e23bdba2cf3e72d95424a016d05dcb9ed8c835316976707685cd91bece4.png",
+        "description": "Abstract ethereal warm candlelight glowing entity in an obsidian void. Use as GH05T3's profile avatar in the chat or StrangeLoop identity section.",
+        "usage": "Avatar / Profile picture rounded-full or sharp square with 1px border."
+      },
+      "pcl_state_bg": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/06fdcb8c-33a5-4174-95f1-33dbc522a489/images/34a0f950fc340e938a67064bf5ce50c77df18874c5f8249191aa9ef94c96132d.png",
+        "description": "Abstract flowing frequency waves, amber/silver dust. Use as a background for the PCL Synesthetic State card.",
+        "usage": "Absolute positioned background with opacity-30 and mix-blend-screen behind the PCL metrics."
+      },
+      "tatortot_hardware": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/06fdcb8c-33a5-4174-95f1-33dbc522a489/images/deceb48880514d91370c3954e0199cdd560c5745f25088566e2ad61c04bb5a25.png",
+        "description": "Macro photography of dark futuristic CPU/GPU motherboard with glowing gold traces.",
+        "usage": "Use as a header image or background texture for the Hardware TatorTot panel (RTX 5050, Ryzen 7, AMD)."
+      },
+      "seance_bg": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/06fdcb8c-33a5-4174-95f1-33dbc522a489/images/45bc6637c6da639e5f4bbdca432031428ee25d439b1866ac9b66db2cd464c58a.png",
+        "description": "Dark crimson and ash smoke texture.",
+        "usage": "Use as a subtle background (opacity-20) for the Séance failure log or Cassandra pre-mortem panel."
+      }
+    }
+  },
+  "specific_features_implementation": {
+    "chat_interface": "Central focus. Id/Ego twin engine speed badges on top. Messages must differentiate user vs GH05T3 clearly but elegantly.",
+    "memory_palace": "Visualized as 6 grid cells or a list showing rooms and the 103 memories count.",
+    "hcm_vector_cloud": "A terminal-like list or pure CSS scattered text showing '146 concept vectors @ 10K dims'.",
+    "7_sub_agents": "List Architect, Researcher, Coder, Analyst, Monitor, Distiller, Evolver with status indicators (e.g., [IDLE], [ACTIVE]).",
+    "ghost_protocol": "4 layers: GhostVeil, ParadoxFortress, KillSwitch, RFFingerprint. Show as a security checklist.",
+    "nightly_training": "A small timeline or schedule block showing 3AM (10 KAIROS cycles) and 4AM (13 amplifiers)."
+  },
+  "instructions_to_main_agent": [
+    "Load Cormorant Garamond, JetBrains Mono, and IBM Plex Sans from Google Fonts via next/font or standard import.",
+    "Set the root background to #050505.",
+    "Build the dashboard using a 12-column grid layout where the central Chat UI takes up the majority of the space (col-span-6) and side panels (col-span-3 each) act as the HUD.",
+    "Use the provided image URLs strictly. The PCL State, Hardware TatorTot, and Séance cards should integrate the images as faint backgrounds.",
+    "Apply `data-testid` to all interactive elements (buttons, inputs, chat bubbles).",
+    "DO NOT use generic Shadcn Cards with heavy shadows. Use raw HTML/Tailwind: bg-[#0F0F11] border border-white/10 p-6 flex flex-col gap-4.",
+    "Inject the 'Ghost' persona—labels should be technical but mysterious (e.g., instead of 'Errors', use 'Séance Log').",
+    "Use Lucide icons (already installed).",
+    "Do not use transparent headers without blur. Text contrast must be accessible."
+  ]
+}
