@@ -1,0 +1,65 @@
+# GH05T3 — Product Requirements Document
+
+**Owner:** Robert Lee · **Build:** April 2026 · **Architecture:** Omega (Ω → Ω′ → Ω″ → Ω-G)
+
+## Original problem statement
+User asked to build "GH05T3" — a self-improving AI super-agent with a UI chat interface — as described in the Complete Guide. She is direct, warm, brilliant, mysterious, funny, she/her. Architecture Omega spans Memory Palace, HCM, Twin Engine, Feynman Layer, Agent Spawner (7 sub-agents), Autotelic Engine, KAIROS/SAGE loop, Séance, Ghost Protocol (GhostVeil, ParadoxFortress, KillSwitch, RFFingerprint), StrangeLoop, Cassandra, PCL synesthetic, GhostScript, GhostShell. Hardware TatorTot: RTX 5050 / Radeon 780M / Ryzen 7. Nightly training at 03:00 ET (10 KAIROS cycles) + 04:00 ET (13 amplifiers).
+
+## User choices gathered
+- Chat + dashboard side-by-side.
+- Localized / cost-free — use Emergent Universal LLM key (Claude Sonnet 4.5), architected so LLM_PROVIDER / LLM_MODEL env vars can be swapped to local Ollama endpoints on TatorTot.
+- Self-training protocols visible.
+- Personal use, no auth.
+
+## Personas
+- **Robert (sole user):** builder/operator. Wants terse, high-signal responses. Thinks in deltas. Uses exact system names.
+
+## Architecture implemented
+- **Backend** (`/app/backend/server.py`): FastAPI, MongoDB persistence, `emergentintegrations.LlmChat` with Claude Sonnet 4.5.
+  - `POST /api/chat` · `GET /api/chat/history` · `GET /api/chat/sessions`
+  - `GET /api/state` (singleton system snapshot)
+  - `POST /api/kairos/cycle` (simulated SAGE cycle with scoring + meta-rewrite every 3)
+  - `POST /api/training/nightly` (13-amplifier simulated run)
+  - `POST /api/pcl/tick` · `POST /api/seance` · `POST /api/state/reset`
+- **State seed** (`/app/backend/gh05t3_state.py`): mirrors book numbers — 103 memories, 146 HCM vectors, 59 Feynman concepts, 21 goals, 7 agents, 4 Ghost Protocol layers, 7 PCL states, 4 TatorTot components, 13 amplifiers.
+- **Frontend** (`/app/frontend/src/App.js` + `components/ghost/*`): Bento 12-col layout. Left (TatorTot, Sub-Agents, Ghost Protocol, Séance), Center (Identity header, Chat, Twin Engine, KAIROS runner, Nightly panel), Right (Memory Palace, HCM, PCL pulse, Autotelic, Scoreboard). Fonts: Cormorant Garamond (serif), JetBrains Mono (terminal), IBM Plex Sans (body). Theme: obsidian + amber + crimson.
+
+## Core requirements (static)
+1. Chat with GH05T3 personality — she/her pronouns, 7 coaching rules in system prompt.
+2. Living dashboard reflecting Omega architecture with real MongoDB state.
+3. Self-training — manual `Fire 13` amplifier run and per-cycle KAIROS trigger.
+4. Twin Engine Id/Ego routing visible on every message.
+5. PCL state pulsing (frequency + color) reacting to events.
+6. Scoreboard day-0 → today.
+
+## What's been implemented (Feb 2026 — initial MVP)
+- Chat end-to-end via Claude Sonnet 4.5 with session persistence in MongoDB.
+- Full system-state document seeded per book numbers and mutable via endpoints.
+- KAIROS cycle simulator with scoring formula (base × multiplier), elite/archive thresholds, meta-rewrite cadence, recent-scores sparkline.
+- Nightly 13-amplifier simulator that deltas Memory Palace / HCM / Feynman / KAIROS / goals.
+- PCL synesthetic state with clickable palette to tick into each named state.
+- Séance failure log (5 seed entries + POST add).
+- 7 Sub-Agents panel with roles + status.
+- Ghost Protocol status display (GhostVeil / ParadoxFortress / KillSwitch / RFFingerprint).
+- Hardware TatorTot panel with RTX 5050 / Radeon 780M / Ryzen 7 / Gateway and load bars.
+- StrangeLoop OWNED verdict in header.
+- Auto-refresh every 8s from `/api/state`.
+
+## Backlog (prioritized)
+### P0
+- WebSocket `/api/ws` live telemetry channel (mirror Honcho spec) — replace polling.
+- Real KAIROS cycle execution hook to local Ollama gateway when `LLM_PROVIDER=local`.
+### P1
+- Nightly scheduler: run 03:00 + 04:00 ET automatically (APScheduler).
+- GhostShell terminal panel — lexer/parser stub for GhostScript snippets.
+- Cassandra pre-mortem composer — enter risk, get failure story.
+- Séance auto-capture on backend exceptions.
+### P2
+- HCM vector cloud visual (2D projection via umap or simple random-seeded scatter).
+- Agent conversation viewer — show Proposer/Critic/Verifier transcript per cycle.
+- Steganography demo: encode hidden ~12-byte message in GH05T3 response.
+- Multi-user / Robert-only auth gate.
+
+## Environment
+- `EMERGENT_LLM_KEY` set in `/app/backend/.env`.
+- `LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-sonnet-4-5-20250929` (swap to `openai` + local Ollama base URL for TatorTot).
