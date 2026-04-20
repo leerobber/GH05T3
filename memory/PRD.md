@@ -32,7 +32,23 @@ User asked to build "GH05T3" — a self-improving AI super-agent with a UI chat 
 5. PCL state pulsing (frequency + color) reacting to events.
 6. Scoreboard day-0 → today.
 
-## What's been implemented (Feb 2026 — initial MVP)
+## What's been implemented (Feb 2026 — phase 2 live)
+- Phase 1 (see below) plus:
+- **WebSocket `/api/ws`** — real-time state deltas, chat events, KAIROS cycles, Séance captures. Replaces 8s polling.
+- **APScheduler** — 03:00 + 04:00 America/New_York crons running on boot. `/api/scheduler/toggle` for pause/resume.
+- **Real LLM-driven KAIROS/SAGE** — Proposer → Critic → Verifier, each an Emergent-key Claude call with role-specific system prompts + strict JSON contracts. Ollama gateway fallback wired (set `OLLAMA_GATEWAY_URL`).
+- **Cassandra pre-mortem** — `/api/cassandra` writes 6-month-future autopsy via Claude.
+- **Real HCM cognitive mesh** — 146 concept vectors @ 10,000 dims stored in Mongo as float32, projected to 2D via classic PCA (numpy). Room-clustered seed corpus. SVG scatter renders in the UI.
+- **Real lexicographic steganography** — 35 synonym pairs, ~4 bytes / 160-word cover, reversible roundtrip.
+- **Real GhostScript interpreter** — lexer → parser → AST → evaluator on the backend; UI in GhostShell panel edits + runs.
+- **Séance exception auto-capture** — global FastAPI exception middleware pushes failures to the log (skips HTTPException).
+- **Telegram long-polling worker** — no webhook needed; first-sender chat_id auto-locks; `/start /status /kairos` built-in; everything else routed through GH05T3 chat.
+- **Proposer/Critic/Verifier transcript viewer** — expandable SAGE history in the UI.
+
+### Phase-2 files added
+- `/app/backend/ghost_llm.py` · `/app/backend/hcm_vectors.py` · `/app/backend/stego.py` · `/app/backend/ghostscript.py` · `/app/backend/telegram_bot.py` · `/app/backend/ws_manager.py`
+- `/app/frontend/src/lib/useGhostWS.js` · `HcmCloudPanel` · `GhostShellPanel` · `CassandraPanel` · `StegoPanel` · `TelegramPanel` · `TranscriptPanel`
+
 - Chat end-to-end via Claude Sonnet 4.5 with session persistence in MongoDB.
 - Full system-state document seeded per book numbers and mutable via endpoints.
 - KAIROS cycle simulator with scoring formula (base × multiplier), elite/archive thresholds, meta-rewrite cadence, recent-scores sparkline.

@@ -549,7 +549,11 @@ async def telegram_configure(cfg: TelegramCfg):
     update = {k: v for k, v in cfg.model_dump().items() if v is not None}
     if not update:
         raise HTTPException(400, "nothing to update")
-    # clear locked_chat_id on explicit set to null by passing 0? skip for now
+    # a fresh token invalidates prior error state
+    if "bot_token" in update:
+        update["last_error"] = None
+        update["bot_username"] = None
+        update["locked_chat_id"] = update.get("locked_chat_id")
     await telegram.save_cfg(update)
     return await telegram.status()
 
