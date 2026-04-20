@@ -261,11 +261,11 @@ export const AutotelicPanel = ({ goals }) => (
   </Panel>
 );
 
-export const NightlyPanel = ({ schedule, onRun, running }) => (
+export const NightlyPanel = ({ schedule, onRun, running, scheduler, gateway }) => (
   <Panel
     testid="nightly-panel"
     title="Nightly Training"
-    sub={`${schedule?.nightly_kairos_et} ET · ${schedule?.nightly_amplifiers_et} ET`}
+    sub={`${schedule?.nightly_kairos_et} ET · ${schedule?.nightly_amplifiers_et} ET · cron ${scheduler?.running ? "LIVE" : "paused"}`}
     right={
       <button
         data-testid="run-nightly-btn"
@@ -286,6 +286,14 @@ export const NightlyPanel = ({ schedule, onRun, running }) => (
         </li>
       ))}
     </ol>
+    <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between">
+      <span className="font-mono-term text-[10px] text-zinc-500">
+        gateway: {gateway?.ollama_reachable ? <span className="text-emerald-400">ollama live</span> : gateway?.ollama_configured ? <span className="text-rose-400">ollama offline</span> : <span className="text-amber-400">cloud fallback</span>}
+      </span>
+      <span className="font-mono-term text-[10px] text-zinc-500">
+        next: {scheduler?.jobs?.[0]?.next_run ? new Date(scheduler.jobs[0].next_run).toLocaleString() : "—"}
+      </span>
+    </div>
   </Panel>
 );
 

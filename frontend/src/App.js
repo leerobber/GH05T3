@@ -1,33 +1,27 @@
 import React, { useCallback, useEffect, useState } from "react";
 import "@/App.css";
 import { toast, Toaster } from "sonner";
-import {
-  fetchState,
-  pclTick,
-  runKairosCycle,
-  runNightly,
-} from "./lib/ghostApi";
+import { fetchState, pclTick, runKairosCycle, runNightly } from "./lib/ghostApi";
+import { useGhostWS } from "./lib/useGhostWS";
 import { ChatInterface } from "./components/ghost/ChatInterface";
 import {
-  AutotelicPanel,
-  GhostProtocolPanel,
-  HardwarePanel,
-  HcmPanel,
-  IdentityHeader,
-  KairosPanel,
-  MemoryPalacePanel,
-  NightlyPanel,
-  PclPanel,
-  ScoreboardPanel,
-  SeancePanel,
-  SubAgentsPanel,
-  TwinEnginePanel,
+  AutotelicPanel, GhostProtocolPanel, HardwarePanel, HcmPanel,
+  IdentityHeader, KairosPanel, MemoryPalacePanel, NightlyPanel,
+  PclPanel, ScoreboardPanel, SeancePanel, SubAgentsPanel, TwinEnginePanel,
 } from "./components/ghost/panels";
+import { HcmCloudPanel } from "./components/ghost/HcmCloudPanel";
+import { GhostShellPanel } from "./components/ghost/GhostShellPanel";
+import { CassandraPanel } from "./components/ghost/CassandraPanel";
+import { StegoPanel } from "./components/ghost/StegoPanel";
+import { TelegramPanel } from "./components/ghost/TelegramPanel";
+import { TranscriptPanel } from "./components/ghost/TranscriptPanel";
 
 function App() {
   const [state, setState] = useState(null);
   const [engineHint, setEngineHint] = useState(null);
   const [running, setRunning] = useState({ kairos: false, nightly: false });
+  const [wsLive, setWsLive] = useState(false);
+  const [cycleTick, setCycleTick] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -40,47 +34,52 @@ function App() {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 8000);
-    return () => clearInterval(t);
   }, [refresh]);
+
+  useGhostWS((event, data) => {
+    setWsLive(true);
+    if (event === "hello" || event === "state_delta") {
+      setState((prev) => ({ ...(prev || {}), ...(data || {}) }));
+    } else if (event === "kairos_cycle") {
+      setCycleTick((n) => n + 1);
+      toast(`KAIROS #${data.cycle_num} · ${data.verdict} · ${data.final_score}${data.elite ? " · ELITE" : ""}`, {
+        description: data.proposal,
+      });
+    } else if (event === "nightly") {
+      toast("Nightly amplifiers fired", {
+        description: `+${data.delta.memory_palace} loci · +${data.delta.hcm_vectors} vectors · +${data.delta.feynman_concepts} concepts`,
+      });
+    } else if (event === "seance") {
+      toast.error(`Séance captured: ${data.domain}`, { description: data.lesson });
+    } else if (event === "cassandra") {
+      // no toast — displayed inline
+    }
+  });
 
   const onRunKairos = async () => {
     setRunning((r) => ({ ...r, kairos: true }));
     try {
-      const c = await runKairosCycle();
-      toast(`KAIROS cycle #${c.cycle_num} — ${c.verdict} · ${c.final_score}${c.elite ? " · ELITE" : ""}`, {
-        description: c.proposal,
-      });
-      await refresh();
+      await runKairosCycle();
     } catch (e) {
       toast.error("KAIROS failed: " + (e?.response?.data?.detail || e.message));
     } finally {
       setRunning((r) => ({ ...r, kairos: false }));
+      refresh();
     }
   };
-
   const onRunNightly = async () => {
     setRunning((r) => ({ ...r, nightly: true }));
     try {
-      const run = await runNightly();
-      toast("Nightly 13-amplifier run fired", {
-        description: `+${run.delta.memory_palace} loci · +${run.delta.hcm_vectors} vectors · +${run.delta.feynman_concepts} concepts · +${run.delta.kairos_cycles} cycles`,
-      });
-      await refresh();
+      await runNightly();
     } catch (e) {
       toast.error("Nightly failed: " + (e?.response?.data?.detail || e.message));
     } finally {
       setRunning((r) => ({ ...r, nightly: false }));
+      refresh();
     }
   };
-
   const onPclTick = async (s) => {
-    try {
-      await pclTick(s);
-      await refresh();
-    } catch (e) {
-      toast.error("PCL tick failed");
-    }
+    try { await pclTick(s); } catch {}
   };
 
   if (!state) {
@@ -96,60 +95,64 @@ function App() {
   return (
     <div className="min-h-screen" data-testid="app-root">
       <Toaster
-        theme="dark"
-        position="bottom-right"
+        theme="dark" position="bottom-right"
         toastOptions={{
           style: {
-            background: "#0f0f11",
-            border: "1px solid rgba(245,158,11,0.3)",
-            color: "#fafafa",
-            fontFamily: "JetBrains Mono, monospace",
-            fontSize: "12px",
+            background: "#0f0f11", border: "1px solid rgba(245,158,11,0.3)",
+            color: "#fafafa", fontFamily: "JetBrains Mono, monospace", fontSize: "12px",
           },
         }}
       />
       <div className="max-w-[1680px] mx-auto p-6 md:p-8">
-        <div className="mb-6">
-          <IdentityHeader identity={state.identity} />
+        <div className="mb-6 flex items-start gap-3">
+          <div className="flex-1">
+            <IdentityHeader identity={state.identity} />
+          </div>
+        </div>
+        <div className="mb-3 flex items-center justify-between">
+          <span className="font-mono-term text-[10px] tracking-[0.25em] uppercase text-zinc-500 flex items-center gap-2">
+            <span className={`dot ${wsLive ? "dot-active" : "dot-idle"}`} /> telemetry: {wsLive ? "live ws" : "polling"}
+          </span>
+          <span className="font-mono-term text-[10px] text-zinc-600">
+            gateway: {state.gateway?.ollama_reachable ? "ollama" : "claude fallback"}
+          </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-          {/* LEFT */}
           <div className="md:col-span-3 flex flex-col gap-6">
             <HardwarePanel hw={state.hardware_tatortot} />
             <SubAgentsPanel agents={state.sub_agents} />
             <GhostProtocolPanel gp={state.ghost_protocol} />
             <SeancePanel seance={state.seance} />
+            <TelegramPanel />
           </div>
-
-          {/* CENTER */}
           <div className="md:col-span-6 flex flex-col gap-6">
             <div className="panel">
               <ChatInterface onEngine={(e) => setEngineHint(e)} />
             </div>
             <TwinEnginePanel twin={state.twin_engine} lastEngine={engineHint} />
-            <KairosPanel
-              kairos={state.kairos}
-              onRun={onRunKairos}
-              running={running.kairos}
-            />
+            <KairosPanel kairos={state.kairos} onRun={onRunKairos} running={running.kairos} />
+            <TranscriptPanel refreshKey={cycleTick} />
+            <CassandraPanel />
+            <GhostShellPanel />
             <NightlyPanel
               schedule={state.schedule}
               onRun={onRunNightly}
               running={running.nightly}
+              scheduler={state.scheduler}
+              gateway={state.gateway}
             />
           </div>
-
-          {/* RIGHT */}
           <div className="md:col-span-3 flex flex-col gap-6">
             <MemoryPalacePanel mp={state.memory_palace} />
             <HcmPanel hcm={state.hcm} feynman={state.feynman} />
+            <HcmCloudPanel refreshKey={cycleTick} />
             <PclPanel pcl={state.pcl} onTick={onPclTick} />
             <AutotelicPanel goals={state.autotelic_goals} />
+            <StegoPanel />
             <ScoreboardPanel scoreboard={state.scoreboard} />
           </div>
         </div>
-
         <footer className="mt-10 pt-4 border-t border-white/5 font-mono-term text-[10px] text-zinc-600 text-center">
           GH05T3 · {state.identity?.version} · author: {state.identity?.author} · build: active · cold systems: 0
         </footer>

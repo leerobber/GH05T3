@@ -1,0 +1,34 @@
+{
+  "summary": "GH05T3 phase-2 full-stack testing. 22/22 backend pytest pass (9 iteration_1 regression + 13 new phase-2). All frontend panels render and integrate end-to-end: WS live telemetry (LIVE WS), HCM cloud SVG (146 dots), Cassandra LLM autopsy, GhostShell run with spawn/think/emit/bind/dispatch, Stego RUN!→covertext→RUN! roundtrip, KAIROS run-cycle adds Transcript row with proposer/critic/verifier expansion, Nightly cron LIVE with next run timestamp, Telegram panel surfaces getMe error.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gh05t3.py",
+    "/app/backend/tests/test_gh05t3_phase2.py",
+    "/app/test_reports/pytest/gh05t3_phase2.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~660 lines and contains chat, state, KAIROS, nightly, PCL, Cassandra, GhostScript, Stego, scheduler, Telegram, WebSocket, exception middleware, and lifecycle in a single file. Consider splitting into routers (api/chat.py, api/kairos.py, api/cassandra.py, api/stego.py, etc.) once the surface stabilises.",
+    "Scheduler is unconditionally started in @app.on_event('startup') and again via /scheduler/toggle?enable=true; the toggle therefore is essentially read-only at boot. Behaviour matches spec but consider an env flag (SCHEDULER_AUTOSTART) for test isolation.",
+    "Exception middleware swallows non-HTTP errors and returns 500 with 'lesson' field while writing to seance — verified non-over-capturing for HTTPException. However, /seance Pydantic validation errors will be FastAPI RequestValidationError (422) — those are NOT subclasses of HTTPException so they would be captured. Consider also bypassing RequestValidationError.",
+    "telegram TelegramPoller persists last_error from previous boot in DB; the UI shows 'err: Not Found' immediately on load even if the user never re-saved. Consider clearing last_error when configure() is called with a new token.",
+    "@app.on_event('startup') is deprecated in FastAPI 0.110+ in favour of lifespan handlers — fine for now but worth scheduling a migration."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gh05t3_phase2.py"
+  ],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100% of phase-2 flows tested"},
+  "seed_data_creation": "iteration_1 regression suite calls /api/state/reset at module init; phase-2 tests run on top of an already-warm DB.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Phase-2 backend covered by /app/backend/tests/test_gh05t3_phase2.py (uses websockets + pytest-asyncio --asyncio-mode=auto). KAIROS cycles really call Claude Sonnet 4.5 — each cycle ~5-15s; cassandra ~30-90s. WS endpoint at /api/ws emits 'hello' on connect plus 'kairos_cycle'+'state_delta' on each cycle. Telegram persists config across reboots (db.telegram_config) — the UI in iteration_2 already shows it in configured mode with last_error='Not Found' from the invalid:dummy token saved during testing. To re-test the unconfigured branch, delete db.telegram_config first or POST /api/telegram/configure with bot_token='' (which is currently rejected as 'nothing to update' — see code review note 4). HCM corpus is seeded once on startup (146 vectors @ 10k dims @ float32 = ~5.6MB in mongo).",
+  "rca of the issue": "No active bugs. One earlier crash in Cassandra came from an empty/None scenario being passed to LiteLLM (NoneType.startswith) — already fixed before this run by the 400 guard in /api/cassandra; verified by test_cassandra_empty_400."
+}
