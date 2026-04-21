@@ -178,11 +178,6 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
         extras += "\n\n" + eye_prefix
     sys_prompt = sys_prompt + extras
 
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY, session_id=session_id,
-        system_message=sys_prompt,
-    ).with_model(LLM_PROVIDER, LLM_MODEL)
-
     history = []
     for m in prior[:-1][-12:]:
         tag = "Robert" if m["role"] == "user" else "GH05T3"
@@ -192,7 +187,28 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
         ctx = "(recent context)\n" + "\n".join(history) + "\n\n(current message)\n"
 
     started = datetime.now(timezone.utc)
-    reply = await chat.send_message(UserMessage(text=ctx + message))
+    reply = None
+    engine_tag = f"{LLM_PROVIDER}:{LLM_MODEL.split('-2025')[0]}"
+    primary_err = None
+    if EMERGENT_LLM_KEY:
+        try:
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY, session_id=session_id,
+                system_message=sys_prompt,
+            ).with_model(LLM_PROVIDER, LLM_MODEL)
+            reply = await chat.send_message(UserMessage(text=ctx + message))
+        except Exception as e:  # noqa: BLE001
+            primary_err = str(e)
+            logger.warning("primary chat LLM failed, falling back: %s", e)
+    if reply is None:
+        # fallback through the free nightly router (Google free → Groq → Ollama → Gemini)
+        try:
+            text, engine_tag = await nightly_chat(session_id, sys_prompt, ctx + message)
+            reply = text
+            if primary_err:
+                reply = f"(primary llm offline — falling back to {engine_tag})\n\n{reply}"
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"all LLM paths failed. primary={primary_err} fallback={e}")
     latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
 
     ghost_msg = ChatMessage(
@@ -290,7 +306,20 @@ async def get_state():
     doc["gateway"] = {"ollama_configured": bool(os.environ.get("OLLAMA_GATEWAY_URL")),
                       "ollama_reachable": await ollama_available()}
     doc["llm_nightly"] = await nightly_status()
-    doc["memory_stats"] = await memory.stats()
+    stats = await memory.stats()
+    doc["memory_stats"] = stats
+    # Real counts override decorative book numbers so the dashboard shows live growth
+    real_mem = stats.get("total") or 0
+    real_hcm = await db.hcm_vectors.count_documents({})
+    real_journal = await db.journal.count_documents({})
+    # baseline from book (103) + everything real she's learned since
+    baseline_mem = 103
+    doc["memory_palace"]["total"] = baseline_mem + real_mem
+    doc["memory_palace"]["real_count"] = real_mem
+    doc["memory_palace"]["baseline"] = baseline_mem
+    if real_hcm:
+        doc["hcm"]["vectors"] = real_hcm
+    doc["memory_palace"]["reflections"] = real_journal
     return doc
 
 

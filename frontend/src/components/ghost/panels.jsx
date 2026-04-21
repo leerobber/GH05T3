@@ -152,7 +152,7 @@ export const SeancePanel = ({ seance }) => (
 );
 
 export const MemoryPalacePanel = ({ mp }) => (
-  <Panel testid="memory-palace-panel" title="Memory Palace · Ω" sub={`${mp?.total} loci · 6 rooms`}>
+  <Panel testid="memory-palace-panel" title="Memory Palace · Ω" sub={`${mp?.total} loci · ${mp?.real_count ?? 0} learned since boot`}>
     <div className="grid grid-cols-2 gap-2">
       {mp?.rooms?.map((r) => (
         <div key={r.name} className="border border-white/10 p-2.5">
@@ -161,6 +161,13 @@ export const MemoryPalacePanel = ({ mp }) => (
         </div>
       ))}
     </div>
+    {mp?.real_count !== undefined && (
+      <div className="mt-3 font-mono-term text-[10px] text-zinc-500 flex justify-between border-t border-white/5 pt-2">
+        <span>baseline {mp.baseline}</span>
+        <span className="text-amber-400">+{mp.real_count} real</span>
+        <span>{mp.reflections ?? 0} reflections</span>
+      </div>
+    )}
   </Panel>
 );
 

@@ -32,6 +32,21 @@ User asked to build "GH05T3" — a self-improving AI super-agent with a UI chat 
 5. PCL state pulsing (frequency + color) reacting to events.
 6. Scoreboard day-0 → today.
 
+## What's been implemented (Feb 2026 — phase 5 live)
+- Phase 1–4 plus:
+- **Native Windows bundle** `/app/native/windows/` — `install.ps1` (winget-driven), `run.bat`, `tray.py` (system-tray background host), `voice.py` (openwakeword + faster-whisper + edge-tts), `README.md`. Zero Docker, zero subscription, runs on LOQ 24/7.
+- **Chat fallback chain** — chat pipeline tries Claude Sonnet first; on failure auto-routes through `nightly_chat` (Google free → Groq → Ollama → Emergent Gemini → Claude Haiku). Prefix "(primary llm offline — falling back to …)" so user sees it.
+- **Memory counter truth** — `/api/state` now overlays real MongoDB memory count on top of decorative baseline 103. Memory Palace panel shows `total / baseline / +real / reflections`. Real growth visible on every turn.
+- **GhostEye reactor fully wired** — every companion frame runs through `ghosteye_reactor.GhostEyeReactor`:
+  - STUCK (same app + Jaccard ≥ 0.85 for 5+ min) → autonomous KAIROS cycle + Telegram ping
+  - ERROR (Traceback/Exception/FAIL regex) → Séance auto-capture + observation memory
+  - GOAL (TODO/FIXME/implement regex) → dedup-append to Autotelic goals
+  - PCL nudged on every frame (learning / uncertainty / high-confidence)
+
+### Phase-5 files added
+- `/app/backend/ghosteye_reactor.py` — reactor with cooldowns
+- `/app/native/windows/{install.ps1, run.bat, tray.py, voice.py, README.md}` — native Windows deployment (no cloud, no subscription)
+
 ## What's been implemented (Feb 2026 — phase 2 live)
 - Phase 1 (see below) plus:
 - **WebSocket `/api/ws`** — real-time state deltas, chat events, KAIROS cycles, Séance captures. Replaces 8s polling.
