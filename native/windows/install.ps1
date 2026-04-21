@@ -98,6 +98,7 @@ $lnk.Save()
 Copy-Item -Force "$here\run.bat" "$APP\run.bat"
 Copy-Item -Force "$here\tray.py" "$APP\tray.py"
 Copy-Item -Force "$here\voice.py" "$APP\voice.py"
+Copy-Item -Force "$here\whisper_listener.py" "$APP\whisper_listener.py"
 
 Write-Host "`n==> Install complete. GH05T3 will auto-start on next login." -ForegroundColor Green
 Write-Host "To start now: cd $APP && .\run.bat" -ForegroundColor Green

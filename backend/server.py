@@ -378,6 +378,13 @@ async def kairos_cycle():
             {"$set": {"pcl.state": "Elite promoted", "pcl.frequency_hz": 639,
                       "pcl.color": "#c4b5fd", "pcl.meaning": "Agent crossed 0.85 threshold"}},
         )
+        # whisper elite proposals so the room knows
+        await ws_mgr.broadcast("ghosteye_whisper", {
+            "text": f"Elite KAIROS cycle. Proposal: {cycle['proposal']}",
+            "source": "kairos_elite",
+            "priority": "high",
+            "voice": "en-US-AvaMultilingualNeural",
+        })
     await ws_mgr.broadcast("kairos_cycle", record)
     await ws_mgr.broadcast("state_delta", await _state_snapshot())
     return record
@@ -559,6 +566,27 @@ async def memory_stats():
 @api.get("/journal/recent")
 async def journal_recent(limit: int = 10):
     return {"entries": await recent_journal(db, limit)}
+
+
+class WhisperReq(BaseModel):
+    text: str
+    priority: Optional[str] = "normal"
+    voice: Optional[str] = None
+
+
+@api.post("/whisper")
+async def whisper_now(req: WhisperReq):
+    """Make GH05T3 speak through every listening client (browser + native voice)."""
+    if not req.text.strip():
+        raise HTTPException(400, "empty text")
+    payload = {
+        "text": req.text.strip()[:1000],
+        "source": "manual",
+        "priority": req.priority or "normal",
+        "voice": req.voice or "en-US-AvaMultilingualNeural",
+    }
+    await ws_mgr.broadcast("ghosteye_whisper", payload)
+    return {"ok": True, **payload}
 
 
 @api.post("/journal/reflect")

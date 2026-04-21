@@ -20,6 +20,33 @@ import { JournalPanel } from "./components/ghost/JournalPanel";
 import { LlmConfigPanel } from "./components/ghost/LlmConfigPanel";
 import { CompanionPanel } from "./components/ghost/CompanionPanel";
 import { GhostEyePanel } from "./components/ghost/GhostEyePanel";
+import { WhisperPanel } from "./components/ghost/WhisperPanel";
+
+function speakWhisper(data) {
+  try {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    if (localStorage.getItem("gh05t3.whisper.enabled") === "0") return;
+    const text = (data?.text || "").slice(0, 1000);
+    if (!text) return;
+    const utt = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const pref = localStorage.getItem("gh05t3.whisper.voice");
+    const voice =
+      (pref && voices.find((v) => v.name === pref)) ||
+      voices.find((v) => /neural|natural|Ava|Aria|Samantha|Zira/i.test(v.name)) ||
+      voices.find((v) => v.lang?.startsWith("en"));
+    if (voice) utt.voice = voice;
+    utt.volume = parseFloat(localStorage.getItem("gh05t3.whisper.volume") || "1");
+    utt.rate = data?.priority === "high" ? 1.05 : 1.0;
+    utt.pitch = 1.0;
+    if (data?.priority === "high") window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utt);
+    // notify UI
+    window.dispatchEvent(new CustomEvent("ghost-whisper", { detail: data }));
+  } catch (e) {
+    console.warn("whisper failed", e);
+  }
+}
 
 function App() {
   const [state, setState] = useState(null);
@@ -73,6 +100,12 @@ function App() {
       setMemTick((n) => n + 1);
     } else if (event === "ghosteye") {
       setEyeFrame(data);
+    } else if (event === "ghosteye_whisper") {
+      speakWhisper(data);
+    } else if (event === "ghosteye_stuck") {
+      toast("GhostEye: stuck detected", {
+        description: `KAIROS #${data.cycle}: ${data.proposal}`,
+      });
     } else if (event === "cassandra") {
       // no toast — displayed inline
     }
@@ -174,6 +207,7 @@ function App() {
             <MemoryStreamPanel refreshKey={memTick} />
             <JournalPanel refreshKey={journalTick} />
             <PclPanel pcl={state.pcl} onTick={onPclTick} />
+            <WhisperPanel />
             <AutotelicPanel goals={state.autotelic_goals} />
             <LlmConfigPanel />
             <StegoPanel />

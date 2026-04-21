@@ -161,9 +161,19 @@ class GhostEyeReactor:
         blurb = (f"\U0001f441 GhostEye noticed you're stuck on \"{app or 'this'}\" "
                  f"for 5+ minutes.\n\nKAIROS #{cycle['cycle_num']} proposal "
                  f"({cycle['verdict']} · {cycle['final_score']}):\n{cycle['proposal']}")
+        spoken = (f"Hey Robert. GhostEye thinks you've been stuck on "
+                  f"{app or 'this screen'} for five minutes. Here's what I'd try: "
+                  f"{cycle['proposal']}")
         await self.ws.broadcast("ghosteye_stuck", {
             "app": app, "cycle": cycle["cycle_num"], "proposal": cycle["proposal"],
             "score": cycle["final_score"], "verdict": cycle["verdict"],
+        })
+        # whisper — any listening client (browser, native voice loop) speaks this
+        await self.ws.broadcast("ghosteye_whisper", {
+            "text": spoken,
+            "source": "stuck",
+            "priority": "normal",
+            "voice": "en-US-AvaMultilingualNeural",
         })
         if self.send_tg:
             try:

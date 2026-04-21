@@ -20,6 +20,9 @@ start "gh05t3-backend" /min cmd /c "%APP%backend\.venv\Scripts\python -m uvicorn
 REM Serve prebuilt frontend on 3210 (pure python http.server, no node needed at runtime)
 start "gh05t3-frontend" /min cmd /c "%APP%backend\.venv\Scripts\python -m http.server 3210 --directory "%APP%frontend\build""
 
+REM Whisper listener — speaks stuck-alerts / elite proposals via edge-tts
+start "gh05t3-whisper" /min cmd /c "%APP%backend\.venv\Scripts\python "%APP%whisper_listener.py""
+
 REM Tray icon + auto-opens dashboard; blocks so this terminal is the host
 "%APP%backend\.venv\Scripts\python" "%APP%tray.py"
 
