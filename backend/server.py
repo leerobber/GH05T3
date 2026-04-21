@@ -52,6 +52,7 @@ from stego import DEFAULT_COVER, decode as stego_decode, encode as stego_encode,
 from telegram_bot import TelegramPoller
 from ws_manager import WSManager
 from companion import router as companion_router, bind_ws as companion_accept_ws
+from ghosteye_reactor import GhostEyeReactor
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -733,6 +734,28 @@ async def _telegram_handler(chat_id: int, username: str, text: str) -> str:
 telegram = TelegramPoller(db, _telegram_handler)
 
 
+async def _tg_send_from_reactor(text: str):
+    """Send a message to the locked Telegram chat, if any."""
+    cfg = await db.telegram_config.find_one({"_id": "singleton"}, {"_id": 0})
+    if not cfg or not cfg.get("bot_token") or not cfg.get("locked_chat_id"):
+        return
+    import httpx
+    url = f"https://api.telegram.org/bot{cfg['bot_token']}/sendMessage"
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            await c.post(url, json={"chat_id": cfg["locked_chat_id"], "text": text[:3500]})
+    except Exception:
+        logger.exception("reactor tg send failed")
+
+
+eye_reactor = GhostEyeReactor(
+    db=db, memory=memory, ws_mgr=ws_mgr,
+    kairos_cycle=lambda: kairos_cycle(),
+    telegram_send=_tg_send_from_reactor,
+)
+
+
+
 class TelegramCfg(BaseModel):
     bot_token: Optional[str] = None
     allow_open: Optional[bool] = None
@@ -909,6 +932,8 @@ async def _companion_event(companion, event_name: str, data: dict):
         light["id"] = light.pop("_id")
         light["has_image"] = bool(frame["png_b64"])
         await ws_mgr.broadcast("ghosteye", light)
+        # fire the reactor (stuck detection, error capture, goal creation, PCL)
+        await eye_reactor.on_frame(frame)
     elif event_name == "notification":
         await ws_mgr.broadcast("companion_notification", data)
 
