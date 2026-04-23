@@ -21,6 +21,9 @@ import { LlmConfigPanel } from "./components/ghost/LlmConfigPanel";
 import { CompanionPanel } from "./components/ghost/CompanionPanel";
 import { GhostEyePanel } from "./components/ghost/GhostEyePanel";
 import { WhisperPanel } from "./components/ghost/WhisperPanel";
+import { SetupNudgeModal } from "./components/ghost/SetupNudgeModal";
+import { OllamaPanel } from "./components/ghost/OllamaPanel";
+import { CoderPanel } from "./components/ghost/CoderPanel";
 
 function speakWhisper(data) {
   try {
@@ -149,6 +152,7 @@ function App() {
 
   return (
     <div className="min-h-screen" data-testid="app-root">
+      <SetupNudgeModal />
       <Toaster
         theme="dark" position="bottom-right"
         toastOptions={{
@@ -199,6 +203,8 @@ function App() {
               scheduler={state.scheduler}
               gateway={state.gateway}
             />
+            <OllamaPanel />
+            <CoderPanel />
           </div>
           <div className="md:col-span-3 flex flex-col gap-6">
             <MemoryPalacePanel mp={state.memory_palace} />

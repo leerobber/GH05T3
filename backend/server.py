@@ -39,6 +39,14 @@ from ghost_llm import (
     run_sage_cycle,
     set_nightly_config,
 )
+from ollama_gateway import (
+    ping as ollama_ping,
+    pull_model as ollama_pull,
+    set_gateway_url as ollama_set_url,
+    load_gateway_url as ollama_load_url,
+)
+import coder_agent
+from embeddings import embed_status
 from ghostscript import DEMO as GHOSTSCRIPT_DEMO, run as run_ghostscript
 from hcm_vectors import build_cloud, make_seed_corpus
 from memory_engine import (
@@ -1093,6 +1101,7 @@ async def _seed_identity():
         scheduler.start()
     except Exception:
         pass
+    await ollama_load_url(db)
     cfg = await db.telegram_config.find_one({"_id": "singleton"})
     if cfg and cfg.get("bot_token"):
         await telegram.start()
@@ -1108,6 +1117,101 @@ async def _shutdown():
         pass
     await telegram.stop()
     client.close()
+
+
+# ---------------------------------------------------------------------------
+# Ollama gateway (LOQ / TatorTot local runtime)
+# ---------------------------------------------------------------------------
+@api.get("/ollama/status")
+async def api_ollama_status():
+    return await ollama_ping()
+
+
+class OllamaCfg(BaseModel):
+    gateway_url: str
+
+
+@api.post("/ollama/configure")
+async def api_ollama_configure(cfg: OllamaCfg):
+    return await ollama_set_url(db, cfg.gateway_url)
+
+
+class OllamaPull(BaseModel):
+    model: str
+
+
+@api.post("/ollama/pull")
+async def api_ollama_pull(req: OllamaPull):
+    return await ollama_pull(req.model)
+
+
+# ---------------------------------------------------------------------------
+# Embeddings status
+# ---------------------------------------------------------------------------
+@api.get("/embeddings/status")
+async def api_embeddings_status():
+    return await embed_status()
+
+
+# ---------------------------------------------------------------------------
+# First-boot LLM setup nudge (used by the frontend modal)
+# ---------------------------------------------------------------------------
+@api.get("/setup/status")
+async def api_setup_status():
+    """Returns whether the user needs to configure an LLM key. Frontend
+    uses this on boot to show the first-boot nudge modal."""
+    ns = await nightly_status()
+    has_user_key = ns.get("has_google_key") or ns.get("has_groq_key")
+    ollama = await ollama_ping()
+    return {
+        "needs_setup": not has_user_key and not ollama.get("reachable"),
+        "has_google_key": ns.get("has_google_key"),
+        "has_groq_key": ns.get("has_groq_key"),
+        "ollama_reachable": ollama.get("reachable"),
+        "emergent_available": bool(EMERGENT_LLM_KEY),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Coder sub-agent (GitHub + PyTest)
+# ---------------------------------------------------------------------------
+@api.get("/coder/repos")
+async def api_coder_repos():
+    return {"whitelist": coder_agent.whitelist(),
+            "repos": await coder_agent.list_repos(),
+            "has_pat": bool(coder_agent._pat())}
+
+
+class CoderTask(BaseModel):
+    repo: str
+    task: str
+    subdir: str | None = None
+    max_iterations: int | None = 3
+    open_pr: bool | None = True
+
+
+@api.post("/coder/task")
+async def api_coder_task(req: CoderTask):
+    result = await coder_agent.run_task(
+        req.repo, req.task, nightly_chat,
+        max_iterations=max(1, min(6, req.max_iterations or 3)),
+        subdir=req.subdir or "",
+        open_pr=bool(req.open_pr),
+    )
+    await db.coder_runs.insert_one({
+        "_id": result.get("task_id") or str(uuid.uuid4()),
+        "repo": req.repo, "task": req.task, "result": result,
+        "at": _now_iso(),
+    })
+    await ws_mgr.broadcast("coder_run", {"repo": req.repo, "ok": result.get("ok"),
+                                         "pr_url": result.get("pr_url")})
+    return result
+
+
+@api.get("/coder/runs")
+async def api_coder_runs(limit: int = 20):
+    rows = await db.coder_runs.find({}, {"_id": 0}).sort("at", -1).to_list(limit)
+    return {"runs": rows}
 
 
 @api.get("/")

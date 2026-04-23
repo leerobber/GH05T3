@@ -23,6 +23,7 @@ from typing import Any
 
 import numpy as np
 
+from embeddings import embed_semantic, cosine as semantic_cosine
 from hcm_vectors import DIMS
 
 LOG = logging.getLogger("ghost.memory")
@@ -33,17 +34,12 @@ def _now() -> str:
 
 
 def embed(text: str) -> np.ndarray:
-    """Deterministic SHA-seeded unit vector. Same text → same embedding.
-    Not real semantic embedding but stable + zero-cost. Good enough for
-    keyword/phrase similarity because we also hash a lowercase bag-of-words
-    bias vector into it.
-    """
+    """Legacy SHA-seeded vector (retained for HCM/decorative use)."""
     norm = " ".join(text.lower().split())
     h = hashlib.sha256(norm.encode()).digest()
     seed = int.from_bytes(h[:4], "big")
     rng = np.random.default_rng(seed)
     base = rng.standard_normal(DIMS).astype(np.float32)
-    # bias by tokens so related texts share direction
     tokens = [t for t in norm.split() if len(t) > 2]
     for tok in tokens[:64]:
         tseed = int.from_bytes(hashlib.sha256(tok.encode()).digest()[:4], "big")
@@ -75,14 +71,16 @@ class MemoryEngine:
     ) -> dict:
         if mtype not in MEMORY_TYPES:
             mtype = "fact"
-        vec = embed(content)
+        er = await embed_semantic(content)
         doc = {
             "_id": str(uuid.uuid4()),
             "type": mtype,
             "content": content[:2000],
             "source": source,
             "importance": float(max(0.0, min(1.0, importance))),
-            "embedding": vec.tobytes(),
+            "embedding": er.vector.tobytes(),
+            "embed_mode": er.mode,
+            "embed_dim": er.dim,
             "metadata": metadata or {},
             "created_at": _now(),
             "last_accessed": _now(),
@@ -112,7 +110,8 @@ class MemoryEngine:
         return rows
 
     async def search(self, query: str, k: int = 5, mtypes: list[str] | None = None) -> list[dict]:
-        q = embed(query)
+        er = await embed_semantic(query)
+        q = er.vector
         filt: dict = {}
         if mtypes:
             filt["type"] = {"$in": mtypes}
@@ -121,9 +120,15 @@ class MemoryEngine:
         scored = []
         for r in rows:
             v = np.frombuffer(r["embedding"], dtype=np.float32)
-            if v.shape[0] != DIMS:
+            # Only compare vectors that share our current embedding space.
+            # Legacy 10k-dim SHA vectors (pre-MiniLM) are skipped — they'll be
+            # re-embedded the next time they're touched.
+            mode = r.get("embed_mode")
+            if mode and mode != er.mode:
                 continue
-            s = cosine(q, v)
+            if v.shape[0] != q.shape[0]:
+                continue
+            s = semantic_cosine(q, v)
             # importance + recency uplift
             s = s + 0.10 * r.get("importance", 0.5)
             scored.append((s, r))

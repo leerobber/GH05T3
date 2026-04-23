@@ -34,6 +34,19 @@ export const tgStatus = () => api.get("/telegram/status").then((r) => r.data);
 export const schedulerToggle = (enable) =>
   api.post("/scheduler/toggle", null, { params: { enable } }).then((r) => r.data);
 
+// --- Phase 7: Ollama · Coder · Setup nudge · Embeddings ---
+export const setupStatus = () => api.get("/setup/status").then((r) => r.data);
+export const embeddingsStatus = () => api.get("/embeddings/status").then((r) => r.data);
+export const ollamaStatus = () => api.get("/ollama/status").then((r) => r.data);
+export const ollamaConfigure = (gateway_url) =>
+  api.post("/ollama/configure", { gateway_url }).then((r) => r.data);
+export const ollamaPull = (model) =>
+  api.post("/ollama/pull", { model }).then((r) => r.data);
+export const coderRepos = () => api.get("/coder/repos").then((r) => r.data);
+export const coderRun = (payload) => api.post("/coder/task", payload).then((r) => r.data);
+export const coderRuns = (limit = 10) =>
+  api.get("/coder/runs", { params: { limit } }).then((r) => r.data);
+
 export const wsUrl = () => {
   const base = BACKEND_URL.replace(/^http/, "ws");
   return `${base}/api/ws`;
