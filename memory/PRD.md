@@ -34,6 +34,12 @@ User asked to build "GH05T3" — a self-improving AI super-agent with a UI chat 
 
 ## What's been implemented (Feb 2026 — phase 5 live)
 - Phase 1–4 plus:
+- **Budget-exhausted graceful fallback (Apr 2026)** — `ghost_llm.BudgetExhaustedError` now
+  raised when the Emergent Universal Key returns `Budget has been exceeded`.
+  `/api/chat` catches it and returns HTTP 200 with a user-facing message prompting
+  the operator to paste a free Google AI or Groq key in the LLM Config panel,
+  instead of throwing a 502. Primary-path budget errors short-circuit straight
+  to the free-provider router without double-charging the exhausted key.
 - **Native Windows bundle** `/app/native/windows/` — `install.ps1` (winget-driven), `run.bat`, `tray.py` (system-tray background host), `voice.py` (openwakeword + faster-whisper + edge-tts), `README.md`. Zero Docker, zero subscription, runs on LOQ 24/7.
 - **Chat fallback chain** — chat pipeline tries Claude Sonnet first; on failure auto-routes through `nightly_chat` (Google free → Groq → Ollama → Emergent Gemini → Claude Haiku). Prefix "(primary llm offline — falling back to …)" so user sees it.
 - **Memory counter truth** — `/api/state` now overlays real MongoDB memory count on top of decorative baseline 103. Memory Palace panel shows `total / baseline / +real / reflections`. Real growth visible on every turn.

@@ -22,6 +22,27 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 LOG = logging.getLogger("ghost.llm")
 
+
+class BudgetExhaustedError(RuntimeError):
+    """Raised when the Emergent Universal Key has run out of budget and no
+    user-configured fallback provider (Google / Groq / Ollama) is available.
+
+    Callers should surface a friendly message instructing the user to add their
+    own Google AI or Groq API key via the UI settings panel.
+    """
+
+
+def _is_budget_exhausted(exc: Exception) -> bool:
+    """Heuristic match for LiteLLM / OpenAI 'Budget has been exceeded' errors."""
+    s = str(exc).lower()
+    return (
+        "budget has been exceeded" in s
+        or "budget exceeded" in s
+        or "insufficient_quota" in s
+        or ("badrequesterror" in s and "budget" in s)
+    )
+
+
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")
 LLM_MODEL = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
@@ -204,9 +225,24 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
         text = await _emergent(session, system, user, "gemini", "gemini-2.5-flash")
         return text, "emergent:gemini-2.5-flash"
     except Exception as e:  # noqa: BLE001
+        if _is_budget_exhausted(e):
+            LOG.error("emergent gemini fallback: budget exhausted")
+            raise BudgetExhaustedError(
+                "Emergent Universal Key budget exhausted and no user "
+                "Google/Groq key configured."
+            ) from e
         LOG.warning("emergent gemini fallback failed: %s, trying claude-haiku", e)
-        text = await _emergent(session, system, user, "anthropic", "claude-haiku-4-5-20251001")
-        return text, "emergent:claude-haiku"
+        try:
+            text = await _emergent(session, system, user, "anthropic", "claude-haiku-4-5-20251001")
+            return text, "emergent:claude-haiku"
+        except Exception as e2:  # noqa: BLE001
+            if _is_budget_exhausted(e2):
+                LOG.error("emergent claude-haiku fallback: budget exhausted")
+                raise BudgetExhaustedError(
+                    "Emergent Universal Key budget exhausted and no user "
+                    "Google/Groq key configured."
+                ) from e2
+            raise
 
 
 def _auto_pick_provider(cfg: dict) -> str:
