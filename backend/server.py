@@ -53,6 +53,12 @@ from telegram_bot import TelegramPoller
 from ws_manager import WSManager
 from companion import router as companion_router, bind_ws as companion_accept_ws
 from ghosteye_reactor import GhostEyeReactor
+from phase6 import (
+    companion_audit, daily_summary, decay_memories, dream_cycle,
+    get_reasoning_trace, kairos_trajectory, kill_deep_freeze, kill_reset,
+    kill_shocker, kill_stealth, log_companion_event, store_reasoning_trace,
+    weekly_review,
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -216,6 +222,16 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
         engine=engine, latency_ms=latency_ms, source=source,
     )
     await db.messages.insert_one(ghost_msg.model_dump())
+
+    # Store reasoning trace so "why did you say that?" actually works
+    try:
+        retrieval_hits = await memory.search(message, k=3)
+        await store_reasoning_trace(
+            db, ghost_msg.id, session_id, retrieval_hits,
+            (eye.get("text") if eye else "") or "", engine_tag,
+        )
+    except Exception:
+        logger.exception("reasoning trace store failed")
 
     inc_field = "twin_engine.id_fires" if engine == "ID" else "twin_engine.ego_fires"
     await db.system_state.update_one(
@@ -587,6 +603,83 @@ async def journal_recent(limit: int = 10):
     return {"entries": await recent_journal(db, limit)}
 
 
+# ---------------------------------------------------------------------------
+# Phase 6 — trajectory / reasoning / decay / dream / summary / kill switches
+# ---------------------------------------------------------------------------
+@api.get("/kairos/trajectory")
+async def kairos_trajectory_ep(window: int = 60):
+    return await kairos_trajectory(db, window)
+
+
+@api.get("/chat/trace/{message_id}")
+async def chat_trace(message_id: str):
+    doc = await get_reasoning_trace(db, message_id)
+    if not doc:
+        raise HTTPException(404, "no trace for message")
+    return doc
+
+
+@api.post("/memory/decay")
+async def memory_decay_ep():
+    res = await decay_memories(db)
+    await ws_mgr.broadcast("memory_decay", res)
+    return res
+
+
+@api.post("/dream")
+async def dream_ep():
+    items = await dream_cycle(db, nightly_chat, memory)
+    if items:
+        await ws_mgr.broadcast("dream", {"count": len(items), "items": items})
+    return {"count": len(items), "items": items}
+
+
+@api.post("/summary/daily")
+async def daily_ep():
+    entry = await daily_summary(db, nightly_chat, memory)
+    await ws_mgr.broadcast("daily_summary", entry)
+    return entry
+
+
+@api.post("/summary/weekly")
+async def weekly_ep():
+    entry = await weekly_review(db, nightly_chat, memory)
+    await ws_mgr.broadcast("weekly_review", entry)
+    return entry
+
+
+@api.get("/summaries/recent")
+async def summaries_recent(limit: int = 10, kind: Optional[str] = None):
+    q = {"type": kind} if kind else {}
+    rows = await db.summaries.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return {"entries": rows}
+
+
+@api.post("/killswitch/stealth")
+async def ks_stealth(seconds: int = 300):
+    return await kill_stealth(db, ws_mgr.broadcast, seconds=seconds)
+
+
+@api.post("/killswitch/freeze")
+async def ks_freeze():
+    return await kill_deep_freeze(db, ws_mgr.broadcast, scheduler=scheduler)
+
+
+@api.post("/killswitch/shocker")
+async def ks_shocker():
+    return await kill_shocker(db, ws_mgr.broadcast)
+
+
+@api.post("/killswitch/reset")
+async def ks_reset():
+    return await kill_reset(db, ws_mgr.broadcast, scheduler=scheduler)
+
+
+@api.get("/companion/audit")
+async def companion_audit_ep(limit: int = 100):
+    return {"events": await companion_audit(db, limit)}
+
+
 class WhisperReq(BaseModel):
     text: str
     priority: Optional[str] = "normal"
@@ -772,6 +865,47 @@ def _register_jobs():
         return
     scheduler.add_job(_job_kairos_nightly, CronTrigger(hour=3, minute=0), id="kairos_03")
     scheduler.add_job(_job_amplifiers_nightly, CronTrigger(hour=4, minute=0), id="amplifiers_04")
+    scheduler.add_job(_job_dream, CronTrigger(hour=2, minute=0), id="dream_02")
+    scheduler.add_job(_job_daily_summary, CronTrigger(hour=23, minute=0), id="daily_23")
+    scheduler.add_job(_job_weekly_review, CronTrigger(day_of_week="sun", hour=21, minute=0), id="weekly_sun21")
+    scheduler.add_job(_job_memory_decay, CronTrigger(hour=5, minute=0), id="decay_05")
+
+
+async def _job_dream():
+    logger.info("[cron] 02:00 — dream cycle")
+    try:
+        items = await dream_cycle(db, nightly_chat, memory)
+        if items:
+            await ws_mgr.broadcast("dream", {"count": len(items), "items": items})
+    except Exception:
+        logger.exception("dream cron failed")
+
+
+async def _job_daily_summary():
+    logger.info("[cron] 23:00 — daily summary")
+    try:
+        entry = await daily_summary(db, nightly_chat, memory)
+        await ws_mgr.broadcast("daily_summary", entry)
+    except Exception:
+        logger.exception("daily cron failed")
+
+
+async def _job_weekly_review():
+    logger.info("[cron] Sun 21:00 — weekly review")
+    try:
+        entry = await weekly_review(db, nightly_chat, memory)
+        await ws_mgr.broadcast("weekly_review", entry)
+    except Exception:
+        logger.exception("weekly cron failed")
+
+
+async def _job_memory_decay():
+    logger.info("[cron] 05:00 — memory decay")
+    try:
+        res = await decay_memories(db)
+        await ws_mgr.broadcast("memory_decay", res)
+    except Exception:
+        logger.exception("decay cron failed")
 
 
 @api.post("/scheduler/toggle")
