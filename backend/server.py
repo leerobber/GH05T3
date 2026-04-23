@@ -293,7 +293,26 @@ async def chat_sessions():
 # ---------------------------------------------------------------------------
 async def _state_snapshot() -> dict:
     doc = await db.system_state.find_one({"_id": "singleton"}, {"_id": 0, "hcm.cloud": 0})
-    return doc or {}
+    if not doc:
+        return {}
+    # mirror the /api/state overlay so every WS broadcast carries real counts
+    try:
+        stats = await memory.stats()
+        real_mem = stats.get("total") or 0
+        real_hcm = await db.hcm_vectors.count_documents({})
+        real_journal = await db.journal.count_documents({})
+        baseline_mem = 103
+        doc["memory_stats"] = stats
+        if "memory_palace" in doc:
+            doc["memory_palace"]["total"] = baseline_mem + real_mem
+            doc["memory_palace"]["real_count"] = real_mem
+            doc["memory_palace"]["baseline"] = baseline_mem
+            doc["memory_palace"]["reflections"] = real_journal
+        if real_hcm and "hcm" in doc:
+            doc["hcm"]["vectors"] = real_hcm
+    except Exception:
+        pass
+    return doc
 
 
 @api.get("/state")
