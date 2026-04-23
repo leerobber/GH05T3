@@ -34,6 +34,12 @@ User asked to build "GH05T3" — a self-improving AI super-agent with a UI chat 
 
 ## What's been implemented (Feb 2026 — phase 5 live)
 - Phase 1–4 plus:
+- **Phase 7 (Apr 2026) — 4 P0/P1 features landed in one pass:**
+  - **First-boot LLM setup nudge** — `GET /api/setup/status` + `SetupNudgeModal` overlay. Appears only when no user keys + no Ollama + Emergent budget exhausted. Dismissable via localStorage; offers direct links to aistudio.google.com/apikey and console.groq.com/keys and scrolls the user straight into the LLM Config panel.
+  - **Ollama LOQ runtime wiring** — `/app/backend/ollama_gateway.py` with `/api/ollama/{status,configure,pull}`. Persists `gateway_url` in Mongo `llm_config` + hydrates env at startup. URL regex-validated so typos can't poison the gateway. `OllamaPanel` shows live health + preferred models (qwen2.5:7b-q4, deepseek-coder:6.7b, llama3.1) with one-click pull buttons.
+  - **Hybrid MiniLM embeddings for memory (384-dim)** — `/app/backend/embeddings.py` prefers local `sentence-transformers/all-MiniLM-L6-v2` via fastembed (ONNX, ~90MB), falls through to Google `text-embedding-004`, then SHA fallback. Memories now store `embed_mode` + `embed_dim`. Semantic search proven: "what tone does Robert want" scores `terse high-signal responses` at 0.59 vs `amber color` at 0.25 (noise with old SHA).
+  - **Coder sub-agent (GitHub + PyTest full loop)** — `/app/backend/coder_agent.py` with `/api/coder/{repos,task,runs}`. Whitelist-gated (CODER_REPO_WHITELIST env). Clones → runs pytest → asks nightly LLM for a unified diff → `git apply` → re-tests (max N iters) → pushes `gh05t3/<task_id>` branch → opens PR via PyGithub. Auto-merge disabled by design. 5 repos whitelisted: sovereign-core, contentai-pro, Termux-Intelligent-Assistant, Honcho, leerobber.
+  - **Tested**: iteration_3 report — 11/11 new tests pass, 0 critical, zero regressions.
 - **Budget-exhausted graceful fallback (Apr 2026)** — `ghost_llm.BudgetExhaustedError` now
   raised when the Emergent Universal Key returns `Budget has been exceeded`.
   `/api/chat` catches it and returns HTTP 200 with a user-facing message prompting

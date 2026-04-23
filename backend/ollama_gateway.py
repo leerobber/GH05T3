@@ -9,6 +9,7 @@ model list, and surfaces the models GH05T3 prefers:
 from __future__ import annotations
 
 import os
+import re
 import logging
 
 import httpx
@@ -64,8 +65,12 @@ async def pull_model(model: str) -> dict:
 
 
 async def set_gateway_url(db, url: str) -> dict:
-    """Persist gateway URL in Mongo + live env so reloads keep it."""
-    url = (url or "").rstrip("/")
+    """Persist gateway URL in Mongo + live env so reloads keep it.
+    Validates URL shape before persistence."""
+    url = (url or "").strip().rstrip("/")
+    if url and not re.match(r"^https?://[\w\.\-]+(:\d+)?(/.*)?$", url):
+        return {"reachable": False, "url": None, "error": "invalid url shape",
+                "models": [], "preferred": PREFERRED}
     os.environ["OLLAMA_GATEWAY_URL"] = url
     await db.llm_config.update_one(
         {"_id": "ollama"}, {"$set": {"gateway_url": url}}, upsert=True,
