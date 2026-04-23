@@ -32,6 +32,7 @@ from ghost_llm import (
     _is_budget_exhausted,
     bind_db as bind_llm_db,
     cassandra_premortem,
+    chat_once,
     get_nightly_config,
     nightly_chat,
     nightly_status,
@@ -1186,6 +1187,7 @@ class CoderTask(BaseModel):
     repo: str
     task: str
     subdir: str | None = None
+    test_target: str | None = None
     max_iterations: int | None = 3
     open_pr: bool | None = True
 
@@ -1194,8 +1196,10 @@ class CoderTask(BaseModel):
 async def api_coder_task(req: CoderTask):
     result = await coder_agent.run_task(
         req.repo, req.task, nightly_chat,
+        chat_once=chat_once,
         max_iterations=max(1, min(6, req.max_iterations or 3)),
         subdir=req.subdir or "",
+        test_target=req.test_target or "",
         open_pr=bool(req.open_pr),
     )
     await db.coder_runs.insert_one({

@@ -9,6 +9,7 @@ export const CoderPanel = () => {
   const [repo, setRepo] = useState("");
   const [task, setTask] = useState("");
   const [subdir, setSubdir] = useState("");
+  const [testTarget, setTestTarget] = useState("");
   const [iters, setIters] = useState(3);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -48,6 +49,7 @@ export const CoderPanel = () => {
         repo,
         task: task.trim(),
         subdir: subdir.trim() || null,
+        test_target: testTarget.trim() || null,
         max_iterations: Math.max(1, Math.min(6, Number(iters) || 3)),
         open_pr: true,
       });
@@ -134,6 +136,16 @@ export const CoderPanel = () => {
               className="w-full bg-black border border-white/10 p-2 font-mono-term text-xs text-zinc-200 outline-none focus:border-amber-500/50"
             />
           </div>
+        </div>
+        <div>
+          <div className="panel-label mb-1">test target (optional — scope pytest)</div>
+          <input
+            data-testid="coder-target-input"
+            value={testTarget}
+            onChange={(e) => setTestTarget(e.target.value)}
+            placeholder="tests/test_pattern_memory.py or tests/"
+            className="w-full bg-black border border-white/10 p-2 font-mono-term text-xs text-zinc-200 outline-none focus:border-amber-500/50"
+          />
         </div>
         <button
           data-testid="coder-run-btn"

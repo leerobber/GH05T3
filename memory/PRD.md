@@ -34,6 +34,15 @@ User asked to build "GH05T3" — a self-improving AI super-agent with a UI chat 
 
 ## What's been implemented (Feb 2026 — phase 5 live)
 - Phase 1–4 plus:
+- **Phase 7.1 (Apr 2026) — Coder hardening after first real round-trip:**
+  - **End-to-end proven** against `leerobber/sovereign-core`. Two live PRs opened (then closed as expected during calibration): `#41`, `#42`, `#43`. `#43` landed as the final clean run — 2 Claude iterations took `tests/test_pattern_memory.py` from **0p/0f → 29p/15f → 37p/7f**, surgically fixing the inline-comment-in-signature SyntaxError.
+  - **Pytest execution fixes**: use `sys.executable` (not bare `python`) so the venv's pytest is used; inject `PYTHONPATH=<repo_root>` so cloned repos can import their own packages without `pip install -e .`.
+  - **File-rewrite protocol**: replaced fragile unified-diff output with `=== FILE: path === ... === END FILE ===` blocks — dramatically more reliable with modern LLMs; diff path kept as fallback.
+  - **Aggressive-rewrite guard**: rewrites shorter than 75% of the original file are auto-rejected (prevents the LLM from collapsing a 455-line file into a 244-line stub).
+  - **Best-checkpoint rollback**: every iteration commits to a local branch if its pytest score improved; if a later iteration regresses, the tree is reset to the best commit before pushing. PR reflects the best state, not the last state.
+  - **Partial-progress PRs**: PR is opened whenever pytest progress strictly improves over the initial run, not only when fully green (scored tuple: `(ok, passed, -failed)`).
+  - **Claude-first routing**: Coder now prefers `chat_once()` (Claude Sonnet 4.5 via Emergent) with automatic fallback to `nightly_chat` on budget exhaustion. Claude's long-file reproduction is far better than gemini-flash.
+  - **`test_target` parameter**: scope pytest to a file or directory — critical when a repo has other unrelated collection errors blocking the test you care about.
 - **Phase 7 (Apr 2026) — 4 P0/P1 features landed in one pass:**
   - **First-boot LLM setup nudge** — `GET /api/setup/status` + `SetupNudgeModal` overlay. Appears only when no user keys + no Ollama + Emergent budget exhausted. Dismissable via localStorage; offers direct links to aistudio.google.com/apikey and console.groq.com/keys and scrolls the user straight into the LLM Config panel.
   - **Ollama LOQ runtime wiring** — `/app/backend/ollama_gateway.py` with `/api/ollama/{status,configure,pull}`. Persists `gateway_url` in Mongo `llm_config` + hydrates env at startup. URL regex-validated so typos can't poison the gateway. `OllamaPanel` shows live health + preferred models (qwen2.5:7b-q4, deepseek-coder:6.7b, llama3.1) with one-click pull buttons.
