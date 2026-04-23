@@ -618,6 +618,10 @@ async def memory_recent(limit: int = 40):
 
 @api.get("/memory/search")
 async def memory_search(q: str, k: int = 5):
+    # Short-circuit empty queries — avoids a wasted embedding call and makes
+    # the contract explicit for clients that pass user input verbatim.
+    if not q or not q.strip():
+        return {"query": q, "hits": []}
     return {"query": q, "hits": await memory.search(q, k=k)}
 
 
@@ -1194,14 +1198,30 @@ class CoderTask(BaseModel):
 
 @api.post("/coder/task")
 async def api_coder_task(req: CoderTask):
-    result = await coder_agent.run_task(
-        req.repo, req.task, nightly_chat,
-        chat_once=chat_once,
-        max_iterations=max(1, min(6, req.max_iterations or 3)),
-        subdir=req.subdir or "",
-        test_target=req.test_target or "",
-        open_pr=bool(req.open_pr),
-    )
+    # Pre-validate whitelist so we can return a proper HTTP status instead
+    # of the ambiguous 200/{ok:false} shape for client-side errors.
+    if req.repo not in coder_agent.whitelist():
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "repo not whitelisted",
+                    "repo": req.repo,
+                    "whitelist": coder_agent.whitelist()},
+        )
+    # Hard outer timeout — a runaway loop shouldn't pin a worker for >12 min.
+    try:
+        result = await asyncio.wait_for(
+            coder_agent.run_task(
+                req.repo, req.task, nightly_chat,
+                chat_once=chat_once,
+                max_iterations=max(1, min(6, req.max_iterations or 3)),
+                subdir=req.subdir or "",
+                test_target=req.test_target or "",
+                open_pr=bool(req.open_pr),
+            ),
+            timeout=720,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "coder task exceeded 12-minute wall-clock")
     await db.coder_runs.insert_one({
         "_id": result.get("task_id") or str(uuid.uuid4()),
         "repo": req.repo, "task": req.task, "result": result,
