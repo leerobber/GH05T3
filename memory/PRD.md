@@ -34,6 +34,16 @@ User asked to build "GH05T3" — a self-improving AI super-agent with a UI chat 
 
 ## What's been implemented (Feb 2026 — phase 5 live)
 - Phase 1–4 plus:
+- **Phase 1 · SA³ Self-Assembling Agentic Swarm (Apr 2026)** — `/app/backend/swarm.py` + `swarm_tasks.py` + frontend `SwarmPanel`.
+  - **4 specialised agents** each as a Python class wrapping an LLM call: `DebaterAgent` (DBT), `CoderAgent` (COD), `EthicistAgent` (ETH), `MemoryAgent` (MEM). MemoryAgent auto-queries `memory_engine.search()` before replying. CoderAgent skips the JSON contract for full-fidelity code blocks validated via `ast.parse`.
+  - **Dynamic NetworkX topology**: ring for debate, line for code, star for ethics (ETH at centre), hub for memory recall. Topology chosen per task via `topology_for_task()`; graph built + topological-sorted with NetworkX.
+  - **Mongo token economy**: `swarm_agents` (balances) + `swarm_ledger` (transactions) + `swarm_tasks` (history). Start at 100 tokens; +5 for specialist success, 0 for off-specialty participation (not a penalty — deference is valid), -5 for crash. Auto-dormant below 10 tokens.
+  - **Specialist-scoped scoring**: agents are scored ONLY on their preferred_tasks; off-specialty participation is neutral so the Coder can't farm points on memory questions. For ethics-star tasks, deferring to the Ethicist is explicit `+0` "deferred to ethicist".
+  - **Validation corpus** (`swarm_tasks.py`): 25 hand-crafted seed tasks across 4 types (debate, code, ethics, memory). `/api/swarm/validate` runs N tasks (1..100), returns overall success_rate, per-type breakdown, topologies_seen, crash count.
+  - **Endpoints**: `GET /api/swarm/state`, `POST /api/swarm/run`, `POST /api/swarm/validate`, `POST /api/swarm/reset`, `GET /api/swarm/tasks`, `GET /api/swarm/ledger`. WebSocket `swarm_task` event on every run.
+  - **Dashboard panel** (`SwarmPanel.jsx`): radial SVG topology graph (color-coded per agent — DBT crimson, COD cyan, ETH amber, MEM violet), live leaderboard bars (tokens/success rate/task count), 4 task-type pills, prompt textarea, run/validate/reset buttons, last-run summary, validation summary.
+  - **Tested**: iteration_5 backend suite → **18/18 green**, 0 critical, 0 regressions. Validation n=20: all 4 topologies observed, 0 crashes, specialists averaged +5 to +23 tokens gained.
+
 - **Phase 7.1 (Apr 2026) — Coder hardening after first real round-trip:**
   - **End-to-end proven** against `leerobber/sovereign-core`. Two live PRs opened (then closed as expected during calibration): `#41`, `#42`, `#43`. `#43` landed as the final clean run — 2 Claude iterations took `tests/test_pattern_memory.py` from **0p/0f → 29p/15f → 37p/7f**, surgically fixing the inline-comment-in-signature SyntaxError.
   - **Pytest execution fixes**: use `sys.executable` (not bare `python`) so the venv's pytest is used; inject `PYTHONPATH=<repo_root>` so cloned repos can import their own packages without `pip install -e .`.
