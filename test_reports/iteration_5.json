@@ -1,0 +1,29 @@
+{
+  "summary": "GH05T3 Phase-1 SA³ (Self-Assembling Agentic Swarm) backend tests — 18/18 green. Covers /api/swarm/state, /swarm/run (debate→ring, code→line, ethics→star, memory→hub, empty-prompt 400, off-specialty neutrality), /swarm/validate (n=20, all 4 topologies observed in a single run, per_type breakdown OK, 0 crashes in the observed run), /swarm/ledger (reverse-chrono + shape + no _id leak), /swarm/tasks (shape + no _id leak), /swarm/reset (agents→100 tokens + ledger/tasks cleared), plus regression on /chat, /state, /kairos/cycle, /cassandra, /memory/search. Token economy after a 20-task validate run: DBT=111, COD=123, ETH=122, MEM=121; no dormancy triggered; topology_shifts=4 with {ring, line, star, hub} all seen.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_swarm.py",
+    "/app/test_reports/pytest/swarm_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "swarm.AgentSwarm.snapshot() uses self._last_topologies in-memory only — after a backend process restart the recent_topologies list is empty until new tasks run. Persisting topology history to Mongo (even a small rolling collection) would let /api/swarm/state survive restarts truthfully.",
+    "/api/swarm/validate is synchronous: with n=20 it ran 20 tasks × 4 LLM calls each = ~9 minutes wall-clock in the test run (555s). The public ingress has a 60s proxy cap, so anything >~3 tasks must be called over localhost. Consider making it a background job that returns a job_id + progress, or capping n in the sync path and exposing a /swarm/validate/async endpoint for larger corpora.",
+    "SwarmLedger.award() issues THREE Mongo round-trips per delta (find_one_and_update + update_one for dormant flag + insert_one for ledger row). For a 20-task validate run that's ~240 Mongo writes. An aggregation pipeline update (combining $inc + dormant flag conditional) plus a single batched ledger insert per task would cut latency notably.",
+    "AgentSwarm.run_task scoring: a response with an empty .text still goes through agent.score() which returns (-3, 'empty/short') for the base class but off-specialty agents are forced to 0 by the outer wrapper — good. However Agent.score default still has a +2 'participated' path that is unreachable in practice because specialists always override score(); leaving this dead branch invites subtle off-by-one bugs if a new agent forgets to override.",
+    "swarm.py _parse_json_block uses a single greedy regex \\{[\\s\\S]*\\} which will match the OUTER braces of nested JSON. For the current use-case (flat JSON) it's fine, but a debater or coder response that happens to include '{...}' earlier in prose will hijack the parse. Worth switching to a proper JSON bracket-counting parser or using `json.JSONDecoder().raw_decode()`.",
+    "DBT success_rate after a 20-task validate run was 5/25 = 0.20 — that's because DBT is scored strictly (needs 3+ pushback-signal keywords for +5) and earns 0/+2 on many debates. This is by design but means the 'success_rate' metric on the snapshot undercounts partial wins (+2 is still a positive delta but is not counted as a 'success' in record_participation). Consider counting any positive delta as a success, not just the top-tier +5."
+  ],
+  "updated_files": ["/app/backend/tests/test_swarm.py"],
+  "success_rate": {"backend": "100% (18/18)", "frontend": "not tested — backend-only review"},
+  "test_credentials": "none required — EMERGENT_LLM_KEY preset in /app/backend/.env. Google/Groq keys live in mongo db.llm_config.",
+  "seed_data_creation": "Test resets swarm state via /api/swarm/reset at module start and before the validate run. After the full suite: all 4 agents have non-zero tokens (DBT=111, COD=123, ETH=122, MEM=121), total_tasks=25 each, 25 swarm_tasks rows persisted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Test file is /app/backend/tests/test_swarm.py. 18 tests, ~10-12 minutes total (the /swarm/validate n=20 path alone is ~9min wall). Use localhost:8001 for /swarm/validate — public ingress 60s cap will 504. Single-task /swarm/run goes over public URL fine. DBT success_rate looks low (0.20) because only +5 scores count as 'success'; +2 pushback partials are positive delta but not marked successful — see code-review comment 6. Chat response key is `ghost_message.content`, not `reply` (original test_chat was wrong — fixed). All 4 topologies reliably surface in a single n=20 validate run because the 25-seed corpus covers every task_type.",
+  "rca of the issue": "No bugs found. SA³ Phase-1 is solid: 4 agents seed correctly, all 4 topology patterns fire per task_type, specialist rewards hit exactly (+5 for code/ethics/memory on the happy path), off-specialty agents stay neutral (0) rather than being penalised, dormancy threshold (<10 tokens) is wired but was never tripped in the 20-task validate run (lowest balance observed: 100). Ledger is reverse-chronological, all endpoints exclude _id, and /swarm/reset fully clears balances + tasks + ledger + in-memory topology history. Regression on the older chat/state/kairos/cassandra/memory endpoints also green."
+}

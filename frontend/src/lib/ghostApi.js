@@ -47,6 +47,16 @@ export const coderRun = (payload) => api.post("/coder/task", payload).then((r) =
 export const coderRuns = (limit = 10) =>
   api.get("/coder/runs", { params: { limit } }).then((r) => r.data);
 
+// --- Phase 1 (SA³): Swarm ---
+export const swarmState = () => api.get("/swarm/state").then((r) => r.data);
+export const swarmRun = (task_type, prompt, expected_flag = null) =>
+  api.post("/swarm/run", { task_type, prompt, expected_flag }).then((r) => r.data);
+export const swarmValidate = (n = 20) =>
+  api.post("/swarm/validate", { n }).then((r) => r.data);
+export const swarmReset = () => api.post("/swarm/reset").then((r) => r.data);
+export const swarmLedger = (limit = 30) =>
+  api.get("/swarm/ledger", { params: { limit } }).then((r) => r.data);
+
 export const wsUrl = () => {
   const base = BACKEND_URL.replace(/^http/, "ws");
   return `${base}/api/ws`;

@@ -48,6 +48,8 @@ from ollama_gateway import (
 )
 import coder_agent
 from embeddings import embed_status
+from swarm import AgentSwarm, SwarmTask
+from swarm_tasks import as_tasks as swarm_seed_tasks
 from ghostscript import DEMO as GHOSTSCRIPT_DEMO, run as run_ghostscript
 from hcm_vectors import build_cloud, make_seed_corpus
 from memory_engine import (
@@ -91,6 +93,10 @@ api = APIRouter(prefix="/api")
 ws_mgr = WSManager()
 scheduler = AsyncIOScheduler(timezone="America/New_York")
 logger = logging.getLogger("ghost")
+
+# Swarm uses nightly_chat by default (free) — main chat_once is available for
+# heavier reasoning if we need it.
+swarm = AgentSwarm(db, nightly_chat, memory_engine=memory)
 
 
 def _now_iso() -> str:
@@ -1101,6 +1107,7 @@ async def _seed_identity():
     await ensure_state()
     await ensure_hcm_corpus()
     await _seed_identity_memories()
+    await swarm.ensure()
     _register_jobs()
     try:
         scheduler.start()
@@ -1236,6 +1243,111 @@ async def api_coder_task(req: CoderTask):
 async def api_coder_runs(limit: int = 20):
     rows = await db.coder_runs.find({}, {"_id": 0}).sort("at", -1).to_list(limit)
     return {"runs": rows}
+
+
+# ---------------------------------------------------------------------------
+# SA³ Swarm — Self-Assembling Agentic Swarm
+# ---------------------------------------------------------------------------
+@api.get("/swarm/state")
+async def api_swarm_state():
+    snap = await swarm.snapshot()
+    snap["recent_tasks"] = await swarm.recent_tasks(10)
+    snap["ledger_tail"] = await swarm.ledger.recent_tx(20)
+    return snap
+
+
+class SwarmRun(BaseModel):
+    task_type: str = "debate"
+    prompt: str
+    expected_flag: str | None = None
+
+
+@api.post("/swarm/run")
+async def api_swarm_run(req: SwarmRun):
+    if not req.prompt or not req.prompt.strip():
+        raise HTTPException(400, "empty prompt")
+    task = SwarmTask.new(req.task_type, req.prompt.strip(), req.expected_flag)
+    result = await swarm.run_task(task)
+    await ws_mgr.broadcast("swarm_task", {
+        "task_id": task.task_id, "task_type": task.task_type,
+        "topology": result.topology, "score": result.score,
+        "success": result.success,
+    })
+    return {
+        "task_id": result.task_id, "task_type": result.task_type,
+        "prompt": result.prompt, "topology": result.topology,
+        "success": result.success, "score": result.score,
+        "deltas": result.ledger_delta,
+        "responses": [r.__dict__ for r in result.responses],
+    }
+
+
+class SwarmValidate(BaseModel):
+    n: int | None = 20
+
+
+@api.post("/swarm/validate")
+async def api_swarm_validate(req: SwarmValidate):
+    n = max(1, min(100, req.n or 20))
+    tasks = swarm_seed_tasks(n)
+    results = []
+    per_type: dict[str, dict] = {}
+    topo_seen: set[str] = set()
+    crashes = 0
+    for t in tasks:
+        r = await swarm.run_task(t)
+        topo_seen.add(r.topology)
+        bucket = per_type.setdefault(
+            t.task_type, {"total": 0, "success": 0, "score_sum": 0.0})
+        bucket["total"] += 1
+        if r.success:
+            bucket["success"] += 1
+        bucket["score_sum"] += r.score
+        if any(rr.crashed for rr in r.responses):
+            crashes += 1
+        results.append({"task_id": r.task_id, "type": r.task_type,
+                        "topology": r.topology, "success": r.success,
+                        "score": r.score, "deltas": r.ledger_delta})
+        await ws_mgr.broadcast("swarm_task", {
+            "task_id": r.task_id, "task_type": r.task_type,
+            "topology": r.topology, "score": r.score,
+            "success": r.success,
+        })
+    total_success = sum(b["success"] for b in per_type.values())
+    total_tasks = sum(b["total"] for b in per_type.values())
+    summary_per_type = {
+        t: {"total": b["total"], "success": b["success"],
+            "success_rate": round(b["success"] / b["total"], 3) if b["total"] else 0.0,
+            "avg_score": round(b["score_sum"] / b["total"], 3) if b["total"] else 0.0}
+        for t, b in per_type.items()
+    }
+    return {
+        "n": n,
+        "success_rate": round(total_success / total_tasks, 3) if total_tasks else 0.0,
+        "topologies_seen": sorted(topo_seen),
+        "topology_shifts_ok": len(topo_seen) >= 2,
+        "crashes": crashes,
+        "per_type": summary_per_type,
+        "results": results,
+    }
+
+
+@api.post("/swarm/reset")
+async def api_swarm_reset():
+    await swarm.ledger.reset()
+    await db.swarm_tasks.delete_many({})
+    swarm._last_topologies.clear()
+    return {"ok": True, "reset_at": _now_iso()}
+
+
+@api.get("/swarm/tasks")
+async def api_swarm_tasks(limit: int = 30):
+    return {"tasks": await swarm.recent_tasks(limit)}
+
+
+@api.get("/swarm/ledger")
+async def api_swarm_ledger(limit: int = 60):
+    return {"transactions": await swarm.ledger.recent_tx(limit)}
 
 
 @api.get("/")
