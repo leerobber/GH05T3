@@ -1246,6 +1246,25 @@ async def api_coder_runs(limit: int = 20):
 
 
 # ---------------------------------------------------------------------------
+# Companion v2 — system health telemetry (LOQ vitals)
+# ---------------------------------------------------------------------------
+@api.get("/companion/health")
+async def api_companion_health():
+    rows = await db.companion_health.find(
+        {}, {"_id": 0}
+    ).sort("ts", -1).to_list(10)
+    return {"hosts": rows}
+
+
+@api.get("/companion/health/history")
+async def api_companion_health_history(host: str, limit: int = 120):
+    rows = await db.companion_health_hist.find(
+        {"host": host}, {"_id": 0}
+    ).sort("ts", -1).to_list(limit)
+    return {"host": host, "samples": list(reversed(rows))}
+
+
+# ---------------------------------------------------------------------------
 # SA³ Swarm — Self-Assembling Agentic Swarm
 # ---------------------------------------------------------------------------
 @api.get("/swarm/state")
@@ -1400,11 +1419,51 @@ async def _companion_event(companion, event_name: str, data: dict):
         light = {k: v for k, v in frame.items() if k != "png_b64"}
         light["id"] = light.pop("_id")
         light["has_image"] = bool(frame["png_b64"])
+        # v2 companion: pass through change-detection flags so the dashboard
+        # can highlight "the screen actually moved" vs "static frame"
+        if "changed" in data:
+            light["changed"] = bool(data.get("changed"))
+        if "frame_hash" in data:
+            light["frame_hash"] = str(data.get("frame_hash"))[:64]
         await ws_mgr.broadcast("ghosteye", light)
         # fire the reactor (stuck detection, error capture, goal creation, PCL)
         await eye_reactor.on_frame(frame)
     elif event_name == "notification":
         await ws_mgr.broadcast("companion_notification", data)
+    elif event_name == "health_beacon":
+        # v2 companion system telemetry — CPU/RAM/GPU every N seconds.
+        # Store the most recent sample per host so dashboards can show a
+        # live "LOQ vitals" readout without flooding the DB.
+        doc = {
+            "_id": f"host:{data.get('host','unknown')}",
+            "label": companion.label,
+            "host": data.get("host"),
+            "os": data.get("os"),
+            "cpu_pct": data.get("cpu_pct"),
+            "ram_used_gb": data.get("ram_used_gb"),
+            "ram_total_gb": data.get("ram_total_gb"),
+            "ram_pct": data.get("ram_pct"),
+            "disk_free_gb": data.get("disk_free_gb"),
+            "gpus": data.get("gpus") or [],
+            "ts": data.get("ts") or _now_iso(),
+        }
+        await db.companion_health.update_one(
+            {"_id": doc["_id"]}, {"$set": doc}, upsert=True,
+        )
+        # append a rolling 200-entry history for charting
+        hist = {**doc, "_id": str(uuid.uuid4())}
+        await db.companion_health_hist.insert_one(hist)
+        total = await db.companion_health_hist.count_documents({"host": doc["host"]})
+        if total > 200:
+            olds = await db.companion_health_hist.find(
+                {"host": doc["host"]}, {"_id": 1}
+            ).sort("ts", 1).to_list(total - 200)
+            if olds:
+                await db.companion_health_hist.delete_many(
+                    {"_id": {"$in": [o["_id"] for o in olds]}}
+                )
+        broadcast = {k: v for k, v in doc.items() if k != "_id"}
+        await ws_mgr.broadcast("companion_health", broadcast)
 
 app.add_middleware(
     CORSMiddleware,
