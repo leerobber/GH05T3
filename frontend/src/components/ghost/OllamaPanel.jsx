@@ -100,30 +100,6 @@ export const OllamaPanel = () => {
               {status.error}
             </div>
           )}
-          {url && /(?:localhost|127\.0\.0\.1|::1|0\.0\.0\.0)/i.test(url) && (
-            <div
-              data-testid="ollama-localhost-hint"
-              className="mt-2 font-mono-term text-[10px] text-amber-400 border border-amber-500/30 p-2 leading-relaxed"
-            >
-              <b>localhost won't work from here.</b> The GH05T3 backend runs in
-              a cloud pod — its <code>localhost</code> is the pod, not your LOQ.
-              <br />
-              <br />
-              On LOQ (TatorTot), run:
-              <br />
-              <code className="text-amber-300">
-                $env:OLLAMA_HOST = "0.0.0.0:11434"; ollama serve
-              </code>
-              <br />
-              <code className="text-amber-300">
-                ngrok http 11434
-              </code>
-              <br />
-              <br />
-              Then paste the ngrok <code>https://…ngrok-free.app</code> URL
-              above. (Or use Cloudflare Tunnel / Tailscale if you prefer.)
-            </div>
-          )}
         </div>
 
         <div>
