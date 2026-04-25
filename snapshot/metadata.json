@@ -1,0 +1,13 @@
+{
+  "hcm_vectors": [146, 10000],
+  "memory_palace": {
+    "Identity": 9,
+    "Skills": 18,
+    "Projects": 11,
+    "People": 2,
+    "Knowledge": 29,
+    "Decisions": 14
+  },
+  "active_goals": 21,
+  "feynman_layer": 59
+}

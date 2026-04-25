@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.log
+.DS_Store
+
+# HuggingFace model cache (don't commit ~1.5GB weights)
+/models/
+/cache/
+
+# Local dev
+*.egg-info/
+dist/
+build/
