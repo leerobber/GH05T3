@@ -61,3 +61,26 @@ export const wsUrl = () => {
   const base = BACKEND_URL.replace(/^http/, "ws");
   return `${base}/api/ws`;
 };
+
+// --- v3 Gateway (SwarmBus · Claude · GitHub) ---
+const GW3_URL = process.env.REACT_APP_GW3_URL || "http://localhost:8001";
+export const gw3 = axios.create({ baseURL: GW3_URL, timeout: 60000 });
+
+export const gw3WsUrl = () => GW3_URL.replace(/^http/, "ws") + "/ws";
+
+export const gw3Health      = () => gw3.get("/health").then((r) => r.data);
+export const gw3Agents      = () => gw3.get("/swarm/agents").then((r) => r.data);
+export const gw3Delegate    = (task, agent = null) =>
+  gw3.post("/swarm/delegate", { task, agent }).then((r) => r.data);
+export const gw3Convos      = (n = 80, channel = null, src = null) =>
+  gw3.get("/conversations", { params: { n, channel, src } }).then((r) => r.data);
+export const gw3ConvoSearch = (q) =>
+  gw3.get("/conversations/search", { params: { q } }).then((r) => r.data);
+export const gw3GithubStatus = () => gw3.get("/github/status").then((r) => r.data);
+export const gw3GithubSyncMemory = () =>
+  gw3.post("/github/sync-memory").then((r) => r.data);
+export const gw3ClaudeTrain  = (domain = "agent_systems", count = 5) =>
+  gw3.post("/claude/train", { domain, count }).then((r) => r.data);
+export const gw3ClaudeReview = (module, source = "") =>
+  gw3.post("/claude/review", { module, source }).then((r) => r.data);
+export const gw3KairosElite = () => gw3.get("/kairos/elite").then((r) => r.data);

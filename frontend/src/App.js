@@ -25,6 +25,7 @@ import { SetupNudgeModal } from "./components/ghost/SetupNudgeModal";
 import { OllamaPanel } from "./components/ghost/OllamaPanel";
 import { CoderPanel } from "./components/ghost/CoderPanel";
 import { SwarmPanel } from "./components/ghost/SwarmPanel";
+import { SwarmBusPanel } from "./components/ghost/SwarmBusPanel";
 
 function speakWhisper(data) {
   try {
@@ -194,6 +195,7 @@ function App() {
             </div>
             <TwinEnginePanel twin={state.twin_engine} lastEngine={engineHint} />
             <SwarmPanel />
+            <SwarmBusPanel />
             <KairosPanel kairos={state.kairos} onRun={onRunKairos} running={running.kairos} />
             <TranscriptPanel refreshKey={cycleTick} />
             <CassandraPanel />

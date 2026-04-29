@@ -12,7 +12,7 @@ BACKENDS = {
 }
 
 GATEWAY_HOST  = os.environ.get("GATEWAY_HOST",  "0.0.0.0")
-GATEWAY_PORT  = int(os.environ.get("GATEWAY_PORT", "8000"))
+GATEWAY_PORT  = int(os.environ.get("GATEWAY_PORT", "8001"))
 GITHUB_PAT    = os.environ.get("GITHUB_PAT",    "")
 GITHUB_REPO   = os.environ.get("GITHUB_REPO",   "leerobber/GH05T3")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
