@@ -161,6 +161,10 @@ class PushRequest(BaseModel):
     message: str = "🖤 GH05T3 auto-push"
     branch: str = "main"
 
+class SecretsRequest(BaseModel):
+    anthropic_api_key: Optional[str] = None
+    github_pat: Optional[str] = None
+
 
 # ─────────────────────────────────────────────
 # ORIGINAL ROUTES (preserved from v2)
@@ -420,6 +424,98 @@ async def github_commit(message: str = "🖤 GH05T3 manual commit"):
         commit_msg=message,
     )
     return {"ok": True, "message": message}
+
+
+# ─────────────────────────────────────────────
+# SETUP / SECRETS
+# ─────────────────────────────────────────────
+
+_ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
+
+def _mask(val: str) -> str:
+    """Return first 6 chars + asterisks so user can confirm without exposing key."""
+    if not val:
+        return ""
+    return val[:6] + "****"
+
+def _read_env() -> dict:
+    pairs = {}
+    if os.path.exists(_ENV_PATH):
+        with open(_ENV_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, _, v = line.partition("=")
+                    pairs[k.strip()] = v.strip()
+    return pairs
+
+def _write_env(pairs: dict):
+    lines = []
+    if os.path.exists(_ENV_PATH):
+        with open(_ENV_PATH) as f:
+            lines = f.readlines()
+    updated = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            k = stripped.split("=", 1)[0].strip()
+            if k in pairs:
+                new_lines.append(f"{k}={pairs[k]}\n")
+                updated.add(k)
+                continue
+        new_lines.append(line)
+    for k, v in pairs.items():
+        if k not in updated:
+            new_lines.append(f"{k}={v}\n")
+    with open(_ENV_PATH, "w") as f:
+        f.writelines(new_lines)
+
+
+@app.get("/setup/secrets/status")
+async def secrets_status():
+    env = _read_env()
+    ak  = env.get("ANTHROPIC_API_KEY", "")
+    gh  = env.get("GITHUB_PAT", "")
+    return {
+        "anthropic_api_key": {"set": bool(ak), "preview": _mask(ak)},
+        "github_pat":        {"set": bool(gh), "preview": _mask(gh)},
+        "env_path":          _ENV_PATH,
+    }
+
+
+@app.post("/setup/secrets")
+async def save_secrets(req: SecretsRequest):
+    pairs = {}
+    if req.anthropic_api_key and req.anthropic_api_key.strip():
+        val = req.anthropic_api_key.strip()
+        pairs["ANTHROPIC_API_KEY"] = val
+        os.environ["ANTHROPIC_API_KEY"] = val
+        if claude:
+            claude._client._key = val
+    if req.github_pat and req.github_pat.strip():
+        val = req.github_pat.strip()
+        pairs["GITHUB_PAT"] = val
+        os.environ["GITHUB_PAT"] = val
+
+    if not pairs:
+        raise HTTPException(400, "No values provided")
+
+    _write_env(pairs)
+
+    env = _read_env()
+    await bus.emit(
+        src="GATEWAY",
+        content=f"🔑 Secrets updated: {', '.join(pairs.keys())}",
+        channel="#broadcast",
+        msg_type=MsgType.SYSTEM,
+    )
+    return {
+        "ok":      True,
+        "updated": list(pairs.keys()),
+        "anthropic_api_key": {"set": True, "preview": _mask(pairs.get("ANTHROPIC_API_KEY", env.get("ANTHROPIC_API_KEY", "")))},
+        "github_pat":        {"set": True, "preview": _mask(pairs.get("GITHUB_PAT", env.get("GITHUB_PAT", "")))},
+    }
 
 
 # ─────────────────────────────────────────────

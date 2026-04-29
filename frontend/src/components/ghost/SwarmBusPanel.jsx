@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity, Bot, Github, Send, Zap, Search, RefreshCw,
-  AlertTriangle, CheckCircle, Loader2,
+  AlertTriangle, CheckCircle, Loader2, KeyRound, Eye, EyeOff,
 } from "lucide-react";
 import { Panel } from "./primitives";
 import {
   gw3WsUrl, gw3Agents, gw3Delegate, gw3Convos, gw3ConvoSearch,
   gw3GithubStatus, gw3GithubSyncMemory, gw3ClaudeTrain, gw3KairosElite,
+  gw3SecretsStatus, gw3SaveSecrets,
 } from "../../lib/ghostApi";
 
 // ── constants ─────────────────────────────────────────────────────
@@ -105,10 +106,15 @@ export const SwarmBusPanel = () => {
   const [target,  setTarget]  = useState("");
   const [busy,    setBusy]    = useState(false);
   const [result,  setResult]  = useState(null);
-  const [tab,     setTab]     = useState("stream"); // stream | agents | github | claude
-  const [ghInfo,  setGhInfo]  = useState(null);
-  const [search,  setSearch]  = useState("");
-  const [elite,   setElite]   = useState([]);
+  const [tab,       setTab]       = useState("stream"); // stream | agents | github | claude | keys
+  const [ghInfo,    setGhInfo]    = useState(null);
+  const [search,    setSearch]    = useState("");
+  const [elite,     setElite]     = useState([]);
+  const [keyStatus, setKeyStatus] = useState(null);
+  const [akInput,   setAkInput]   = useState("");
+  const [ghInput,   setGhInput]   = useState("");
+  const [showAk,    setShowAk]    = useState(false);
+  const [showGh,    setShowGh]    = useState(false);
 
   const wsRef      = useRef(null);
   const streamRef  = useRef(null);
@@ -163,6 +169,7 @@ export const SwarmBusPanel = () => {
   useEffect(() => {
     loadConvos();
     loadAgents();
+    loadKeyStatus();
     connectWs();
     return () => wsRef.current?.close();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -234,6 +241,33 @@ export const SwarmBusPanel = () => {
     } catch {}
   };
 
+  const loadKeyStatus = useCallback(async () => {
+    try {
+      const d = await gw3SecretsStatus();
+      setKeyStatus(d);
+    } catch {}
+  }, []);
+
+  const saveKeys = async () => {
+    if (!akInput.trim() && !ghInput.trim()) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const d = await gw3SaveSecrets(
+        akInput.trim() || null,
+        ghInput.trim() || null,
+      );
+      setResult({ ok: true, routed_to: `saved: ${d.updated.join(", ")}` });
+      setAkInput("");
+      setGhInput("");
+      loadKeyStatus();
+    } catch (e) {
+      setResult({ ok: false, error: e?.response?.data?.detail || e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleSearch = async () => {
     if (!search.trim()) { loadConvos(); return; }
     try {
@@ -271,21 +305,26 @@ export const SwarmBusPanel = () => {
       {/* tab bar */}
       <div className="flex gap-0.5 mb-3">
         {[
-          { id: "stream",  icon: <Activity size={10} />, label: "stream"  },
-          { id: "agents",  icon: <Bot      size={10} />, label: "agents"  },
-          { id: "github",  icon: <Github   size={10} />, label: "github"  },
-          { id: "claude",  icon: <Zap      size={10} />, label: "claude"  },
+          { id: "stream",  icon: <Activity  size={10} />, label: "stream"  },
+          { id: "agents",  icon: <Bot       size={10} />, label: "agents"  },
+          { id: "github",  icon: <Github    size={10} />, label: "github"  },
+          { id: "claude",  icon: <Zap       size={10} />, label: "claude"  },
+          { id: "keys",    icon: <KeyRound  size={10} />, label: "keys",
+            alert: keyStatus && (!keyStatus.anthropic_api_key?.set || !keyStatus.github_pat?.set) },
         ].map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`flex-1 flex items-center justify-center gap-1 font-mono-term text-[9px] tracking-[0.2em] uppercase px-1 py-1.5 border ${
+            className={`relative flex-1 flex items-center justify-center gap-1 font-mono-term text-[9px] tracking-[0.2em] uppercase px-1 py-1.5 border ${
               tab === t.id
                 ? "border-amber-500/50 text-amber-400 bg-amber-500/5"
                 : "border-white/10 text-zinc-500 hover:text-zinc-300"
             }`}
           >
             {t.icon}{t.label}
+            {t.alert && (
+              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400" />
+            )}
           </button>
         ))}
       </div>
@@ -483,6 +522,109 @@ export const SwarmBusPanel = () => {
               ))}
             </div>
           )}
+        </div>
+      )}
+      {/* ── KEYS tab ── */}
+      {tab === "keys" && (
+        <div className="space-y-4">
+          {keyStatus && (
+            <div className="flex gap-3 font-mono-term text-[10px]">
+              <div className={`flex items-center gap-1 ${keyStatus.anthropic_api_key?.set ? "text-emerald-400" : "text-amber-400"}`}>
+                {keyStatus.anthropic_api_key?.set ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
+                Claude {keyStatus.anthropic_api_key?.set ? keyStatus.anthropic_api_key.preview : "not set"}
+              </div>
+              <div className={`flex items-center gap-1 ${keyStatus.github_pat?.set ? "text-emerald-400" : "text-amber-400"}`}>
+                {keyStatus.github_pat?.set ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
+                GitHub {keyStatus.github_pat?.set ? keyStatus.github_pat.preview : "not set"}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {/* Anthropic key */}
+            <div>
+              <label className="font-mono-term text-[9px] uppercase tracking-[0.2em] text-zinc-500 mb-1 block">
+                Anthropic API Key
+              </label>
+              <div className="flex gap-1">
+                <input
+                  type={showAk ? "text" : "password"}
+                  value={akInput}
+                  onChange={(e) => setAkInput(e.target.value)}
+                  placeholder="sk-ant-api03-…"
+                  autoComplete="off"
+                  className="flex-1 bg-black border border-white/10 px-2 py-1.5 font-mono-term text-[11px] text-zinc-200 outline-none focus:border-amber-500/40"
+                />
+                <button
+                  onClick={() => setShowAk((v) => !v)}
+                  className="border border-white/10 px-2 text-zinc-500 hover:text-zinc-300"
+                  tabIndex={-1}
+                >
+                  {showAk ? <EyeOff size={11} /> : <Eye size={11} />}
+                </button>
+              </div>
+              <p className="font-mono-term text-[9px] text-zinc-600 mt-0.5">
+                console.anthropic.com → API Keys
+              </p>
+            </div>
+
+            {/* GitHub PAT */}
+            <div>
+              <label className="font-mono-term text-[9px] uppercase tracking-[0.2em] text-zinc-500 mb-1 block">
+                GitHub Personal Access Token
+              </label>
+              <div className="flex gap-1">
+                <input
+                  type={showGh ? "text" : "password"}
+                  value={ghInput}
+                  onChange={(e) => setGhInput(e.target.value)}
+                  placeholder="ghp_…"
+                  autoComplete="off"
+                  className="flex-1 bg-black border border-white/10 px-2 py-1.5 font-mono-term text-[11px] text-zinc-200 outline-none focus:border-amber-500/40"
+                />
+                <button
+                  onClick={() => setShowGh((v) => !v)}
+                  className="border border-white/10 px-2 text-zinc-500 hover:text-zinc-300"
+                  tabIndex={-1}
+                >
+                  {showGh ? <EyeOff size={11} /> : <Eye size={11} />}
+                </button>
+              </div>
+              <p className="font-mono-term text-[9px] text-zinc-600 mt-0.5">
+                github.com → Settings → Developer settings → PAT (classic) → repo scope
+              </p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 items-center">
+            <button
+              onClick={saveKeys}
+              disabled={busy || (!akInput.trim() && !ghInput.trim())}
+              className="flex-1 font-mono-term text-[10px] uppercase tracking-[0.2em] text-amber-400 disabled:text-zinc-600 border border-amber-500/30 py-2 hover:bg-amber-500/5 flex items-center justify-center gap-1.5"
+            >
+              {busy ? <Loader2 size={11} className="animate-spin" /> : <KeyRound size={11} />}
+              save to .env
+            </button>
+            <button
+              onClick={loadKeyStatus}
+              className="border border-white/10 px-3 py-2 text-zinc-500 hover:text-zinc-300"
+            >
+              <RefreshCw size={11} />
+            </button>
+          </div>
+
+          {result && (
+            <div className={`font-mono-term text-[10px] flex items-center gap-1.5 ${result.ok ? "text-emerald-400" : "text-rose-400"}`}>
+              {result.ok
+                ? <><CheckCircle size={10} /> {result.routed_to}</>
+                : <><AlertTriangle size={10} /> {result.error}</>}
+            </div>
+          )}
+
+          <p className="font-mono-term text-[9px] text-zinc-700 leading-relaxed">
+            Keys are written to backend/.env on TatorTot and loaded into the
+            running process immediately — no restart needed.
+          </p>
         </div>
       )}
     </Panel>
