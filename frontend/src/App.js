@@ -22,6 +22,7 @@ import { CompanionPanel } from "./components/ghost/CompanionPanel";
 import { GhostEyePanel } from "./components/ghost/GhostEyePanel";
 import { WhisperPanel } from "./components/ghost/WhisperPanel";
 import { SetupNudgeModal } from "./components/ghost/SetupNudgeModal";
+import { V3SecretsModal } from "./components/ghost/V3SecretsModal";
 import { OllamaPanel } from "./components/ghost/OllamaPanel";
 import { CoderPanel } from "./components/ghost/CoderPanel";
 import { SwarmPanel } from "./components/ghost/SwarmPanel";
@@ -155,6 +156,7 @@ function App() {
   return (
     <div className="min-h-screen" data-testid="app-root">
       <SetupNudgeModal />
+      <V3SecretsModal />
       <Toaster
         theme="dark" position="bottom-right"
         toastOptions={{
