@@ -48,7 +48,7 @@ from ollama_gateway import (
 )
 import coder_agent
 from embeddings import embed_status
-from swarm import AgentSwarm, SwarmTask
+from swarm_legacy import AgentSwarm, SwarmTask
 from swarm_tasks import as_tasks as swarm_seed_tasks
 from ghostscript import DEMO as GHOSTSCRIPT_DEMO, run as run_ghostscript
 from hcm_vectors import build_cloud, make_seed_corpus

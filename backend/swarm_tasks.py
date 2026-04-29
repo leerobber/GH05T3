@@ -6,7 +6,7 @@ topology shift count, and per-agent token deltas.
 """
 from __future__ import annotations
 import random
-from swarm import SwarmTask
+from swarm_legacy import SwarmTask
 
 SEED_TASKS = [
     # --- Debate / contradiction (6) ---
