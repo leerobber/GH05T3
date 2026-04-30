@@ -161,16 +161,35 @@ async def ollama_available() -> bool:
         return False
 
 
+_ENV_PATH = Path(__file__).parent / ".env"
+
+
+def _env_key(name: str) -> str:
+    """Read key from os.environ, then re-read .env file so hot-saved keys (written by
+    the gateway process after server startup) are always picked up without a restart."""
+    val = os.environ.get(name, "")
+    if val:
+        return val
+    try:
+        from dotenv import dotenv_values
+        val = dotenv_values(_ENV_PATH).get(name, "") or ""
+        if val:
+            os.environ[name] = val  # cache into env so next call is fast
+    except Exception:
+        pass
+    return val
+
+
 def _anthropic_key() -> str:
-    return os.environ.get("ANTHROPIC_API_KEY", "")
+    return _env_key("ANTHROPIC_API_KEY")
 
 
 def _groq_key() -> str:
-    return os.environ.get("GROQ_API_KEY", "")
+    return _env_key("GROQ_API_KEY")
 
 
 def _google_key() -> str:
-    return os.environ.get("GOOGLE_AI_KEY", "")
+    return _env_key("GOOGLE_AI_KEY")
 
 
 # ---------------------------------------------------------------------------
@@ -305,17 +324,28 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
             LOG.warning("env google failed: %s", e)
 
     # Anthropic — paid, last resort
+    _nightly_fail_reason = ""
     if _anthropic_key():
         try:
             text = await _call_anthropic(system, user)
             tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
             return text, f"anthropic:{tag}"
         except Exception as e:
+            err_str = str(e).lower()
+            if "rate_limit" in err_str or "429" in err_str:
+                _nightly_fail_reason = "Anthropic rate limit hit."
+            elif any(w in err_str for w in ("quota", "usage", "exceeded", "credit", "budget")):
+                _nightly_fail_reason = "Anthropic quota/budget exceeded."
+            elif "overloaded" in err_str or "529" in err_str or "503" in err_str:
+                _nightly_fail_reason = "Anthropic API overloaded."
+            else:
+                _nightly_fail_reason = f"Anthropic error: {e}"
             LOG.warning("anthropic nightly fallback failed: %s", e)
 
+    reason = f" ({_nightly_fail_reason})" if _nightly_fail_reason else ""
     raise NoLLMError(
-        "No LLM provider available for nightly chat. "
-        "Set GROQ_API_KEY, GOOGLE_AI_KEY, or configure OLLAMA_GATEWAY_URL for free use."
+        f"No LLM provider available for nightly chat{reason}. "
+        "Set GROQ_API_KEY or GOOGLE_AI_KEY in the LLM Config panel for free fallback."
     )
 
 
