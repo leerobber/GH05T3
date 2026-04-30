@@ -107,5 +107,5 @@ export const gw3ClaudeReview = (module, source = "") =>
   gw3.post("/claude/review", { module, source }).then((r) => r.data);
 export const gw3KairosElite    = () => gw3.get("/kairos/elite").then((r) => r.data);
 export const gw3SecretsStatus  = () => gw3.get("/setup/secrets/status").then((r) => r.data);
-export const gw3SaveSecrets    = (anthropic_api_key, github_pat) =>
-  gw3.post("/setup/secrets", { anthropic_api_key, github_pat }).then((r) => r.data);
+export const gw3SaveSecrets    = (anthropic_api_key, github_pat, groq_api_key, google_ai_key) =>
+  gw3.post("/setup/secrets", { anthropic_api_key, github_pat, groq_api_key, google_ai_key }).then((r) => r.data);

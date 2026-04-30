@@ -1,6 +1,6 @@
 @echo off
-REM GH05T3 v3 - launcher. Double-click or auto-run on login.
-REM This file is copied to the repo root by install.ps1.
+REM GH05T3 v3 - launcher. Double-click or run from repo root.
+REM Backend + gateway bind to 0.0.0.0 so Android on same WiFi can reach the dashboard.
 setlocal enableextensions
 
 set APP=%~dp0
@@ -13,9 +13,13 @@ if not exist "%APP%backend\evolution" mkdir "%APP%backend\evolution"
 
 set PY=%APP%backend\.venv\Scripts\python
 
-REM - Locate mongod (winget may not update PATH in current session) -
-REM NOTE: do NOT use if-else blocks here - PATH contains ) chars from
-REM "Program Files (x86)" which terminate the block early.  Use goto instead.
+REM Read LAN IP saved by install.ps1 (for Android URL display)
+set LAN_IP=localhost
+if exist "%APP%lan_ip.txt" (
+    set /p LAN_IP=<"%APP%lan_ip.txt"
+)
+
+REM ---- Locate mongod (winget may not update PATH in current session) ----
 where mongod >nul 2>&1
 if not errorlevel 1 goto mongod_ok
 
@@ -30,9 +34,10 @@ pause
 exit /b 1
 
 :mongod_ok
-REM - MongoDB :27017 -
+REM ---- MongoDB :27017 (localhost only — DB does not need LAN exposure) ----
 start "gh05t3-mongo" /min mongod --dbpath "%APP%mongo-data" --bind_ip 127.0.0.1 --port 27017 --quiet
-REM Wait up to 12 s for mongod to accept connections before starting the backend.
+
+REM Wait up to ~12s for MongoDB to accept connections before starting the backend.
 :mongo_wait
 timeout /t 2 /nobreak > nul
 mongosh --quiet --eval "db.runCommand({ping:1})" mongodb://127.0.0.1:27017 >nul 2>&1
@@ -41,22 +46,37 @@ if errorlevel 1 (
     timeout /t 2 /nobreak > nul
     mongosh --quiet --eval "db.runCommand({ping:1})" mongodb://127.0.0.1:27017 >nul 2>&1
 )
-REM If mongosh is not available, fall back to a fixed 6 s sleep.
 timeout /t 2 /nobreak > nul
 
-REM - server.py :8001  (existing FastAPI + MongoDB backend) -
-start "gh05t3-backend" /min /d "%APP%backend" "%PY%" -m uvicorn server:app --host 127.0.0.1 --port 8001
+REM ---- server.py :8001 — bind 0.0.0.0 so Android can reach the API ----
+start "gh05t3-backend" /min /d "%APP%backend" "%PY%" -m uvicorn server:app --host 0.0.0.0 --port 8001
 
-REM - gateway_v3 :8002  (SwarmBus - Claude API - GitHub automation) -
-start "gh05t3-gateway-v3" /min /d "%APP%backend" "%PY%" -m uvicorn gateway_v3:app --host 127.0.0.1 --port 8002
+REM ---- gateway_v3 :8002 — bind 0.0.0.0 so Android can reach v3 gateway ----
+start "gh05t3-gateway-v3" /min /d "%APP%backend" "%PY%" -m uvicorn gateway_v3:app --host 0.0.0.0 --port 8002
 
-REM - Frontend static bundle :3210 -
+REM ---- Frontend static bundle :3210 ----
+REM http.server already defaults to 0.0.0.0 — no flag needed.
 start "gh05t3-frontend" /min "%PY%" -m http.server 3210 --directory "%APP%frontend\build"
 
-REM - Whisper listener -
+REM ---- Whisper listener ----
 start "gh05t3-whisper" /min "%PY%" "%APP%whisper_listener.py"
 
-REM - Tray icon (blocks - keeps this window as the host process) -
+echo.
+echo  GH05T3 is starting...
+echo.
+echo   Dashboard (this PC):   http://localhost:3210
+echo   Dashboard (Android):   http://%LAN_IP%:3210
+echo.
+echo   Backend API:           http://%LAN_IP%:8001
+echo   Gateway v3:            http://%LAN_IP%:8002
+echo.
+echo   On Android: connect to the same WiFi, open browser to the Android URL above.
+echo.
+echo   Paste your keys in the LLM Config panel on first open.
+echo   Free Groq key:  https://console.groq.com
+echo.
+
+REM ---- Tray icon (keeps this window alive as the host process) ----
 "%PY%" "%APP%tray.py"
 
 endlocal

@@ -6,6 +6,7 @@
 #
 # Installs: Python 3.11, MongoDB Community, Node.js 20, Yarn (via winget).
 # Installs in-place - uses the cloned repo as the app folder (no copy needed).
+# Binds backend/gateway to 0.0.0.0 so Android on same WiFi can reach the dashboard.
 
 $ErrorActionPreference = "Stop"
 Write-Host "==> GH05T3 native install starting (v3)" -ForegroundColor Yellow
@@ -32,9 +33,19 @@ if (-not (Have winget)) {
 # ---- Derive paths ----
 # install.ps1 lives at: <repo>\native\windows\install.ps1
 # So the repo root is two levels up.
-$here     = Split-Path -Parent $MyInvocation.MyCommand.Path
-$APP      = (Get-Item (Join-Path $here "..\.." )).FullName   # repo root
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$APP  = (Get-Item (Join-Path $here "..\.." )).FullName   # repo root
 Write-Host "App folder (repo root): $APP" -ForegroundColor Cyan
+
+# ---- Detect LAN IP (for Android access on same WiFi) ----
+$LAN_IP = (Get-NetIPAddress -AddressFamily IPv4 |
+    Where-Object { $_.IPAddress -notmatch "^127\." -and $_.PrefixOrigin -ne "WellKnown" } |
+    Sort-Object InterfaceIndex |
+    Select-Object -First 1).IPAddress
+if (-not $LAN_IP) { $LAN_IP = "localhost" }
+Write-Host "Detected LAN IP: $LAN_IP" -ForegroundColor Cyan
+# Save for run.bat to display the Android URL
+$LAN_IP | Out-File "$APP\lan_ip.txt" -Encoding ascii -NoNewline
 
 # ---- Python 3.11 ----
 if (-not (Have python) -or -not ((python --version 2>&1) -match "3\.1[1-9]")) {
@@ -75,40 +86,51 @@ if (Test-Path $mongoBase) {
     Write-Host "MongoDB bin added to PATH: $mongoBin" -ForegroundColor Cyan
 }
 
+# ---- Windows Firewall — open GH05T3 ports for LAN access (Android) ----
+Write-Host "Opening Windows Firewall for GH05T3 ports (3210, 8001, 8002)..." -ForegroundColor Cyan
+foreach ($port in @(3210, 8001, 8002)) {
+    $ruleName = "GH05T3-port-$port"
+    netsh advfirewall firewall delete rule name="$ruleName" >$null 2>&1
+    netsh advfirewall firewall add rule name="$ruleName" dir=in action=allow protocol=TCP localport=$port | Out-Null
+    Write-Host "  Firewall: port $port open" -ForegroundColor Gray
+}
+
 # ---- Runtime data dirs ----
 foreach ($d in @("$APP\mongo-data","$APP\backend\memory","$APP\backend\evolution")) {
     if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d | Out-Null }
 }
 
-# ---- Backend .env ----
+# ---- Backend .env (only create if missing — preserves existing keys) ----
 $envPath = "$APP\backend\.env"
 if (-not (Test-Path $envPath)) {
     Set-Content $envPath @"
 # GH05T3 backend
-# Paste your keys here OR use the dashboard Keys tab on first boot.
+# Paste your keys here OR use the LLM Config panel in the dashboard.
 
 MONGO_URL=mongodb://localhost:27017
 DB_NAME=gh05t3
 CORS_ORIGINS=*
 
 # --- LLM provider (anthropic | groq | google | ollama) ---
-# Priority: Anthropic → Groq → Google → Ollama (first key wins).
-# For fully free operation: leave ANTHROPIC_API_KEY blank and set GROQ_API_KEY.
+# Priority: Anthropic -> Groq -> Google -> Ollama (first available key wins).
+# For fully free operation: leave ANTHROPIC_API_KEY blank, set GROQ_API_KEY.
 LLM_PROVIDER=anthropic
 LLM_MODEL=claude-sonnet-4-6
 
-# Anthropic (paid) — best quality
+# Anthropic (paid) - best quality chat
 ANTHROPIC_API_KEY=
 
-# Groq (free tier) — llama-3.3-70b, fast, generous free quota
+# Groq (free tier) - llama-3.3-70b, fast, generous free quota
+# Get key free at: https://console.groq.com
 GROQ_API_KEY=
 
-# Google AI (free tier) — gemini-2.0-flash
+# Google AI (free tier) - gemini-2.0-flash
+# Get key free at: https://aistudio.google.com/app/apikey
 GOOGLE_AI_KEY=
 
 # v3 gateway (port 8002, server.py keeps 8001)
 GATEWAY_PORT=8002
-GATEWAY_URL=http://localhost:8002
+GATEWAY_URL=http://${LAN_IP}:8002
 
 GITHUB_PAT=
 GITHUB_REPO=leerobber/GH05T3
@@ -119,14 +141,10 @@ VLLM_PRIMARY_URL=http://localhost:8010
 LLAMA_VERIFIER_URL=http://localhost:8011
 LLAMA_FALLBACK_URL=http://localhost:8012
 
-# --- Ollama GPU protection (shared GPU with TatorTot) ---
-# Max simultaneous GPU requests (1 = serialize all calls, prevents OOM)
+# --- Ollama GPU protection ---
 OLLAMA_MAX_CONCURRENT=1
-# Seconds to keep model in VRAM after last call (0 = unload immediately)
 OLLAMA_KEEP_ALIVE=0
-# Context window tokens — smaller = less VRAM per call (default 2048)
 OLLAMA_NUM_CTX=2048
-# Max output tokens per call (default 512)
 OLLAMA_NUM_PREDICT=512
 
 KILLSWITCH_KEY_HASH=
@@ -135,33 +153,31 @@ GH05T3_SECRET=sovereign-ghost-mesh-key-2025
 MEMORY_DB_PATH=$APP\backend\memory\palace.db
 SAGE_ELITE_THRESHOLD=0.90
 
-# --- Multi-instance peer mesh ---
-# Set INSTANCE_LABEL to a human name for this machine (TatorTot, Laptop, Cloud).
-# Set INSTANCE_URL to the URL other peers use to reach THIS instance.
-# Set PEER_URLS to comma-separated base URLs of other GH05T3 instances.
-# Use Tailscale hostnames for cross-network connectivity.
+# --- Peer mesh (single instance for now, add PEER_URLS when adding more machines) ---
 INSTANCE_LABEL=TatorTot
 INSTANCE_ROLE=primary
-INSTANCE_URL=http://localhost:8001
+INSTANCE_URL=http://${LAN_IP}:8001
 PEER_URLS=
 SYNC_INTERVAL=300
 "@
     Write-Host "Created $envPath" -ForegroundColor Yellow
+} else {
+    Write-Host "Existing $envPath kept (your keys are safe)." -ForegroundColor Gray
 }
 
-# ---- Frontend .env.local (baked into React build at build time) ----
+# ---- Frontend .env.local — bakes LAN IP so Android can reach backend ----
+# Always rewritten so it stays in sync with the current LAN IP.
 Set-Content "$APP\frontend\.env.local" @"
-REACT_APP_BACKEND_URL=http://localhost:8001
-REACT_APP_GW3_URL=http://localhost:8002
+REACT_APP_BACKEND_URL=http://${LAN_IP}:8001
+REACT_APP_GW3_URL=http://${LAN_IP}:8002
 "@
+Write-Host "Frontend will use backend at http://${LAN_IP}:8001" -ForegroundColor Cyan
 
 # ---- Backend venv (delete first so a locked/stale venv never blocks pip) ----
 Write-Host "Creating Python venv..." -ForegroundColor Cyan
 Push-Location "$APP\backend"
 if (Test-Path ".venv") {
     Write-Host "Removing old venv..." -ForegroundColor Cyan
-    # Remove-Item can fail if Windows Defender holds a .pyd file open.
-    # Retry up to 3 times, falling back to cmd's rd which bypasses PS file locking.
     $removed = $false
     for ($i = 0; $i -lt 3; $i++) {
         try {
@@ -186,7 +202,7 @@ python -m venv .venv
     faster-whisper openwakeword edge-tts --quiet
 Pop-Location
 
-# ---- Frontend build (REACT_APP_GW3_URL baked in) ----
+# ---- Frontend build (LAN IP baked into JS bundle) ----
 Write-Host "Building frontend..." -ForegroundColor Cyan
 Push-Location "$APP\frontend"
 yarn install --silent
@@ -213,9 +229,12 @@ $lnk.Save()
 Write-Host ""
 Write-Host "==> Install complete." -ForegroundColor Green
 Write-Host ""
-Write-Host "  Run now - paste each line separately into PowerShell:" -ForegroundColor Green
+Write-Host "  Start GH05T3:" -ForegroundColor Green
 Write-Host "    cd `"$APP`"" -ForegroundColor White
 Write-Host "    .\run.bat" -ForegroundColor White
 Write-Host ""
-Write-Host "  Dashboard: http://localhost:3210" -ForegroundColor Green
-Write-Host "  Keys modal appears automatically on first open." -ForegroundColor Yellow
+Write-Host "  Dashboard (this PC):  http://localhost:3210" -ForegroundColor Green
+Write-Host "  Dashboard (Android):  http://${LAN_IP}:3210" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Keys: open LLM Config panel in dashboard after first boot." -ForegroundColor Yellow
+Write-Host "  Free keys:  https://console.groq.com  |  https://aistudio.google.com/app/apikey" -ForegroundColor Yellow

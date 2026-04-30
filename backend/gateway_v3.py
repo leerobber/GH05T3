@@ -164,6 +164,8 @@ class PushRequest(BaseModel):
 class SecretsRequest(BaseModel):
     anthropic_api_key: Optional[str] = None
     github_pat: Optional[str] = None
+    groq_api_key: Optional[str] = None
+    google_ai_key: Optional[str] = None
 
 
 # ─────────────────────────────────────────────
@@ -477,9 +479,13 @@ async def secrets_status():
     env = _read_env()
     ak  = env.get("ANTHROPIC_API_KEY", "")
     gh  = env.get("GITHUB_PAT", "")
+    gr  = env.get("GROQ_API_KEY", "")
+    go  = env.get("GOOGLE_AI_KEY", "")
     return {
         "anthropic_api_key": {"set": bool(ak), "preview": _mask(ak)},
         "github_pat":        {"set": bool(gh), "preview": _mask(gh)},
+        "groq_api_key":      {"set": bool(gr), "preview": _mask(gr)},
+        "google_ai_key":     {"set": bool(go), "preview": _mask(go)},
         "env_path":          _ENV_PATH,
     }
 
@@ -497,6 +503,14 @@ async def save_secrets(req: SecretsRequest):
         val = req.github_pat.strip()
         pairs["GITHUB_PAT"] = val
         os.environ["GITHUB_PAT"] = val
+    if req.groq_api_key and req.groq_api_key.strip():
+        val = req.groq_api_key.strip()
+        pairs["GROQ_API_KEY"] = val
+        os.environ["GROQ_API_KEY"] = val
+    if req.google_ai_key and req.google_ai_key.strip():
+        val = req.google_ai_key.strip()
+        pairs["GOOGLE_AI_KEY"] = val
+        os.environ["GOOGLE_AI_KEY"] = val
 
     if not pairs:
         raise HTTPException(400, "No values provided")
@@ -513,8 +527,10 @@ async def save_secrets(req: SecretsRequest):
     return {
         "ok":      True,
         "updated": list(pairs.keys()),
-        "anthropic_api_key": {"set": True, "preview": _mask(pairs.get("ANTHROPIC_API_KEY", env.get("ANTHROPIC_API_KEY", "")))},
-        "github_pat":        {"set": True, "preview": _mask(pairs.get("GITHUB_PAT", env.get("GITHUB_PAT", "")))},
+        "anthropic_api_key": {"set": bool(env.get("ANTHROPIC_API_KEY")), "preview": _mask(env.get("ANTHROPIC_API_KEY", ""))},
+        "github_pat":        {"set": bool(env.get("GITHUB_PAT")),        "preview": _mask(env.get("GITHUB_PAT", ""))},
+        "groq_api_key":      {"set": bool(env.get("GROQ_API_KEY")),      "preview": _mask(env.get("GROQ_API_KEY", ""))},
+        "google_ai_key":     {"set": bool(env.get("GOOGLE_AI_KEY")),     "preview": _mask(env.get("GOOGLE_AI_KEY", ""))},
     }
 
 
