@@ -67,6 +67,21 @@ class MemoryPalace:
         ]
         return sorted(hits, key=lambda x: x["timestamp"], reverse=True)[:top_k]
 
+    def prune(self, max_shards: int = 5000) -> int:
+        """Delete oldest shards so total stays at or below max_shards. Returns count removed."""
+        total = len(self._shards)
+        if total <= max_shards:
+            return 0
+        to_remove = total - max_shards
+        oldest_ids = [s["id"] for s in self._shards[:to_remove]]
+        with self._conn() as conn:
+            conn.execute(
+                f"DELETE FROM shards WHERE id IN ({','.join('?' * len(oldest_ids))})",
+                oldest_ids,
+            )
+        self._shards = self._shards[to_remove:]
+        return to_remove
+
     def stats(self) -> dict:
         rooms: dict[str, int] = {}
         for s in self._shards:

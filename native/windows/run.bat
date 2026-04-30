@@ -34,8 +34,11 @@ pause
 exit /b 1
 
 :mongod_ok
-REM ---- MongoDB :27017 (localhost only — DB does not need LAN exposure) ----
-start "gh05t3-mongo" /min mongod --dbpath "%APP%mongo-data" --bind_ip 127.0.0.1 --port 27017 --quiet
+REM ---- Tuning #5: High Performance power plan (prevents CPU throttle on battery) ----
+powercfg /setactive SCHEME_MIN >nul 2>&1
+
+REM ---- MongoDB :27017 — cache capped at 512 MB (default is 50%% RAM) ----
+start "gh05t3-mongo" /min mongod --dbpath "%APP%mongo-data" --bind_ip 127.0.0.1 --port 27017 --quiet --wiredTigerCacheSizeGB 0.5
 
 REM Wait up to ~12s for MongoDB to accept connections before starting the backend.
 :mongo_wait
@@ -48,14 +51,14 @@ if errorlevel 1 (
 )
 timeout /t 2 /nobreak > nul
 
-REM ---- server.py :8001 — bind 0.0.0.0 so Android can reach the API ----
-start "gh05t3-backend" /min /d "%APP%backend" "%PY%" -m uvicorn server:app --host 0.0.0.0 --port 8001
+REM ---- Tuning #5: ABOVENORMAL priority keeps GH05T3 responsive under load ----
+REM ---- server.py :8001 ----
+start "gh05t3-backend" /min /ABOVENORMAL /d "%APP%backend" "%PY%" -m uvicorn server:app --host 0.0.0.0 --port 8001
 
-REM ---- gateway_v3 :8002 — bind 0.0.0.0 so Android can reach v3 gateway ----
-start "gh05t3-gateway-v3" /min /d "%APP%backend" "%PY%" -m uvicorn gateway_v3:app --host 0.0.0.0 --port 8002
+REM ---- gateway_v3 :8002 ----
+start "gh05t3-gateway-v3" /min /ABOVENORMAL /d "%APP%backend" "%PY%" -m uvicorn gateway_v3:app --host 0.0.0.0 --port 8002
 
 REM ---- Frontend static bundle :3210 ----
-REM http.server already defaults to 0.0.0.0 — no flag needed.
 start "gh05t3-frontend" /min "%PY%" -m http.server 3210 --directory "%APP%frontend\build"
 
 REM ---- Whisper listener ----

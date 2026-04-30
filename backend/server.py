@@ -80,6 +80,14 @@ DB_NAME          = os.environ.get("DB_NAME",         "gh05t3")
 LLM_PROVIDER     = os.environ.get("LLM_PROVIDER",    "anthropic")
 LLM_MODEL        = os.environ.get("LLM_MODEL",       "claude-sonnet-4-5-20250929")
 
+# --- Resource tuning ---
+KAIROS_CYCLES_PER_NIGHT = int(os.environ.get("KAIROS_CYCLES_PER_NIGHT", "10"))
+NIGHTLY_HOUR_KAIROS     = int(os.environ.get("NIGHTLY_HOUR_KAIROS",    "3"))
+NIGHTLY_HOUR_AMP        = int(os.environ.get("NIGHTLY_HOUR_AMP",       "4"))
+NIGHTLY_HOUR_DREAM      = int(os.environ.get("NIGHTLY_HOUR_DREAM",     "2"))
+NIGHTLY_HOUR_SUMMARY    = int(os.environ.get("NIGHTLY_HOUR_SUMMARY",   "23"))
+MEMORY_MAX_SHARDS       = int(os.environ.get("MEMORY_MAX_SHARDS",      "5000"))
+
 import platform as _platform
 INSTANCE_LABEL   = os.environ.get("INSTANCE_LABEL",  _platform.node() or "gh05t3")
 INSTANCE_ROLE    = os.environ.get("INSTANCE_ROLE",   "peer")
@@ -892,31 +900,57 @@ async def _scheduler_status() -> dict:
 
 
 async def _job_kairos_nightly():
-    logger.info("[cron] 03:00 ET — firing 10 KAIROS cycles")
-    for _ in range(10):
+    logger.info("[cron] %02d:00 ET — firing %d KAIROS cycles",
+                NIGHTLY_HOUR_KAIROS, KAIROS_CYCLES_PER_NIGHT)
+    for _ in range(KAIROS_CYCLES_PER_NIGHT):
         try:
-            await kairos_cycle()  # reuse endpoint
+            await kairos_cycle()
         except Exception:
             logger.exception("scheduled kairos failed")
 
 
 async def _job_amplifiers_nightly():
-    logger.info("[cron] 04:00 ET — firing 13 amplifiers")
+    logger.info("[cron] %02d:00 ET — firing amplifiers", NIGHTLY_HOUR_AMP)
     try:
         await training_nightly()
     except Exception:
         logger.exception("scheduled amplifiers failed")
 
 
+async def _job_memory_prune():
+    """Prune Memory Palace to MEMORY_MAX_SHARDS oldest-first to keep searches fast."""
+    logger.info("[cron] 05:30 — memory prune (max=%d shards)", MEMORY_MAX_SHARDS)
+    try:
+        from memory.memory_palace import MemoryPalace
+        palace = MemoryPalace()
+        pruned = palace.prune(MEMORY_MAX_SHARDS)
+        if pruned:
+            logger.info("memory prune: removed %d old shards", pruned)
+            await ws_mgr.broadcast("memory_pruned", {"removed": pruned, "max": MEMORY_MAX_SHARDS})
+        # Also prune old KAIROS cycles — keep last 2000
+        total = await db.kairos_cycles.count_documents({})
+        if total > 2000:
+            cutoff_docs = await db.kairos_cycles.find({}, {"_id": 1}) \
+                .sort("timestamp", 1).to_list(total - 2000)
+            ids = [d["_id"] for d in cutoff_docs]
+            await db.kairos_cycles.delete_many({"_id": {"$in": ids}})
+            logger.info("kairos prune: removed %d old cycles", len(ids))
+    except Exception:
+        logger.exception("memory prune cron failed")
+
+
 def _register_jobs():
-    if scheduler.get_job("kairos_03"):
+    if scheduler.get_job("kairos_nightly"):
         return
-    scheduler.add_job(_job_kairos_nightly, CronTrigger(hour=3, minute=0), id="kairos_03")
-    scheduler.add_job(_job_amplifiers_nightly, CronTrigger(hour=4, minute=0), id="amplifiers_04")
-    scheduler.add_job(_job_dream, CronTrigger(hour=2, minute=0), id="dream_02")
-    scheduler.add_job(_job_daily_summary, CronTrigger(hour=23, minute=0), id="daily_23")
-    scheduler.add_job(_job_weekly_review, CronTrigger(day_of_week="sun", hour=21, minute=0), id="weekly_sun21")
-    scheduler.add_job(_job_memory_decay, CronTrigger(hour=5, minute=0), id="decay_05")
+    # max_instances=1 prevents a second run starting if the previous is still going
+    _jkw = {"max_instances": 1, "misfire_grace_time": 3600}
+    scheduler.add_job(_job_kairos_nightly,    CronTrigger(hour=NIGHTLY_HOUR_KAIROS,  minute=0),  id="kairos_nightly",    **_jkw)
+    scheduler.add_job(_job_amplifiers_nightly, CronTrigger(hour=NIGHTLY_HOUR_AMP,    minute=0),  id="amplifiers_nightly", **_jkw)
+    scheduler.add_job(_job_dream,              CronTrigger(hour=NIGHTLY_HOUR_DREAM,  minute=0),  id="dream_nightly",      **_jkw)
+    scheduler.add_job(_job_daily_summary,      CronTrigger(hour=NIGHTLY_HOUR_SUMMARY, minute=0), id="daily_summary",      **_jkw)
+    scheduler.add_job(_job_weekly_review,      CronTrigger(day_of_week="sun", hour=21, minute=0), id="weekly_review",     **_jkw)
+    scheduler.add_job(_job_memory_decay,       CronTrigger(hour=5, minute=0),  id="memory_decay",       **_jkw)
+    scheduler.add_job(_job_memory_prune,       CronTrigger(hour=5, minute=30), id="memory_prune",       **_jkw)
 
 
 async def _job_dream():

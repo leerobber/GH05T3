@@ -28,10 +28,34 @@ load_dotenv(Path(__file__).parent / ".env")
 
 LOG = logging.getLogger("ghost.ollama")
 
+# VRAM-aware model defaults. Override via env vars or set OLLAMA_VRAM_GB
+# to auto-select the right quant for your GPU.
+#   4 GB  → tiny quants only (3b-q4)
+#   6 GB  → 7b-q4_0
+#   8 GB  → 7b-q4_K_M  ← RTX 5050 / 3060 Ti (recommended)
+#   12 GB → 7b-q8 or 13b-q4
+#   24 GB → 13b-q8 or 34b-q4
+
+def _vram_model(default: str) -> str:
+    """Pick a model quant that fits the configured VRAM budget."""
+    gb = float(os.environ.get("OLLAMA_VRAM_GB", "0"))
+    if gb <= 0:
+        return default  # not configured — use the explicit env override or default
+    if gb < 5:
+        return "qwen2.5:3b-q4_K_M"
+    if gb < 7:
+        return "qwen2.5:7b-q4_0"
+    if gb < 10:
+        return "qwen2.5:7b-q4_K_M"
+    if gb < 16:
+        return "qwen2.5:7b-q8_0"
+    return "qwen2.5:14b-q4_K_M"
+
+
 PREFERRED = {
-    "proposer": os.environ.get("OLLAMA_PROPOSER", "qwen2.5:7b-q4"),
-    "verifier": os.environ.get("OLLAMA_VERIFIER", "deepseek-coder:6.7b"),
-    "critic":   os.environ.get("OLLAMA_CRITIC",   "llama3.1"),
+    "proposer": os.environ.get("OLLAMA_PROPOSER") or _vram_model("qwen2.5:7b-q4_K_M"),
+    "verifier": os.environ.get("OLLAMA_VERIFIER") or _vram_model("deepseek-coder:6.7b"),
+    "critic":   os.environ.get("OLLAMA_CRITIC")   or _vram_model("llama3.1"),
 }
 
 # ---------------------------------------------------------------------------

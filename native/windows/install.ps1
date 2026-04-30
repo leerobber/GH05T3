@@ -141,11 +141,25 @@ VLLM_PRIMARY_URL=http://localhost:8010
 LLAMA_VERIFIER_URL=http://localhost:8011
 LLAMA_FALLBACK_URL=http://localhost:8012
 
-# --- Ollama GPU protection ---
+# --- Ollama GPU protection + model selection ---
 OLLAMA_MAX_CONCURRENT=1
 OLLAMA_KEEP_ALIVE=0
 OLLAMA_NUM_CTX=2048
 OLLAMA_NUM_PREDICT=512
+# Set OLLAMA_VRAM_GB to your GPU's VRAM so GH05T3 auto-picks the right model quant.
+# e.g. RTX 3060 12GB → 12, RTX 5050 24GB → 24, iGPU 4GB → 4
+OLLAMA_VRAM_GB=0
+
+# --- Resource / scheduling tuning ---
+# How many KAIROS self-improvement cycles to run each night (default 10)
+KAIROS_CYCLES_PER_NIGHT=10
+# Hour (0-23) for each nightly job — default: Anthropic timezone (ET)
+NIGHTLY_HOUR_KAIROS=3
+NIGHTLY_HOUR_AMP=4
+NIGHTLY_HOUR_DREAM=2
+NIGHTLY_HOUR_SUMMARY=23
+# Max Memory Palace shards before oldest are pruned (default 5000)
+MEMORY_MAX_SHARDS=5000
 
 KILLSWITCH_KEY_HASH=
 GH05T3_SECRET=sovereign-ghost-mesh-key-2025
