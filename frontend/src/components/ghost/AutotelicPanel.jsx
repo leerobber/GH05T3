@@ -267,11 +267,14 @@ export function AutotelicPanel({ goals: initialGoals = [], onGoalsChange }) {
     try {
       const suggestions = await suggestGoals(3);
       if (!suggestions.length) { toast("No new suggestions right now"); return; }
+      const added = [];
       for (const s of suggestions) {
         const goal = await createGoal(s.title, s.detail, s.priority ?? 2, s.category ?? "general");
-        mutate((prev) => [...prev, goal]);
+        added.push(goal);
       }
-      toast(`${suggestions.length} goal${suggestions.length > 1 ? "s" : ""} suggested`);
+      const next = [...goals, ...added];
+      mutate(next);
+      toast(`${added.length} goal${added.length > 1 ? "s" : ""} suggested`);
     } catch (e) {
       toast.error("Suggest failed: " + (e?.response?.data?.detail || e.message));
     } finally {

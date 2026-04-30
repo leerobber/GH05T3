@@ -367,30 +367,53 @@ async def _state_snapshot() -> dict:
     return doc
 
 
+@api.get("/health")
+async def health():
+    try:
+        await db.command("ping")
+        db_ok = True
+    except Exception as e:
+        db_ok = False
+    return {"status": "ok" if db_ok else "degraded", "db": db_ok,
+            "scheduler": scheduler.running}
+
+
 @api.get("/state")
 async def get_state():
-    doc = await db.system_state.find_one({"_id": "singleton"}, {"_id": 0, "hcm.cloud": 0})
+    try:
+        doc = await db.system_state.find_one({"_id": "singleton"}, {"_id": 0, "hcm.cloud": 0})
+    except Exception as e:
+        logger.error("MongoDB unreachable in /state: %s", e)
+        from gh05t3_state import initial_state
+        doc = initial_state()
+        doc["_db_offline"] = True
+
     if not doc:
         await ensure_state()
         doc = await db.system_state.find_one({"_id": "singleton"}, {"_id": 0, "hcm.cloud": 0})
+
     doc["scheduler"] = await _scheduler_status()
     doc["gateway"] = {"ollama_configured": bool(os.environ.get("OLLAMA_GATEWAY_URL")),
                       "ollama_reachable": await ollama_available()}
     doc["llm_nightly"] = await nightly_status()
-    stats = await memory.stats()
-    doc["memory_stats"] = stats
-    # Real counts override decorative book numbers so the dashboard shows live growth
-    real_mem = stats.get("total") or 0
-    real_hcm = await db.hcm_vectors.count_documents({})
-    real_journal = await db.journal.count_documents({})
-    # baseline from book (103) + everything real she's learned since
-    baseline_mem = 103
-    doc["memory_palace"]["total"] = baseline_mem + real_mem
-    doc["memory_palace"]["real_count"] = real_mem
-    doc["memory_palace"]["baseline"] = baseline_mem
-    if real_hcm:
-        doc["hcm"]["vectors"] = real_hcm
-    doc["memory_palace"]["reflections"] = real_journal
+
+    try:
+        stats = await memory.stats()
+        doc["memory_stats"] = stats
+        real_mem = stats.get("total") or 0
+        real_hcm = await db.hcm_vectors.count_documents({})
+        real_journal = await db.journal.count_documents({})
+        baseline_mem = 103
+        if "memory_palace" in doc:
+            doc["memory_palace"]["total"] = baseline_mem + real_mem
+            doc["memory_palace"]["real_count"] = real_mem
+            doc["memory_palace"]["baseline"] = baseline_mem
+            doc["memory_palace"]["reflections"] = real_journal
+        if real_hcm and "hcm" in doc:
+            doc["hcm"]["vectors"] = real_hcm
+    except Exception:
+        pass
+
     return doc
 
 
