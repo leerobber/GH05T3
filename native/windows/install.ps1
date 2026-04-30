@@ -53,6 +53,17 @@ if (-not (Have mongod)) {
     Write-Host "Installing MongoDB Community..." -ForegroundColor Cyan
     winget install --id MongoDB.Server --silent --accept-source-agreements --accept-package-agreements
 }
+# winget does not add MongoDB to the running session's PATH — do it manually
+$mongoBase = "C:\Program Files\MongoDB\Server"
+if (Test-Path $mongoBase) {
+    $mongoBin = (Get-ChildItem $mongoBase -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName + "\bin"
+    $machinePath = [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+    if ($machinePath -notlike "*$mongoBin*") {
+        [System.Environment]::SetEnvironmentVariable("PATH", "$machinePath;$mongoBin", "Machine")
+    }
+    $env:PATH = "$env:PATH;$mongoBin"
+    Write-Host "MongoDB bin added to PATH: $mongoBin" -ForegroundColor Cyan
+}
 
 # ---- Runtime data dirs ----
 foreach ($d in @("$APP\mongo-data","$APP\backend\memory","$APP\backend\evolution")) {
@@ -138,6 +149,10 @@ $lnk.Save()
 
 Write-Host ""
 Write-Host "==> Install complete." -ForegroundColor Green
-Write-Host "    Run now:   cd `"$APP`" && .\run.bat" -ForegroundColor Green
-Write-Host "    Dashboard: http://localhost:3210" -ForegroundColor Green
-Write-Host "    Keys modal appears automatically on first open." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "  Run now — paste each line separately into PowerShell:" -ForegroundColor Green
+Write-Host "    cd `"$APP`"" -ForegroundColor White
+Write-Host "    .\run.bat" -ForegroundColor White
+Write-Host ""
+Write-Host "  Dashboard: http://localhost:3210" -ForegroundColor Green
+Write-Host "  Keys modal appears automatically on first open." -ForegroundColor Yellow
