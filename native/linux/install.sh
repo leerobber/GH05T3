@@ -112,9 +112,20 @@ MONGO_URL=mongodb://localhost:27017
 DB_NAME=gh05t3
 CORS_ORIGINS=*
 
+# --- LLM provider (anthropic | groq | google | ollama) ---
+# Priority: Anthropic → Groq → Google → Ollama (first key wins).
+# For fully free operation: leave ANTHROPIC_API_KEY blank and set GROQ_API_KEY.
 LLM_PROVIDER=anthropic
 LLM_MODEL=claude-sonnet-4-6
+
+# Anthropic (paid) — best quality
 ANTHROPIC_API_KEY=
+
+# Groq (free tier) — llama-3.3-70b, fast, generous free quota
+GROQ_API_KEY=
+
+# Google AI (free tier) — gemini-2.0-flash
+GOOGLE_AI_KEY=
 
 GITHUB_PAT=
 GITHUB_REPO=leerobber/GH05T3

@@ -24,12 +24,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
-
 from gh05t3_state import GH05T3_SYSTEM_PROMPT, initial_state
 from ghost_llm import (
-    BudgetExhaustedError,
-    _is_budget_exhausted,
+    NoLLMError,
     bind_db as bind_llm_db,
     cassandra_premortem,
     chat_once,
@@ -80,7 +77,6 @@ load_dotenv(ROOT_DIR / ".env")
 
 MONGO_URL        = os.environ.get("MONGO_URL",       "mongodb://localhost:27017")
 DB_NAME          = os.environ.get("DB_NAME",         "gh05t3")
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 LLM_PROVIDER     = os.environ.get("LLM_PROVIDER",    "anthropic")
 LLM_MODEL        = os.environ.get("LLM_MODEL",       "claude-sonnet-4-5-20250929")
 
@@ -226,44 +222,18 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
 
     started = datetime.now(timezone.utc)
     reply = None
-    engine_tag = f"{LLM_PROVIDER}:{LLM_MODEL.split('-2025')[0]}"
-    primary_err = None
-    primary_budget_exhausted = False
-    if EMERGENT_LLM_KEY:
-        try:
-            chat = LlmChat(
-                api_key=EMERGENT_LLM_KEY, session_id=session_id,
-                system_message=sys_prompt,
-            ).with_model(LLM_PROVIDER, LLM_MODEL)
-            reply = await chat.send_message(UserMessage(text=ctx + message))
-        except Exception as e:  # noqa: BLE001
-            primary_err = str(e)
-            if _is_budget_exhausted(e):
-                primary_budget_exhausted = True
-                logger.warning("primary chat LLM: Emergent budget exhausted — routing to free fallbacks")
-            else:
-                logger.warning("primary chat LLM failed, falling back: %s", e)
-    if reply is None:
-        # fallback through the free nightly router (Google free → Groq → Ollama → Gemini)
-        try:
-            text, engine_tag = await nightly_chat(session_id, sys_prompt, ctx + message)
-            reply = text
-            if primary_err and not primary_budget_exhausted:
-                reply = f"(primary llm offline — falling back to {engine_tag})\n\n{reply}"
-        except BudgetExhaustedError:
-            # No user keys configured and Emergent budget is exhausted.
-            # Return a friendly assistant reply so the UI surfaces guidance
-            # instead of a hard 500/502.
-            reply = (
-                "I'm running on the shared Emergent Universal Key and its "
-                "budget is currently exhausted. To keep chatting, please "
-                "open the **LLM Config** panel and paste a free **Google AI** "
-                "(Gemini) key or **Groq** key — either one unlocks me "
-                "instantly and stays local to your account."
-            )
-            engine_tag = "none:budget-exhausted"
-        except Exception as e:  # noqa: BLE001
-            raise HTTPException(502, f"all LLM paths failed. primary={primary_err} fallback={e}")
+    engine_tag = LLM_PROVIDER
+    try:
+        reply, engine_tag = await chat_once(session_id, sys_prompt, ctx + message)
+    except NoLLMError:
+        reply = (
+            "No LLM provider is configured. Open the **LLM Config** panel and "
+            "add a free **Groq** key or **Google AI** key, or point "
+            "OLLAMA_GATEWAY_URL at a local Ollama instance."
+        )
+        engine_tag = "none:unconfigured"
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"LLM error: {e}")
     latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
 
     ghost_msg = ChatMessage(
@@ -320,8 +290,6 @@ async def _background_memory_extract(user_text: str, ghost_text: str, source: st
 async def chat(req: ChatRequest):
     if not req.message or not req.message.strip():
         raise HTTPException(400, "empty message")
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(500, "EMERGENT_LLM_KEY not configured")
     session_id = req.session_id or str(uuid.uuid4())
     try:
         return await _chat_pipeline(req.message, session_id, "web")
@@ -1246,11 +1214,11 @@ async def api_setup_status():
     has_user_key = ns.get("has_google_key") or ns.get("has_groq_key")
     ollama = await ollama_ping()
     return {
-        "needs_setup": not has_user_key and not ollama.get("reachable"),
+        "needs_setup": not has_user_key and not ns.get("has_anthropic_key") and not ollama.get("reachable"),
+        "has_anthropic_key": ns.get("has_anthropic_key"),
         "has_google_key": ns.get("has_google_key"),
         "has_groq_key": ns.get("has_groq_key"),
         "ollama_reachable": ollama.get("reachable"),
-        "emergent_available": bool(EMERGENT_LLM_KEY),
     }
 
 

@@ -1,62 +1,56 @@
-"""LLM helpers: KAIROS SAGE cycle + Cassandra pre-mortem + free nightly router.
+"""LLM helpers — native multi-provider router, zero third-party SDK wrapper.
 
-Chat path (expensive, personality-critical): Claude Sonnet 4.5 via Emergent key.
-Nightly path (autonomy, cost-sensitive): routed per user config. In order:
-    1. If Mongo `llm_config.nightly_provider` is set → honor it
-    2. Else if GOOGLE_AI_KEY or GROQ_API_KEY envs exist → use them
-    3. Else if OLLAMA_GATEWAY_URL reachable → use it
-    4. Else fall back to Emergent key + Gemini 2.5 Flash (cheapest Universal Key option)
+Premium / chat path  (Anthropic-first, falls back through free tiers):
+    1. Anthropic Claude  (ANTHROPIC_API_KEY)
+    2. Groq free tier    (GROQ_API_KEY)        — llama-3.3-70b-versatile
+    3. Google Gemini     (GOOGLE_AI_KEY)        — gemini-2.0-flash
+    4. Ollama            (OLLAMA_GATEWAY_URL)   — local, completely free
+
+Cost-free / nightly path  (cheapest first):
+    1. Ollama            — local, free
+    2. Groq free tier    (GROQ_API_KEY)
+    3. Google Gemini     (GOOGLE_AI_KEY)
+    4. Anthropic         (ANTHROPIC_API_KEY)   — only if key present
+
+Set LLM_PROVIDER=ollama to force Ollama for all calls.
 """
 from __future__ import annotations
+
 import json
+import logging
 import os
 import re
-import logging
-import httpx
 from pathlib import Path
+
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 from ollama_gateway import call as ollama_call, resolved_url as ollama_resolved_url
+from ollama_gateway import PREFERRED as OLLAMA_PREFERRED
 
 LOG = logging.getLogger("ghost.llm")
 
-
-class BudgetExhaustedError(RuntimeError):
-    """Raised when the Emergent Universal Key has run out of budget and no
-    user-configured fallback provider (Google / Groq / Ollama) is available.
-
-    Callers should surface a friendly message instructing the user to add their
-    own Google AI or Groq API key via the UI settings panel.
-    """
+LLM_PROVIDER    = os.environ.get("LLM_PROVIDER",    "anthropic")
+LLM_MODEL       = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
+ANTHROPIC_MODEL = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
 
 
-def _is_budget_exhausted(exc: Exception) -> bool:
-    """Heuristic match for LiteLLM / OpenAI 'Budget has been exceeded' errors."""
-    s = str(exc).lower()
-    return (
-        "budget has been exceeded" in s
-        or "budget exceeded" in s
-        or "insufficient_quota" in s
-        or ("badrequesterror" in s and "budget" in s)
-    )
-
-
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")
-LLM_MODEL = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
-OLLAMA_URL = os.environ.get("OLLAMA_GATEWAY_URL", "").rstrip("/")
+# ---------------------------------------------------------------------------
+# Error types
+# ---------------------------------------------------------------------------
+class NoLLMError(RuntimeError):
+    """No LLM provider is configured or all configured providers failed."""
 
 
 # ---------------------------------------------------------------------------
 # Nightly config (persisted in Mongo, overridable via API)
 # ---------------------------------------------------------------------------
-_DB_REF = {"db": None}
+_DB_REF: dict = {"db": None}
 
 
-def bind_db(db):
+def bind_db(db) -> None:
     _DB_REF["db"] = db
 
 
@@ -78,42 +72,42 @@ async def set_nightly_config(cfg: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Providers
+# Native provider calls — no wrappers
 # ---------------------------------------------------------------------------
-async def ollama_available() -> bool:
-    url = ollama_resolved_url()
-    if not url:
-        return False
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as c:
-            r = await c.get(f"{url}/v1/models")
-            return r.status_code == 200
-    except Exception:
-        return False
+async def _call_anthropic(system: str, user: str, model: str | None = None) -> str:
+    import anthropic  # in requirements.txt
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
+    client = anthropic.AsyncAnthropic(api_key=key)
+    kwargs: dict = {
+        "model": model or ANTHROPIC_MODEL,
+        "max_tokens": 4096,
+        "messages": [{"role": "user", "content": user}],
+    }
+    if system:
+        kwargs["system"] = system
+    resp = await client.messages.create(**kwargs)
+    return resp.content[0].text
 
 
-async def _openai_compat(base: str, api_key: str | None, model: str, system: str, user: str) -> str:
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    async with httpx.AsyncClient(timeout=60) as c:
-        r = await c.post(
-            f"{base.rstrip('/')}/chat/completions",
-            headers=headers,
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": 0.6,
-            },
-        )
-        r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+async def _call_groq(system: str, user: str,
+                     model: str = "llama-3.3-70b-versatile",
+                     api_key: str | None = None) -> str:
+    key = api_key or os.environ.get("GROQ_API_KEY", "")
+    if not key:
+        raise RuntimeError("GROQ_API_KEY not set")
+    return await _openai_compat(
+        "https://api.groq.com/openai/v1", key, model, system, user,
+    )
 
 
-async def _google_ai(key: str, model: str, system: str, user: str) -> str:
+async def _call_google(system: str, user: str,
+                       model: str = "gemini-2.0-flash",
+                       api_key: str | None = None) -> str:
+    key = api_key or os.environ.get("GOOGLE_AI_KEY", "")
+    if not key:
+        raise RuntimeError("GOOGLE_AI_KEY not set")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
     body = {
         "systemInstruction": {"parts": [{"text": system}]},
@@ -130,125 +124,187 @@ async def _google_ai(key: str, model: str, system: str, user: str) -> str:
             return json.dumps(j)[:500]
 
 
-async def _emergent(session: str, system: str, user: str,
-                    provider: str = LLM_PROVIDER, model: str = LLM_MODEL) -> str:
-    chat = LlmChat(
-        api_key=EMERGENT_LLM_KEY, session_id=session, system_message=system,
-    ).with_model(provider, model)
-    return await chat.send_message(UserMessage(text=user))
+async def _openai_compat(base: str, api_key: str | None,
+                         model: str, system: str, user: str) -> str:
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    async with httpx.AsyncClient(timeout=60) as c:
+        r = await c.post(
+            f"{base.rstrip('/')}/chat/completions",
+            headers=headers,
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user},
+                ],
+                "temperature": 0.6,
+            },
+        )
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Availability helpers
+# ---------------------------------------------------------------------------
+async def ollama_available() -> bool:
+    url = ollama_resolved_url()
+    if not url:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            r = await c.get(f"{url}/v1/models")
+            return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _anthropic_key() -> str:
+    return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def _groq_key() -> str:
+    return os.environ.get("GROQ_API_KEY", "")
+
+
+def _google_key() -> str:
+    return os.environ.get("GOOGLE_AI_KEY", "")
 
 
 # ---------------------------------------------------------------------------
 # Public chat functions
 # ---------------------------------------------------------------------------
-async def chat_once(session: str, system: str, user: str, role: str = "proposer") -> tuple[str, str]:
-    """Default (Claude-backed, premium) chat for role-critical calls.
+async def chat_once(session: str, system: str, user: str,
+                    role: str = "proposer") -> tuple[str, str]:
+    """Premium path: Anthropic → Groq → Google → Ollama.
 
-    Claude-first: only routes to Ollama when LLM_PROVIDER=='ollama' is set
-    explicitly, so the shared GPU isn't hit during normal chat.
+    Forces Ollama only when LLM_PROVIDER=='ollama' to protect the GPU
+    from being hit during normal chat.
     """
-    if LLM_PROVIDER == "ollama" and await ollama_available():
-        model = {
-            "proposer": os.environ.get("OLLAMA_PROPOSER", "qwen2.5"),
-            "verifier": os.environ.get("OLLAMA_VERIFIER", "deepseek-coder"),
-            "critic":   os.environ.get("OLLAMA_CRITIC",   "llama3.1"),
-        }.get(role, "qwen2.5")
+    if LLM_PROVIDER == "ollama":
+        if await ollama_available():
+            model = OLLAMA_PREFERRED.get(role, "qwen2.5")
+            try:
+                text = await ollama_call(model, system, user)
+                return text, f"ollama:{model}"
+            except Exception as e:
+                LOG.warning("ollama call failed, trying next provider: %s", e)
+
+    # 1. Anthropic
+    if _anthropic_key():
+        try:
+            text = await _call_anthropic(system, user)
+            tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
+            return text, f"anthropic:{tag}"
+        except Exception as e:
+            LOG.warning("anthropic failed: %s", e)
+
+    # 2. Groq (free tier)
+    if _groq_key():
+        cfg = await get_nightly_config()
+        model = cfg.get("groq_model", "llama-3.3-70b-versatile")
+        try:
+            text = await _call_groq(system, user, model)
+            return text, f"groq:{model}"
+        except Exception as e:
+            LOG.warning("groq failed: %s", e)
+
+    # 3. Google Gemini (free tier)
+    if _google_key():
+        cfg = await get_nightly_config()
+        model = cfg.get("google_model", "gemini-2.0-flash")
+        try:
+            text = await _call_google(system, user, model)
+            return text, f"google:{model}"
+        except Exception as e:
+            LOG.warning("google failed: %s", e)
+
+    # 4. Ollama (local free)
+    if await ollama_available():
+        model = OLLAMA_PREFERRED.get(role, "qwen2.5")
         try:
             text = await ollama_call(model, system, user)
             return text, f"ollama:{model}"
-        except Exception as e:  # noqa: BLE001
-            LOG.warning("ollama call failed, falling back to claude: %s", e)
-    text = await _emergent(session, system, user)
-    return text, f"{LLM_PROVIDER}:{LLM_MODEL.split('-2025')[0]}"
+        except Exception as e:
+            LOG.warning("ollama failed: %s", e)
+
+    raise NoLLMError(
+        "No LLM provider available. Set ANTHROPIC_API_KEY, GROQ_API_KEY, "
+        "GOOGLE_AI_KEY, or configure OLLAMA_GATEWAY_URL."
+    )
 
 
 async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
-    """Free/cheap model for nightly autonomy. Picks best available provider."""
+    """Cost-free path: checks Mongo config first, then auto-picks cheapest available."""
     cfg = await get_nightly_config()
     provider = cfg.get("nightly_provider") or _auto_pick_provider(cfg)
 
-    # 1. Explicit user config
+    # --- Explicit Mongo config ---
     if provider == "google" and cfg.get("google_api_key"):
         try:
-            text = await _google_ai(
-                cfg["google_api_key"],
-                cfg.get("google_model", "gemini-2.5-flash"),
-                system, user,
-            )
-            return text, f"google:{cfg.get('google_model', 'gemini-2.5-flash')}"
-        except Exception as e:  # noqa: BLE001
-            LOG.warning("google free call failed: %s", e)
+            model = cfg.get("google_model", "gemini-2.0-flash")
+            text = await _call_google(system, user, model, cfg["google_api_key"])
+            return text, f"google:{model}"
+        except Exception as e:
+            LOG.warning("google (mongo key) failed: %s", e)
 
     if provider == "groq" and cfg.get("groq_api_key"):
         try:
-            text = await _openai_compat(
-                "https://api.groq.com/openai/v1",
-                cfg["groq_api_key"],
-                cfg.get("groq_model", "llama-3.3-70b-versatile"),
-                system, user,
-            )
-            return text, f"groq:{cfg.get('groq_model', 'llama-3.3-70b-versatile')}"
-        except Exception as e:  # noqa: BLE001
-            LOG.warning("groq call failed: %s", e)
+            model = cfg.get("groq_model", "llama-3.3-70b-versatile")
+            text = await _call_groq(system, user, model, cfg["groq_api_key"])
+            return text, f"groq:{model}"
+        except Exception as e:
+            LOG.warning("groq (mongo key) failed: %s", e)
 
     if provider == "ollama" and await ollama_available():
         try:
             model = cfg.get("ollama_model", "qwen2.5")
             text = await ollama_call(model, system, user)
             return text, f"ollama:{model}"
-        except Exception as e:  # noqa: BLE001
-            LOG.warning("ollama call failed: %s", e)
+        except Exception as e:
+            LOG.warning("ollama (config) failed: %s", e)
 
-    # 2. Auto-detect env-provided keys (no Mongo config needed)
-    gkey = os.environ.get("GOOGLE_AI_KEY")
-    if gkey:
-        try:
-            text = await _google_ai(gkey, "gemini-2.5-flash", system, user)
-            return text, "google:gemini-2.5-flash"
-        except Exception as e:  # noqa: BLE001
-            LOG.warning("env google call failed: %s", e)
+    # --- Auto-detect: cheapest first ---
 
-    grkey = os.environ.get("GROQ_API_KEY")
-    if grkey:
-        try:
-            text = await _openai_compat(
-                "https://api.groq.com/openai/v1", grkey,
-                "llama-3.3-70b-versatile", system, user,
-            )
-            return text, "groq:llama-3.3-70b"
-        except Exception as e:  # noqa: BLE001
-            LOG.warning("env groq call failed: %s", e)
-
+    # Ollama — completely free, local
     if await ollama_available():
         try:
             text = await ollama_call("qwen2.5", system, user)
             return text, "ollama:qwen2.5"
-        except Exception as e:  # noqa: BLE001
-            LOG.warning("auto ollama call failed: %s", e)
+        except Exception as e:
+            LOG.warning("auto ollama failed: %s", e)
 
-    # 3. Absolute fallback → Emergent + cheapest model
-    try:
-        text = await _emergent(session, system, user, "gemini", "gemini-2.5-flash")
-        return text, "emergent:gemini-2.5-flash"
-    except Exception as e:  # noqa: BLE001
-        if _is_budget_exhausted(e):
-            LOG.error("emergent gemini fallback: budget exhausted")
-            raise BudgetExhaustedError(
-                "Emergent Universal Key budget exhausted and no user "
-                "Google/Groq key configured."
-            ) from e
-        LOG.warning("emergent gemini fallback failed: %s, trying claude-haiku", e)
+    # Groq env key — free tier
+    if _groq_key():
         try:
-            text = await _emergent(session, system, user, "anthropic", "claude-haiku-4-5-20251001")
-            return text, "emergent:claude-haiku"
-        except Exception as e2:  # noqa: BLE001
-            if _is_budget_exhausted(e2):
-                LOG.error("emergent claude-haiku fallback: budget exhausted")
-                raise BudgetExhaustedError(
-                    "Emergent Universal Key budget exhausted and no user "
-                    "Google/Groq key configured."
-                ) from e2
-            raise
+            text = await _call_groq(system, user)
+            return text, "groq:llama-3.3-70b-versatile"
+        except Exception as e:
+            LOG.warning("env groq failed: %s", e)
+
+    # Google env key — free tier
+    if _google_key():
+        try:
+            text = await _call_google(system, user)
+            return text, "google:gemini-2.0-flash"
+        except Exception as e:
+            LOG.warning("env google failed: %s", e)
+
+    # Anthropic — paid, last resort
+    if _anthropic_key():
+        try:
+            text = await _call_anthropic(system, user)
+            tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
+            return text, f"anthropic:{tag}"
+        except Exception as e:
+            LOG.warning("anthropic nightly fallback failed: %s", e)
+
+    raise NoLLMError(
+        "No LLM provider available for nightly chat. "
+        "Set GROQ_API_KEY, GOOGLE_AI_KEY, or configure OLLAMA_GATEWAY_URL for free use."
+    )
 
 
 def _auto_pick_provider(cfg: dict) -> str:
@@ -262,13 +318,14 @@ def _auto_pick_provider(cfg: dict) -> str:
 async def nightly_status() -> dict:
     cfg = await get_nightly_config()
     return {
-        "provider": cfg.get("nightly_provider") or _auto_pick_provider(cfg),
-        "has_google_key": bool(cfg.get("google_api_key") or os.environ.get("GOOGLE_AI_KEY")),
-        "has_groq_key": bool(cfg.get("groq_api_key") or os.environ.get("GROQ_API_KEY")),
-        "google_model": cfg.get("google_model", "gemini-2.5-flash"),
-        "groq_model": cfg.get("groq_model", "llama-3.3-70b-versatile"),
-        "ollama_reachable": await ollama_available(),
-        "fallback": "emergent:gemini-2.5-flash",
+        "provider":          cfg.get("nightly_provider") or _auto_pick_provider(cfg),
+        "has_anthropic_key": bool(_anthropic_key()),
+        "has_google_key":    bool(cfg.get("google_api_key") or _google_key()),
+        "has_groq_key":      bool(cfg.get("groq_api_key")   or _groq_key()),
+        "google_model":      cfg.get("google_model",  "gemini-2.0-flash"),
+        "groq_model":        cfg.get("groq_model",    "llama-3.3-70b-versatile"),
+        "ollama_reachable":  await ollama_available(),
+        "fallback_chain":    ["ollama (local)", "groq (free)", "google (free)", "anthropic"],
     }
 
 
@@ -283,7 +340,7 @@ def _json_block(s: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# SAGE cycle (now uses nightly_chat by default — free)
+# SAGE cycle
 # ---------------------------------------------------------------------------
 PROPOSER_SYS = """You are the GH05T3 SAGE Proposer agent.
 Propose ONE concrete, self-improvement change to GH05T3 that would measurably
@@ -300,8 +357,6 @@ Respond strict JSON: {"verdict":"PASS|PARTIAL|FAIL","rationale":"<<=20 words>>"}
 
 
 async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
-    """Run a full SAGE cycle. use_nightly=True (default) uses the free/cheap router."""
-
     async def _call(session, system, user, role="proposer"):
         if use_nightly:
             return await nightly_chat(session, system, user)
@@ -326,21 +381,27 @@ async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
     if verdict not in {"PASS", "PARTIAL", "FAIL"}:
         verdict = "PARTIAL"
 
-    base = {"PASS": 1.0, "PARTIAL": 0.6, "FAIL": 0.2}[verdict]
-    mult = {"APPROVE": 1.0, "REJECT": 0.5, "REVISE": 0.75}[decision]
+    base  = {"PASS": 1.0, "PARTIAL": 0.6, "FAIL": 0.2}[verdict]
+    mult  = {"APPROVE": 1.0, "REJECT": 0.5, "REVISE": 0.75}[decision]
     final = round(base * mult, 3)
-    elite = final >= 0.85
+    elite    = final >= 0.85
     archived = final >= 0.70 or verdict == "PASS"
 
     return {
-        "cycle_num": cycle_num,
-        "proposer": proposer_tag, "critic": critic_tag, "verifier": verifier_tag,
-        "proposal": proposal, "critic_decision": decision,
-        "critic_reason": cj.get("reason", "")[:200],
-        "verdict": verdict,
+        "cycle_num":         cycle_num,
+        "proposer":          proposer_tag,
+        "critic":            critic_tag,
+        "verifier":          verifier_tag,
+        "proposal":          proposal,
+        "critic_decision":   decision,
+        "critic_reason":     cj.get("reason", "")[:200],
+        "verdict":           verdict,
         "verifier_rationale": vj.get("rationale", "")[:200],
-        "base_score": base, "multiplier": mult, "final_score": final,
-        "archived": archived, "elite": elite,
+        "base_score":        base,
+        "multiplier":        mult,
+        "final_score":       final,
+        "archived":          archived,
+        "elite":             elite,
     }
 
 
@@ -354,6 +415,5 @@ apply before launch. Max 140 words. No fluff."""
 
 
 async def cassandra_premortem(scenario: str) -> str:
-    # Cassandra is also free/cheap — use nightly router
     text, _ = await nightly_chat("cassandra", CASSANDRA_SYS, scenario)
     return text.strip()

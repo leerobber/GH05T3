@@ -59,14 +59,15 @@ print(f"\n  Compiled {compile_passes}/{len(py_files)} files cleanly")
 section("2. MODULE IMPORT CHECK")
 
 modules_to_import = [
-    ("emergentintegrations.llm.chat",   ["LlmChat", "UserMessage"]),
-    ("evolution.kairos",                ["KAIROS", "KAIROSCycle"]),
-    ("evolution.sage",                  ["SAGE"]),
-    ("memory.memory_palace",            ["MemoryPalace"]),
-    ("security.ghost_protocol",         ["GhostProtocol", "KillSwitch"]),
-    ("swarm.bus",                       ["SwarmBus", "SwarmAgent", "MsgType", "SwarmMessage"]),
-    ("swarm.agents",                    ["GH05T3Swarm"]),
-    ("core.config",                     ["BACKENDS", "GATEWAY_PORT"]),
+    ("ghost_llm",                        ["chat_once", "nightly_chat", "NoLLMError",
+                                          "ollama_available", "nightly_status", "run_sage_cycle"]),
+    ("evolution.kairos",                 ["KAIROS", "KAIROSCycle"]),
+    ("evolution.sage",                   ["SAGE"]),
+    ("memory.memory_palace",             ["MemoryPalace"]),
+    ("security.ghost_protocol",          ["GhostProtocol", "KillSwitch"]),
+    ("swarm.bus",                        ["SwarmBus", "SwarmAgent", "MsgType", "SwarmMessage"]),
+    ("swarm.agents",                     ["GH05T3Swarm"]),
+    ("core.config",                      ["BACKENDS", "GATEWAY_PORT"]),
 ]
 
 # Packages that are in requirements.txt but not in the CI/test system Python
@@ -92,40 +93,67 @@ for mod_path, symbols in modules_to_import:
         record(f"import:{mod_path}", False, str(e))
 
 # ──────────────────────────────────────────────────────────────
-# 3. EMERGENTINTEGRATIONS SHIM
+# 3. NATIVE LLM PROVIDERS (ghost_llm)
 # ──────────────────────────────────────────────────────────────
-section("3. EMERGENTINTEGRATIONS SHIM")
+section("3. NATIVE LLM PROVIDERS")
 
 try:
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
-    msg = UserMessage(text="hello")
-    record("shim:UserMessage dataclass", msg.text == "hello", f"text='{msg.text}'")
+    from ghost_llm import (
+        NoLLMError, _call_anthropic, _call_groq, _call_google,
+        chat_once, nightly_chat, nightly_status,
+        ollama_available, run_sage_cycle, bind_db, ANTHROPIC_MODEL,
+        LLM_PROVIDER, _anthropic_key, _groq_key, _google_key,
+    )
 
-    chat = LlmChat(api_key="test", session_id="s1", system_message="You are GH05T3")
-    record("shim:LlmChat init", True, "instantiated OK")
+    record("shim:ghost_llm importable", True, "all symbols present")
+    record("shim:NoLLMError is RuntimeError subclass",
+           issubclass(NoLLMError, RuntimeError), "inheritance OK")
+    record("shim:LLM_PROVIDER set", isinstance(LLM_PROVIDER, str),
+           f"LLM_PROVIDER={LLM_PROVIDER!r}")
+    record("shim:ANTHROPIC_MODEL set", isinstance(ANTHROPIC_MODEL, str),
+           f"ANTHROPIC_MODEL={ANTHROPIC_MODEL!r}")
 
-    chat2 = chat.with_model("anthropic", "claude-sonnet-4-5-20250929")
-    record("shim:with_model fluent", chat2 is chat, "returns self")
-    record("shim:provider stored", chat._provider == "anthropic", f"provider={chat._provider}")
-    record("shim:model stored",    chat._model == "claude-sonnet-4-5-20250929", f"model={chat._model}")
+    # Key helpers return strings
+    record("shim:_anthropic_key() returns str", isinstance(_anthropic_key(), str), "OK")
+    record("shim:_groq_key() returns str",      isinstance(_groq_key(),      str), "OK")
+    record("shim:_google_key() returns str",    isinstance(_google_key(),    str), "OK")
 
-    chat_openai = LlmChat().with_model("openai", "gpt-4o")
-    record("shim:openai provider", chat_openai._provider == "openai", f"provider={chat_openai._provider}")
+    # chat_once / nightly_chat are async callables
+    import inspect
+    record("shim:chat_once is coroutinefunction",
+           inspect.iscoroutinefunction(chat_once), "async OK")
+    record("shim:nightly_chat is coroutinefunction",
+           inspect.iscoroutinefunction(nightly_chat), "async OK")
+    record("shim:nightly_status is coroutinefunction",
+           inspect.iscoroutinefunction(nightly_status), "async OK")
+    record("shim:ollama_available is coroutinefunction",
+           inspect.iscoroutinefunction(ollama_available), "async OK")
+    record("shim:run_sage_cycle is coroutinefunction",
+           inspect.iscoroutinefunction(run_sage_cycle), "async OK")
 
-    # No API key → send_message must raise RuntimeError or ImportError
-    # (ImportError is acceptable in CI where anthropic isn't pip-installed)
+    # NoLLMError raised when no keys/ollama configured
     os.environ.pop("ANTHROPIC_API_KEY", None)
+    os.environ.pop("GROQ_API_KEY",      None)
+    os.environ.pop("GOOGLE_AI_KEY",     None)
+    os.environ.pop("OLLAMA_GATEWAY_URL", None)
     try:
-        asyncio.run(chat.send_message(UserMessage(text="test")))
-        record("shim:no-key raises", False, "should have raised an error")
-    except (RuntimeError, ModuleNotFoundError, ImportError) as e:
-        record("shim:no-key raises on missing key/dep", True,
-               f"{type(e).__name__}: {e}")
+        asyncio.run(chat_once("s", "system", "user"))
+        record("shim:NoLLMError raised with no providers", False, "expected NoLLMError")
+    except NoLLMError as e:
+        record("shim:NoLLMError raised with no providers", True, str(e)[:80])
     except Exception as e:
-        record("shim:no-key raises on missing key/dep", False,
-               f"unexpected: {type(e).__name__}: {e}")
+        record("shim:NoLLMError raised with no providers", False,
+               f"unexpected {type(e).__name__}: {e}")
+
+except ModuleNotFoundError as e:
+    missing_mod = str(e).replace("No module named '", "").rstrip("'")
+    if any(dep in missing_mod for dep in OPTIONAL_DEPS):
+        record("shim:ghost_llm import", True,
+               f"SKIPPED — dep '{missing_mod}' not in CI Python (in requirements.txt)")
+    else:
+        record("shim:ghost_llm import", False, str(e))
 except Exception as e:
-    record("shim:init", False, str(e))
+    record("shim:ghost_llm init", False, str(e))
 
 # ──────────────────────────────────────────────────────────────
 # 4. KAIROS EVOLUTION ENGINE
