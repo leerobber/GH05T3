@@ -1,11 +1,11 @@
-# GH05T3 — Native Windows Installer (v3)
+# GH05T3 - Native Windows Installer (v3)
 # ----------------------------------------
 # Run once in PowerShell as Administrator from inside the repo:
 #   cd C:\Users\<you>\GH05T3\native\windows
 #   .\install.ps1
 #
 # Installs: Python 3.11, MongoDB Community, Node.js 20, Yarn (via winget).
-# Installs in-place — uses the cloned repo as the app folder (no copy needed).
+# Installs in-place - uses the cloned repo as the app folder (no copy needed).
 
 $ErrorActionPreference = "Stop"
 Write-Host "==> GH05T3 native install starting (v3)" -ForegroundColor Yellow
@@ -53,7 +53,7 @@ if (-not (Have mongod)) {
     Write-Host "Installing MongoDB Community..." -ForegroundColor Cyan
     winget install --id MongoDB.Server --silent --accept-source-agreements --accept-package-agreements
 }
-# winget does not add MongoDB to the running session's PATH — do it manually
+# winget does not add MongoDB to the running session's PATH - do it manually
 $mongoBase = "C:\Program Files\MongoDB\Server"
 if (Test-Path $mongoBase) {
     $mongoBin = (Get-ChildItem $mongoBase -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName + "\bin"
@@ -150,7 +150,7 @@ $lnk.Save()
 Write-Host ""
 Write-Host "==> Install complete." -ForegroundColor Green
 Write-Host ""
-Write-Host "  Run now — paste each line separately into PowerShell:" -ForegroundColor Green
+Write-Host "  Run now - paste each line separately into PowerShell:" -ForegroundColor Green
 Write-Host "    cd `"$APP`"" -ForegroundColor White
 Write-Host "    .\run.bat" -ForegroundColor White
 Write-Host ""
