@@ -13,19 +13,23 @@ if not exist "%APP%backend\evolution" mkdir "%APP%backend\evolution"
 
 set PY=%APP%backend\.venv\Scripts\python
 
-REM - Locate mongod (winget may not update PATH in the current session) -
+REM - Locate mongod (winget may not update PATH in current session) -
+REM NOTE: do NOT use if-else blocks here - PATH contains ) chars from
+REM "Program Files (x86)" which terminate the block early.  Use goto instead.
 where mongod >nul 2>&1
-if errorlevel 1 (
-    for /d %%v in ("C:\Program Files\MongoDB\Server\*") do set MONGOBIN=%%v\bin
-    if defined MONGOBIN (
-        set PATH=%PATH%;%MONGOBIN%
-    ) else (
-        echo ERROR: mongod not found. Re-run install.ps1 as Administrator.
-        pause
-        exit /b 1
-    )
-)
+if not errorlevel 1 goto mongod_ok
 
+for /d %%v in ("C:\Program Files\MongoDB\Server\*") do set MONGOBIN=%%v\bin
+if not defined MONGOBIN goto mongod_missing
+set "PATH=%PATH%;%MONGOBIN%"
+goto mongod_ok
+
+:mongod_missing
+echo ERROR: mongod not found. Re-run install.ps1 as Administrator.
+pause
+exit /b 1
+
+:mongod_ok
 REM - MongoDB :27017 -
 start "gh05t3-mongo" /min mongod --dbpath "%APP%mongo-data" --bind_ip 127.0.0.1 --port 27017 --quiet
 timeout /t 2 /nobreak > nul

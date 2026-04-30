@@ -15,8 +15,10 @@ Write-Host "Stopping any running GH05T3 processes..." -ForegroundColor Cyan
 foreach ($t in @("gh05t3-mongo","gh05t3-backend","gh05t3-gateway-v3","gh05t3-frontend","gh05t3-whisper")) {
     & taskkill /FI "WINDOWTITLE eq $t" /F 2>$null | Out-Null
 }
-Stop-Process -Name "mongod" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
+Stop-Process -Name "mongod"  -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "python"  -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "python3" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 3
 
 function Have($cmd) {
     return (Get-Command $cmd -ErrorAction SilentlyContinue) -ne $null
@@ -126,7 +128,24 @@ Write-Host "Creating Python venv..." -ForegroundColor Cyan
 Push-Location "$APP\backend"
 if (Test-Path ".venv") {
     Write-Host "Removing old venv..." -ForegroundColor Cyan
-    Remove-Item -Recurse -Force ".venv"
+    # Remove-Item can fail if Windows Defender holds a .pyd file open.
+    # Retry up to 3 times, falling back to cmd's rd which bypasses PS file locking.
+    $removed = $false
+    for ($i = 0; $i -lt 3; $i++) {
+        try {
+            Remove-Item -Recurse -Force ".venv" -ErrorAction Stop
+            $removed = $true
+            break
+        } catch {
+            Write-Host "  File still locked, waiting 5s (attempt $($i+1)/3)..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 5
+            & cmd.exe /c "rd /s /q .venv" 2>$null
+            if (-not (Test-Path ".venv")) { $removed = $true; break }
+        }
+    }
+    if (-not $removed) {
+        throw "Cannot delete .venv - a process still holds a file lock. Reboot and retry."
+    }
 }
 python -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip --quiet
