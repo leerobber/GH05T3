@@ -77,8 +77,8 @@ from phase6 import (
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-MONGO_URL = os.environ["MONGO_URL"]
-DB_NAME = os.environ["DB_NAME"]
+MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+DB_NAME   = os.environ.get("DB_NAME",   "gh05t3")
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")
 LLM_MODEL = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
@@ -367,13 +367,17 @@ async def _state_snapshot() -> dict:
     return doc
 
 
-@api.get("/health")
-async def health():
+async def _db_ping() -> bool:
     try:
         await db.command("ping")
-        db_ok = True
-    except Exception as e:
-        db_ok = False
+        return True
+    except Exception:
+        return False
+
+
+@api.get("/health")
+async def health():
+    db_ok = await _db_ping()
     return {"status": "ok" if db_ok else "degraded", "db": db_ok,
             "scheduler": scheduler.running}
 
@@ -1129,21 +1133,44 @@ async def _seed_identity_memories():
 
 @app.on_event("startup")
 async def _seed_identity():
-    await ensure_state()
-    await ensure_hcm_corpus()
-    await _seed_identity_memories()
-    await swarm.ensure()
+    # Retry MongoDB connection up to 10 times (2 s apart) in case mongod is still
+    # starting up when uvicorn launches — avoids a boot-race 500 on first request.
+    for attempt in range(10):
+        try:
+            await db.command("ping")
+            break
+        except Exception:
+            if attempt == 9:
+                logger.warning("MongoDB not reachable after 20 s — continuing in degraded mode")
+            else:
+                logger.info("Waiting for MongoDB (attempt %d/10)…", attempt + 1)
+                await asyncio.sleep(2)
+
+    try:
+        await ensure_state()
+        await ensure_hcm_corpus()
+        await _seed_identity_memories()
+        await swarm.ensure()
+    except Exception:
+        logger.exception("startup seed failed — degraded mode")
+
     _register_jobs()
     try:
         scheduler.start()
     except Exception:
         pass
-    await ollama_load_url(db)
-    cfg = await db.telegram_config.find_one({"_id": "singleton"})
-    if cfg and cfg.get("bot_token"):
-        await telegram.start()
-    logger.info("GH05T3 gateway online — ollama=%s",
-                "yes" if await ollama_available() else "no")
+
+    try:
+        await ollama_load_url(db)
+        cfg = await db.telegram_config.find_one({"_id": "singleton"})
+        if cfg and cfg.get("bot_token"):
+            await telegram.start()
+    except Exception:
+        pass
+
+    logger.info("GH05T3 gateway online — ollama=%s db=%s",
+                "yes" if await ollama_available() else "no",
+                "ok" if await _db_ping() else "OFFLINE")
 
 
 @app.on_event("shutdown")

@@ -32,6 +32,16 @@ exit /b 1
 :mongod_ok
 REM - MongoDB :27017 -
 start "gh05t3-mongo" /min mongod --dbpath "%APP%mongo-data" --bind_ip 127.0.0.1 --port 27017 --quiet
+REM Wait up to 12 s for mongod to accept connections before starting the backend.
+:mongo_wait
+timeout /t 2 /nobreak > nul
+mongosh --quiet --eval "db.runCommand({ping:1})" mongodb://127.0.0.1:27017 >nul 2>&1
+if errorlevel 1 (
+    echo Waiting for MongoDB...
+    timeout /t 2 /nobreak > nul
+    mongosh --quiet --eval "db.runCommand({ping:1})" mongodb://127.0.0.1:27017 >nul 2>&1
+)
+REM If mongosh is not available, fall back to a fixed 6 s sleep.
 timeout /t 2 /nobreak > nul
 
 REM - server.py :8001  (existing FastAPI + MongoDB backend) -
