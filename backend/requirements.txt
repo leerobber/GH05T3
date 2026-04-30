@@ -151,3 +151,14 @@ websocket-client==1.9.0
 websockets==16.0
 yarl==1.23.0
 zipp==3.23.0
+
+# ── Tier 2/3 integrations (all optional — graceful fallback when absent) ──────
+# Prometheus metrics endpoint
+prometheus-client>=0.20.0
+# Weights & Biases training visualization
+# wandb>=0.16.0
+# Qdrant vector memory (requires: docker run -p 6333:6333 qdrant/qdrant)
+# qdrant-client>=1.8.0
+# Telegram/Slack notifier — uses httpx (already in deps)
+# LoRA fine-tuning (GPU required — install AFTER the rest, CUDA-specific)
+# pip install "unsloth[cu124]" trl>=0.9.0 datasets accelerate

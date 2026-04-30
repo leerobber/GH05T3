@@ -165,6 +165,35 @@ TRAIN_TARGET_REASONING=3000
 TRAIN_TARGET_CVE=3000
 TRAIN_TARGET_BOUNTY=5000
 
+# --- LoRA fine-tuning ---
+# Base model to fine-tune (must be available on HuggingFace)
+FINETUNE_BASE_MODEL=unsloth/Qwen2.5-Coder-7B-Instruct
+# Training steps (500 ≈ 2-3h on RTX 5050 with 16k examples)
+FINETUNE_MAX_STEPS=500
+FINETUNE_BATCH_SIZE=2
+FINETUNE_LORA_RANK=16
+
+# --- Weights & Biases (free at wandb.ai) ---
+WANDB_API_KEY=
+WANDB_PROJECT=gh05t3
+# WANDB_DISABLED=1  # uncomment to silence W&B
+
+# --- Telegram mobile alerts (@BotFather to create bot, @userinfobot for chat ID) ---
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# --- Slack webhook (optional, alternative to Telegram) ---
+SLACK_WEBHOOK_URL=
+
+# --- Qdrant vector memory (docker run -p 6333:6333 qdrant/qdrant) ---
+QDRANT_URL=http://localhost:6333
+
+# --- Jira auto-issues (optional) ---
+JIRA_URL=
+JIRA_EMAIL=
+JIRA_API_TOKEN=
+JIRA_PROJECT_KEY=KAN
+
 # --- Resource / scheduling tuning ---
 # How many KAIROS self-improvement cycles to run each night (default 10)
 KAIROS_CYCLES_PER_NIGHT=10
@@ -229,6 +258,24 @@ python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt --quiet
 .\.venv\Scripts\pip install pystray pillow pyttsx3 sounddevice numpy `
     faster-whisper openwakeword edge-tts --quiet
+
+# ---- LoRA fine-tuning deps (GPU — skip gracefully if CUDA not available) ----
+Write-Host "Installing GPU training deps (unsloth + trl)..." -ForegroundColor Cyan
+try {
+    .\.venv\Scripts\pip install "unsloth[cu124]" trl datasets accelerate --quiet
+    Write-Host "  GPU training deps installed." -ForegroundColor Green
+} catch {
+    Write-Host "  GPU training deps failed (no CUDA or wrong version) — fine-tuning disabled." -ForegroundColor Yellow
+    Write-Host "  To enable: pip install 'unsloth[cu124]' trl datasets accelerate" -ForegroundColor Yellow
+}
+
+# ---- W&B + Qdrant (optional, both silently skipped if not installed) ----
+try {
+    .\.venv\Scripts\pip install wandb qdrant-client prometheus-client --quiet
+    Write-Host "  W&B + Qdrant + Prometheus installed." -ForegroundColor Green
+} catch {
+    Write-Host "  Optional metrics deps skipped." -ForegroundColor Gray
+}
 Pop-Location
 
 # ---- Frontend build (LAN IP baked into JS bundle) ----

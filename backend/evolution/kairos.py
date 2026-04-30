@@ -47,6 +47,33 @@ class KAIROS:
         with open(KAIROS_LOG, "a") as f:
             f.write(json.dumps(cycle.to_dict()) + "\n")
 
+        # W&B — best-effort
+        try:
+            from integrations.wandb_logger import log_kairos_cycle
+            log_kairos_cycle(
+                cycle_id=cycle.id,
+                score=cycle.score,
+                is_elite=cycle.is_elite,
+                total_cycles=len(self._cycles),
+                elite_cycles=len(self._elite),
+            )
+        except Exception:
+            pass
+
+        # Notify on elite — best-effort
+        if cycle.is_elite:
+            try:
+                import asyncio
+                from integrations.notifier import notify_elite_cycle
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(notify_elite_cycle(
+                        cycle.id, cycle.score, cycle.proposal))
+                except RuntimeError:
+                    pass  # no event loop — skip notification
+            except Exception:
+                pass
+
         return cycle
 
     @property
@@ -62,3 +89,4 @@ class KAIROS:
             "elite_threshold":  self.elite_threshold,
             "avg_score":        sum(scores) / len(scores) if scores else 0.0,
         }
+

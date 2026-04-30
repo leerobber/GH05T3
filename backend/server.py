@@ -66,6 +66,7 @@ from ghosteye_reactor import GhostEyeReactor
 from autotelic import AutotelicEngine
 from peer_mesh import PeerMesh
 from training.pipeline import run_pipeline, pipeline_status
+from training.finetune import run_finetune, finetune_status
 from phase6 import (
     companion_audit, daily_summary, decay_memories, dream_cycle,
     get_reasoning_trace, kairos_trajectory, kill_deep_freeze, kill_reset,
@@ -1607,6 +1608,34 @@ async def training_generate_ep():
         run_pipeline(collect=False, generate=True, ws_broadcast=ws_mgr.broadcast)
     )
     return {"status": "generating"}
+
+
+# ─────────────────────────────────────────────────────────────
+# Fine-tune endpoints
+# ─────────────────────────────────────────────────────────────
+@api.get("/training/finetune/status")
+async def finetune_status_ep():
+    return finetune_status()
+
+
+@api.post("/training/finetune")
+async def finetune_ep():
+    """
+    Start LoRA fine-tuning in background.
+    Requires: unsloth + trl installed AND training datasets generated first.
+    """
+    result = await run_finetune(ws_broadcast=ws_mgr.broadcast)
+    return result
+
+
+@api.post("/training/run-all")
+async def run_all_ep():
+    """Collect → Generate → Fine-tune (full pipeline, sequential)."""
+    async def _full():
+        await run_pipeline(collect=True, generate=True, ws_broadcast=ws_mgr.broadcast)
+        await run_finetune(ws_broadcast=ws_mgr.broadcast)
+    asyncio.create_task(_full())
+    return {"status": "started", "phases": ["collect", "generate", "finetune"]}
 
 
 app.include_router(api)

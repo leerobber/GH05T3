@@ -573,6 +573,89 @@ async def ws_stream(ws: WebSocket):
 
 
 # ─────────────────────────────────────────────
+# PROMETHEUS /metrics
+# Falls back to JSON if prometheus_client not installed.
+# ─────────────────────────────────────────────
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """
+    Expose Prometheus-compatible metrics.
+    Scrape with: prometheus.yml → scrape_configs → targets: [localhost:8002]
+    Falls back to JSON when prometheus_client is not installed.
+    """
+    try:
+        from prometheus_client import (
+            Counter, Gauge, generate_latest, CONTENT_TYPE_LATEST,
+            REGISTRY,
+        )
+        from starlette.responses import Response
+
+        # Re-use or register metrics idempotently
+        def _gauge(name, doc):
+            try:
+                return Gauge(name, doc)
+            except ValueError:
+                return REGISTRY._names_to_collectors.get(name)
+
+        def _counter(name, doc):
+            try:
+                return Counter(name, doc)
+            except ValueError:
+                return REGISTRY._names_to_collectors.get(name)
+
+        g_total    = _gauge("gh05t3_kairos_cycles_total",  "Total KAIROS cycles")
+        g_elite    = _gauge("gh05t3_kairos_elite_total",   "Total elite KAIROS cycles")
+        g_avg      = _gauge("gh05t3_kairos_avg_score",     "Average KAIROS score")
+        g_threats  = _gauge("gh05t3_sentinel_threats",     "SENTINEL threats detected")
+        g_shards   = _gauge("gh05t3_memory_shards",        "Memory Palace shard count")
+        g_clients  = _gauge("gh05t3_ws_clients",           "Active WebSocket clients")
+        g_agents   = _gauge("gh05t3_swarm_agents",         "Active swarm agents")
+
+        ks = kairos.stats
+        if g_total:  g_total.set(ks["total_cycles"])
+        if g_elite:  g_elite.set(ks["elite_cycles"])
+        if g_avg:    g_avg.set(ks["avg_score"])
+        if g_shards: g_shards.set(memory.stats()["total_shards"])
+        if g_clients: g_clients.set(len(bus._ws_clients))
+        if g_agents:  g_agents.set(len(bus.agents))
+
+        if swarm and g_threats:
+            sentinel = swarm.sentinel if hasattr(swarm, "sentinel") else None
+            if sentinel:
+                g_threats.set(sentinel.stats.get("threats", 0))
+
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+    except ImportError:
+        # prometheus_client not installed — return JSON
+        ks = kairos.stats
+        return {
+            "gh05t3_kairos_cycles_total": ks["total_cycles"],
+            "gh05t3_kairos_elite_total":  ks["elite_cycles"],
+            "gh05t3_kairos_avg_score":    ks["avg_score"],
+            "gh05t3_memory_shards":       memory.stats()["total_shards"],
+            "gh05t3_ws_clients":          len(bus._ws_clients),
+            "gh05t3_swarm_agents":        len(bus.agents),
+        }
+
+
+@app.get("/status/integrations")
+async def integrations_status():
+    """Show which optional integrations are active."""
+    from integrations.notifier      import notifier_status
+    from integrations.wandb_logger  import wandb_status
+    from integrations.jira_sentinel import jira_status
+    from memory.memory_palace       import _qdrant_ok
+    return {
+        "notifier": notifier_status(),
+        "wandb":    wandb_status(),
+        "jira":     jira_status(),
+        "qdrant":   _qdrant_ok,
+    }
+
+
+# ─────────────────────────────────────────────
 # ENTRYPOINT
 # ─────────────────────────────────────────────
 

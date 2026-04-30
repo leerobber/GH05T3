@@ -265,6 +265,17 @@ class SentinelAgent(SwarmAgent):
                     flagged_msg_id=msg.id,
                     threat=threat,
                 )
+                # Notify + auto-issue — best-effort
+                try:
+                    from integrations.notifier import notify_threat
+                    await notify_threat(threat, msg.src)
+                except Exception:
+                    pass
+                try:
+                    from integrations.jira_sentinel import create_threat_issue
+                    await create_threat_issue(threat, msg.src)
+                except Exception:
+                    pass
                 return
 
         # Security audit on FORGE code results
@@ -302,6 +313,11 @@ class SentinelAgent(SwarmAgent):
                 src_msg_id=msg.id,
             )
             await self.dm("FORGE", f"Security risks in your output: {', '.join(risks)}. Please revise.")
+            try:
+                from integrations.jira_sentinel import create_code_risk_issue
+                await create_code_risk_issue(risks, msg.content[:400])
+            except Exception:
+                pass
         else:
             await self.think(f"SENTINEL: FORGE output clear — no security risks")
 
