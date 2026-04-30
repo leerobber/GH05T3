@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GH05T3 Linux Installer — Cloud / Headless Server
+# GH05T3 Linux Installer  -  Cloud / Headless Server
 # Run once as root or a sudo-capable user from inside the repo:
 #   cd /opt/gh05t3/native/linux
 #   bash install.sh
@@ -105,7 +105,7 @@ ENV_PATH="$BACKEND/.env"
 if [ ! -f "$ENV_PATH" ]; then
     HOSTNAME_VAL="$(hostname -f 2>/dev/null || hostname)"
     cat > "$ENV_PATH" <<ENVEOF
-# GH05T3 backend — Linux instance
+# GH05T3 backend  -  Linux instance
 # Edit the values below, then restart the services.
 
 MONGO_URL=mongodb://localhost:27017
@@ -113,18 +113,18 @@ DB_NAME=gh05t3
 CORS_ORIGINS=*
 
 # --- LLM provider (anthropic | groq | google | ollama) ---
-# Priority: Anthropic → Groq → Google → Ollama (first key wins).
+# Priority: Anthropic -> Groq -> Google -> Ollama (first key wins).
 # For fully free operation: leave ANTHROPIC_API_KEY blank and set GROQ_API_KEY.
 LLM_PROVIDER=anthropic
 LLM_MODEL=claude-sonnet-4-6
 
-# Anthropic (paid) — best quality
+# Anthropic (paid)  -  best quality
 ANTHROPIC_API_KEY=
 
-# Groq (free tier) — llama-3.3-70b, fast, generous free quota
+# Groq (free tier)  -  llama-3.3-70b, fast, generous free quota
 GROQ_API_KEY=
 
-# Google AI (free tier) — gemini-2.0-flash
+# Google AI (free tier)  -  gemini-2.0-flash
 GOOGLE_AI_KEY=
 
 GITHUB_PAT=
@@ -180,7 +180,7 @@ INSTANCE_URL=http://$HOSTNAME_VAL:8001
 PEER_URLS=
 SYNC_INTERVAL=300
 ENVEOF
-    echo ">>> Created $ENV_PATH — fill in API keys before starting."
+    echo ">>> Created $ENV_PATH  -  fill in API keys before starting."
 fi
 
 # ---- Frontend .env.local -----------------------------------------------------

@@ -1,4 +1,4 @@
-# GH05T3 - Native Windows Installer (v3)
+﻿# GH05T3 - Native Windows Installer (v3)
 # ----------------------------------------
 # Run once in PowerShell as Administrator from inside the repo:
 #   cd C:\Users\<you>\GH05T3\native\windows
@@ -45,7 +45,7 @@ $LAN_IP = (Get-NetIPAddress -AddressFamily IPv4 |
 if (-not $LAN_IP) { $LAN_IP = "localhost" }
 Write-Host "Detected LAN IP: $LAN_IP" -ForegroundColor Cyan
 
-# ---- Detect Tailscale IP (100.x.x.x — works from anywhere, not just home WiFi) ----
+# ---- Detect Tailscale IP (100.x.x.x  -  works from anywhere, not just home WiFi) ----
 $TAILSCALE_IP = $null
 try {
     $ts = & tailscale ip --4 2>$null
@@ -61,7 +61,7 @@ if ($TAILSCALE_IP) {
     Write-Host "Tailscale detected: $TAILSCALE_IP (Android can reach GH05T3 from anywhere)" -ForegroundColor Green
     $REMOTE_IP = $TAILSCALE_IP
 } else {
-    Write-Host "Tailscale not detected — LAN-only mode at $LAN_IP" -ForegroundColor Yellow
+    Write-Host "Tailscale not detected  -  LAN-only mode at $LAN_IP" -ForegroundColor Yellow
     Write-Host "  Install Tailscale for remote access: https://tailscale.com/download" -ForegroundColor Gray
     $REMOTE_IP = $LAN_IP
 }
@@ -112,7 +112,7 @@ if (Test-Path $mongoBase) {
     Write-Host "MongoDB bin added to PATH: $mongoBin" -ForegroundColor Cyan
 }
 
-# ---- Windows Firewall — open GH05T3 ports for LAN access (Android) ----
+# ---- Windows Firewall  -  open GH05T3 ports for LAN access (Android) ----
 Write-Host "Opening Windows Firewall for GH05T3 ports (3210, 8001, 8002)..." -ForegroundColor Cyan
 foreach ($port in @(3210, 8001, 8002)) {
     $ruleName = "GH05T3-port-$port"
@@ -126,7 +126,7 @@ foreach ($d in @("$APP\mongo-data","$APP\backend\memory","$APP\backend\evolution
     if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d | Out-Null }
 }
 
-# ---- Backend .env (only create if missing — preserves existing keys) ----
+# ---- Backend .env (only create if missing  -  preserves existing keys) ----
 $envPath = "$APP\backend\.env"
 if (-not (Test-Path $envPath)) {
     Set-Content $envPath @"
@@ -173,16 +173,16 @@ OLLAMA_KEEP_ALIVE=0
 OLLAMA_NUM_CTX=2048
 OLLAMA_NUM_PREDICT=512
 # Set OLLAMA_VRAM_GB to your GPU's VRAM so GH05T3 auto-picks the right model quant.
-# e.g. RTX 3060 12GB → 12, RTX 5050 24GB → 24, iGPU 4GB → 4
+# e.g. RTX 3060 12GB -> 12, RTX 5050 24GB -> 24, iGPU 4GB -> 4
 OLLAMA_VRAM_GB=0
 
 # --- Training pipeline ---
 # Set TRAIN_USE_ANTHROPIC=1 to use Claude for fast high-quality generation (uses credits).
-# Leave 0 for fully free: Groq free tier → Google free → local Ollama.
+# Leave 0 for fully free: Groq free tier -> Google free -> local Ollama.
 TRAIN_USE_ANTHROPIC=0
 # Budget cap for Anthropic (Haiku) calls during training (only when TRAIN_USE_ANTHROPIC=1)
 # TRAIN_BUDGET_TARGET: soft warning threshold (keeps going, just logs)
-# TRAIN_BUDGET_HARD:   hard stop — switches to free providers. Set < $8 to stay safe.
+# TRAIN_BUDGET_HARD:   hard stop  -  switches to free providers. Set < $8 to stay safe.
 TRAIN_BUDGET_TARGET=5.00
 TRAIN_BUDGET_HARD=7.50
 # Per-dataset targets (reduce for quick test runs, e.g. 100 each)
@@ -194,7 +194,7 @@ TRAIN_TARGET_BOUNTY=5000
 # --- LoRA fine-tuning ---
 # Base model to fine-tune (must be available on HuggingFace)
 FINETUNE_BASE_MODEL=unsloth/Qwen2.5-Coder-7B-Instruct
-# Training steps (500 ≈ 2-3h on RTX 5050 with 16k examples)
+# Training steps (500 ~ 2-3h on RTX 5050 with 16k examples)
 FINETUNE_MAX_STEPS=500
 FINETUNE_BATCH_SIZE=2
 FINETUNE_LORA_RANK=16
@@ -223,7 +223,7 @@ JIRA_PROJECT_KEY=KAN
 # --- Resource / scheduling tuning ---
 # How many KAIROS self-improvement cycles to run each night (default 10)
 KAIROS_CYCLES_PER_NIGHT=10
-# Hour (0-23) for each nightly job — default: Anthropic timezone (ET)
+# Hour (0-23) for each nightly job  -  default: Anthropic timezone (ET)
 NIGHTLY_HOUR_KAIROS=3
 NIGHTLY_HOUR_AMP=4
 NIGHTLY_HOUR_DREAM=2
@@ -249,7 +249,7 @@ SYNC_INTERVAL=300
     Write-Host "Existing $envPath kept (your keys are safe)." -ForegroundColor Gray
 }
 
-# ---- Frontend .env.local — bakes remote IP so Android can always reach backend ----
+# ---- Frontend .env.local  -  bakes remote IP so Android can always reach backend ----
 # Uses Tailscale IP when available (works from anywhere), falls back to LAN IP.
 # Always rewritten so it stays in sync with the current IP.
 Set-Content "$APP\frontend\.env.local" @"
@@ -290,13 +290,13 @@ python -m venv .venv
 .\.venv\Scripts\pip install pystray pillow pyttsx3 sounddevice numpy `
     faster-whisper openwakeword edge-tts --quiet
 
-# ---- LoRA fine-tuning deps (GPU — skip gracefully if CUDA not available) ----
+# ---- LoRA fine-tuning deps (GPU  -  skip gracefully if CUDA not available) ----
 Write-Host "Installing GPU training deps (unsloth + trl)..." -ForegroundColor Cyan
 try {
     .\.venv\Scripts\pip install "unsloth[cu124]" trl datasets accelerate --quiet
     Write-Host "  GPU training deps installed." -ForegroundColor Green
 } catch {
-    Write-Host "  GPU training deps failed (no CUDA or wrong version) — fine-tuning disabled." -ForegroundColor Yellow
+    Write-Host "  GPU training deps failed (no CUDA or wrong version)  -  fine-tuning disabled." -ForegroundColor Yellow
     Write-Host "  To enable: pip install 'unsloth[cu124]' trl datasets accelerate" -ForegroundColor Yellow
 }
 

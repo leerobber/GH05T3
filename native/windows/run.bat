@@ -37,7 +37,7 @@ exit /b 1
 REM ---- Tuning #5: High Performance power plan (prevents CPU throttle on battery) ----
 powercfg /setactive SCHEME_MIN >nul 2>&1
 
-REM ---- MongoDB :27017 — cache capped at 512 MB (default is 50%% RAM) ----
+REM ---- MongoDB :27017  -  cache capped at 512 MB (default is 50%% RAM) ----
 start "gh05t3-mongo" /min mongod --dbpath "%APP%mongo-data" --bind_ip 127.0.0.1 --port 27017 --quiet --wiredTigerCacheSizeGB 0.5
 
 REM Wait up to ~12s for MongoDB to accept connections before starting the backend.
@@ -74,9 +74,9 @@ echo   Backend API:           http://%REMOTE_IP%:8001
 echo   Gateway v3:            http://%REMOTE_IP%:8002
 echo.
 if exist "%APP%tailscale_ip.txt" (
-    echo   Tailscale active — Android can connect from ANYWHERE (not just home WiFi)
+    echo   Tailscale active  -  Android can connect from ANYWHERE (not just home WiFi)
 ) else (
-    echo   LAN only — Android must be on same WiFi.  Install Tailscale for remote access.
+    echo   LAN only  -  Android must be on same WiFi.  Install Tailscale for remote access.
 )
 echo.
 echo   Paste your keys in the LLM Config panel on first open.
