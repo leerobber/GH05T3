@@ -235,12 +235,8 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
     engine_tag = LLM_PROVIDER
     try:
         reply, engine_tag = await chat_once(session_id, sys_prompt, ctx + message)
-    except NoLLMError:
-        reply = (
-            "No LLM provider is configured. Open the **LLM Config** panel and "
-            "add a free **Groq** key or **Google AI** key, or point "
-            "OLLAMA_GATEWAY_URL at a local Ollama instance."
-        )
+    except NoLLMError as e:
+        reply = str(e)
         engine_tag = "none:unconfigured"
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"LLM error: {e}")

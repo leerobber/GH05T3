@@ -84,11 +84,20 @@ class OmegaLoop:
                 log.warning(f"[Omega] backend '{name}' unavailable: {exc}")
 
         if not state.response:
-            state.response     = (
-                "⚠ All inference backends offline. GH05T3 running in degraded mode."
-            )
-            state.mode         = LoopMode.GHOST
-            state.backend_used = "none"
+            # Local GPU backends are offline — fall through to cloud provider chain
+            try:
+                from ghost_llm import chat_once, NoLLMError
+                text, tag = await chat_once("omega", "", message)
+                state.response   = text
+                state.mode       = LoopMode.FALLBACK
+                state.backend_used = tag
+            except Exception as exc:
+                log.warning("[Omega] cloud fallback failed: %s", exc)
+                state.response   = (
+                    "⚠ All inference backends offline. GH05T3 running in degraded mode."
+                )
+                state.mode       = LoopMode.GHOST
+                state.backend_used = "none"
 
         # SAGE inline scoring
         if self._sage:

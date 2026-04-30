@@ -193,12 +193,22 @@ async def chat_once(session: str, system: str, user: str,
                 LOG.warning("ollama call failed, trying next provider: %s", e)
 
     # 1. Anthropic
+    _anthropic_fail_reason = ""
     if _anthropic_key():
         try:
             text = await _call_anthropic(system, user)
             tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
             return text, f"anthropic:{tag}"
         except Exception as e:
+            err_str = str(e).lower()
+            if "rate_limit" in err_str or "429" in err_str:
+                _anthropic_fail_reason = "Anthropic rate limit hit."
+            elif "quota" in err_str or "usage" in err_str or "exceeded" in err_str or "credit" in err_str:
+                _anthropic_fail_reason = "Anthropic quota/credits exceeded."
+            elif "overloaded" in err_str or "529" in err_str or "503" in err_str:
+                _anthropic_fail_reason = "Anthropic API overloaded."
+            else:
+                _anthropic_fail_reason = f"Anthropic error: {e}"
             LOG.warning("anthropic failed: %s", e)
 
     # 2. Groq (free tier)
@@ -230,9 +240,11 @@ async def chat_once(session: str, system: str, user: str,
         except Exception as e:
             LOG.warning("ollama failed: %s", e)
 
+    reason = f" ({_anthropic_fail_reason})" if _anthropic_fail_reason else ""
     raise NoLLMError(
-        "No LLM provider available. Set ANTHROPIC_API_KEY, GROQ_API_KEY, "
-        "GOOGLE_AI_KEY, or configure OLLAMA_GATEWAY_URL."
+        f"No LLM provider available{reason}. "
+        "Add a free Groq key (console.groq.com) or Google AI key (aistudio.google.com) "
+        "in the LLM Config panel as fallback."
     )
 
 
