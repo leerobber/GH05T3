@@ -13,11 +13,11 @@ if not exist "%APP%backend\evolution" mkdir "%APP%backend\evolution"
 
 set PY=%APP%backend\.venv\Scripts\python
 
-REM Read LAN IP saved by install.ps1 (for Android URL display)
+REM Read IPs saved by install.ps1
 set LAN_IP=localhost
-if exist "%APP%lan_ip.txt" (
-    set /p LAN_IP=<"%APP%lan_ip.txt"
-)
+set REMOTE_IP=localhost
+if exist "%APP%lan_ip.txt"    set /p LAN_IP=<"%APP%lan_ip.txt"
+if exist "%APP%remote_ip.txt" set /p REMOTE_IP=<"%APP%remote_ip.txt"
 
 REM ---- Locate mongod (winget may not update PATH in current session) ----
 where mongod >nul 2>&1
@@ -68,12 +68,16 @@ echo.
 echo  GH05T3 is starting...
 echo.
 echo   Dashboard (this PC):   http://localhost:3210
-echo   Dashboard (Android):   http://%LAN_IP%:3210
+echo   Dashboard (Android):   http://%REMOTE_IP%:3210
 echo.
-echo   Backend API:           http://%LAN_IP%:8001
-echo   Gateway v3:            http://%LAN_IP%:8002
+echo   Backend API:           http://%REMOTE_IP%:8001
+echo   Gateway v3:            http://%REMOTE_IP%:8002
 echo.
-echo   On Android: connect to the same WiFi, open browser to the Android URL above.
+if exist "%APP%tailscale_ip.txt" (
+    echo   Tailscale active — Android can connect from ANYWHERE (not just home WiFi)
+) else (
+    echo   LAN only — Android must be on same WiFi.  Install Tailscale for remote access.
+)
 echo.
 echo   Paste your keys in the LLM Config panel on first open.
 echo   Free Groq key:  https://console.groq.com

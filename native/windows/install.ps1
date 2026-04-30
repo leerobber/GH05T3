@@ -37,15 +37,41 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $APP  = (Get-Item (Join-Path $here "..\.." )).FullName   # repo root
 Write-Host "App folder (repo root): $APP" -ForegroundColor Cyan
 
-# ---- Detect LAN IP (for Android access on same WiFi) ----
+# ---- Detect LAN IP (for same-WiFi access) ----
 $LAN_IP = (Get-NetIPAddress -AddressFamily IPv4 |
     Where-Object { $_.IPAddress -notmatch "^127\." -and $_.PrefixOrigin -ne "WellKnown" } |
     Sort-Object InterfaceIndex |
     Select-Object -First 1).IPAddress
 if (-not $LAN_IP) { $LAN_IP = "localhost" }
 Write-Host "Detected LAN IP: $LAN_IP" -ForegroundColor Cyan
-# Save for run.bat to display the Android URL
-$LAN_IP | Out-File "$APP\lan_ip.txt" -Encoding ascii -NoNewline
+
+# ---- Detect Tailscale IP (100.x.x.x — works from anywhere, not just home WiFi) ----
+$TAILSCALE_IP = $null
+try {
+    $ts = & tailscale ip --4 2>$null
+    if ($ts -match "^100\.") { $TAILSCALE_IP = $ts.Trim() }
+} catch {}
+if (-not $TAILSCALE_IP) {
+    $TAILSCALE_IP = (Get-NetIPAddress -AddressFamily IPv4 |
+        Where-Object { $_.IPAddress -match "^100\." } |
+        Select-Object -First 1).IPAddress
+}
+
+if ($TAILSCALE_IP) {
+    Write-Host "Tailscale detected: $TAILSCALE_IP (Android can reach GH05T3 from anywhere)" -ForegroundColor Green
+    $REMOTE_IP = $TAILSCALE_IP
+} else {
+    Write-Host "Tailscale not detected — LAN-only mode at $LAN_IP" -ForegroundColor Yellow
+    Write-Host "  Install Tailscale for remote access: https://tailscale.com/download" -ForegroundColor Gray
+    $REMOTE_IP = $LAN_IP
+}
+
+# Save both IPs for run.bat display
+"$LAN_IP"      | Out-File "$APP\lan_ip.txt"       -Encoding ascii -NoNewline
+"$REMOTE_IP"   | Out-File "$APP\remote_ip.txt"    -Encoding ascii -NoNewline
+if ($TAILSCALE_IP) {
+    $TAILSCALE_IP | Out-File "$APP\tailscale_ip.txt" -Encoding ascii -NoNewline
+}
 
 # ---- Python 3.11 ----
 if (-not (Have python) -or -not ((python --version 2>&1) -match "3\.1[1-9]")) {
@@ -130,7 +156,7 @@ GOOGLE_AI_KEY=
 
 # v3 gateway (port 8002, server.py keeps 8001)
 GATEWAY_PORT=8002
-GATEWAY_URL=http://${LAN_IP}:8002
+GATEWAY_URL=http://${REMOTE_IP}:8002
 
 GITHUB_PAT=
 GITHUB_REPO=leerobber/GH05T3
@@ -214,7 +240,7 @@ SAGE_ELITE_THRESHOLD=0.90
 # --- Peer mesh (single instance for now, add PEER_URLS when adding more machines) ---
 INSTANCE_LABEL=TatorTot
 INSTANCE_ROLE=primary
-INSTANCE_URL=http://${LAN_IP}:8001
+INSTANCE_URL=http://${REMOTE_IP}:8001
 PEER_URLS=
 SYNC_INTERVAL=300
 "@
@@ -223,13 +249,18 @@ SYNC_INTERVAL=300
     Write-Host "Existing $envPath kept (your keys are safe)." -ForegroundColor Gray
 }
 
-# ---- Frontend .env.local — bakes LAN IP so Android can reach backend ----
-# Always rewritten so it stays in sync with the current LAN IP.
+# ---- Frontend .env.local — bakes remote IP so Android can always reach backend ----
+# Uses Tailscale IP when available (works from anywhere), falls back to LAN IP.
+# Always rewritten so it stays in sync with the current IP.
 Set-Content "$APP\frontend\.env.local" @"
-REACT_APP_BACKEND_URL=http://${LAN_IP}:8001
-REACT_APP_GW3_URL=http://${LAN_IP}:8002
+REACT_APP_BACKEND_URL=http://${REMOTE_IP}:8001
+REACT_APP_GW3_URL=http://${REMOTE_IP}:8002
 "@
-Write-Host "Frontend will use backend at http://${LAN_IP}:8001" -ForegroundColor Cyan
+if ($TAILSCALE_IP) {
+    Write-Host "Frontend baked with Tailscale IP: http://${REMOTE_IP}:8001 (works off home WiFi)" -ForegroundColor Green
+} else {
+    Write-Host "Frontend baked with LAN IP: http://${REMOTE_IP}:8001" -ForegroundColor Cyan
+}
 
 # ---- Backend venv (delete first so a locked/stale venv never blocks pip) ----
 Write-Host "Creating Python venv..." -ForegroundColor Cyan
@@ -309,8 +340,14 @@ Write-Host "  Start GH05T3:" -ForegroundColor Green
 Write-Host "    cd `"$APP`"" -ForegroundColor White
 Write-Host "    .\run.bat" -ForegroundColor White
 Write-Host ""
-Write-Host "  Dashboard (this PC):  http://localhost:3210" -ForegroundColor Green
-Write-Host "  Dashboard (Android):  http://${LAN_IP}:3210" -ForegroundColor Cyan
+Write-Host "  Dashboard (this PC):       http://localhost:3210" -ForegroundColor Green
+Write-Host "  Dashboard (LAN):           http://${LAN_IP}:3210" -ForegroundColor Cyan
+if ($TAILSCALE_IP) {
+    Write-Host "  Dashboard (Tailscale):     http://${TAILSCALE_IP}:3210" -ForegroundColor Green
+    Write-Host "  --> Android works from ANYWHERE via Tailscale (not just home WiFi)" -ForegroundColor Green
+} else {
+    Write-Host "  No Tailscale detected. Install for remote access: https://tailscale.com/download" -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host "  Keys: open LLM Config panel in dashboard after first boot." -ForegroundColor Yellow
 Write-Host "  Free keys:  https://console.groq.com  |  https://aistudio.google.com/app/apikey" -ForegroundColor Yellow
