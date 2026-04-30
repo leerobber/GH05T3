@@ -108,6 +108,16 @@ VLLM_PRIMARY_URL=http://localhost:8010
 LLAMA_VERIFIER_URL=http://localhost:8011
 LLAMA_FALLBACK_URL=http://localhost:8012
 
+# --- Ollama GPU protection (shared GPU with TatorTot) ---
+# Max simultaneous GPU requests (1 = serialize all calls, prevents OOM)
+OLLAMA_MAX_CONCURRENT=1
+# Seconds to keep model in VRAM after last call (0 = unload immediately)
+OLLAMA_KEEP_ALIVE=0
+# Context window tokens — smaller = less VRAM per call (default 2048)
+OLLAMA_NUM_CTX=2048
+# Max output tokens per call (default 512)
+OLLAMA_NUM_PREDICT=512
+
 KILLSWITCH_KEY_HASH=
 GH05T3_SECRET=sovereign-ghost-mesh-key-2025
 

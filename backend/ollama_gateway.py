@@ -5,23 +5,94 @@ model list, and surfaces the models GH05T3 prefers:
     - Proposer / chat:  qwen2.5:7b-q4
     - Verifier / coder: deepseek-coder:6.7b
     - Critic:           llama3.1
+
+GPU protection env vars (set in backend/.env):
+    OLLAMA_MAX_CONCURRENT  max simultaneous GPU requests (default 1)
+    OLLAMA_KEEP_ALIVE      seconds to keep model in VRAM after call;
+                           0 = unload immediately, -1 = never unload (default 0)
+    OLLAMA_NUM_CTX         context window tokens (default 2048, saves VRAM)
+    OLLAMA_NUM_PREDICT     max output tokens per call (default 512)
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import logging
+from pathlib import Path
 
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
 
 LOG = logging.getLogger("ghost.ollama")
 
 PREFERRED = {
     "proposer": os.environ.get("OLLAMA_PROPOSER", "qwen2.5:7b-q4"),
     "verifier": os.environ.get("OLLAMA_VERIFIER", "deepseek-coder:6.7b"),
-    "critic": os.environ.get("OLLAMA_CRITIC", "llama3.1"),
+    "critic":   os.environ.get("OLLAMA_CRITIC",   "llama3.1"),
 }
 
+# ---------------------------------------------------------------------------
+# Concurrency semaphore — shared across ALL callers in this process
+# ---------------------------------------------------------------------------
+_sem: asyncio.Semaphore | None = None
+
+
+def _get_sem() -> asyncio.Semaphore:
+    """Lazy-init so env vars from load_dotenv are visible before creation."""
+    global _sem
+    if _sem is None:
+        n = max(1, int(os.environ.get("OLLAMA_MAX_CONCURRENT", "1")))
+        _sem = asyncio.Semaphore(n)
+        LOG.info("OllamaGateway: semaphore created — max_concurrent=%d", n)
+    return _sem
+
+
+# ---------------------------------------------------------------------------
+# Core guarded call — use this everywhere instead of raw httpx
+# ---------------------------------------------------------------------------
+async def call(
+    model: str,
+    system: str,
+    user: str,
+    timeout: int = 120,
+) -> str:
+    """Semaphore-guarded, VRAM-budgeted Ollama call.
+
+    Acquires _get_sem() before touching the GPU so concurrent peer requests
+    queue rather than OOM. Passes keep_alive and num_ctx to control VRAM
+    lifetime and footprint per request.
+    """
+    url = resolved_url()
+    if not url:
+        raise RuntimeError("OLLAMA_GATEWAY_URL not configured")
+
+    keep_alive  = int(os.environ.get("OLLAMA_KEEP_ALIVE",  "0"))
+    num_ctx     = int(os.environ.get("OLLAMA_NUM_CTX",     "2048"))
+    num_predict = int(os.environ.get("OLLAMA_NUM_PREDICT", "512"))
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+        "temperature": 0.6,
+        "keep_alive": keep_alive,
+        "options": {
+            "num_ctx":     num_ctx,
+            "num_predict": num_predict,
+        },
+    }
+
+    async with _get_sem():
+        LOG.debug("ollama call — model=%s ctx=%d keep_alive=%d", model, num_ctx, keep_alive)
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.post(f"{url}/v1/chat/completions", json=payload)
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
 
 def resolved_url() -> str:
     return (os.environ.get("OLLAMA_GATEWAY_URL") or "").rstrip("/")

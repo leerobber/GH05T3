@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from ollama_gateway import call as ollama_call, resolved_url as ollama_resolved_url
 
 LOG = logging.getLogger("ghost.llm")
 
@@ -80,11 +81,12 @@ async def set_nightly_config(cfg: dict) -> dict:
 # Providers
 # ---------------------------------------------------------------------------
 async def ollama_available() -> bool:
-    if not OLLAMA_URL:
+    url = ollama_resolved_url()
+    if not url:
         return False
     try:
         async with httpx.AsyncClient(timeout=2.0) as c:
-            r = await c.get(f"{OLLAMA_URL}/v1/models")
+            r = await c.get(f"{url}/v1/models")
             return r.status_code == 200
     except Exception:
         return False
@@ -140,18 +142,22 @@ async def _emergent(session: str, system: str, user: str,
 # Public chat functions
 # ---------------------------------------------------------------------------
 async def chat_once(session: str, system: str, user: str, role: str = "proposer") -> tuple[str, str]:
-    """Default (Claude-backed, premium) chat for role-critical calls."""
-    if await ollama_available():
+    """Default (Claude-backed, premium) chat for role-critical calls.
+
+    Claude-first: only routes to Ollama when LLM_PROVIDER=='ollama' is set
+    explicitly, so the shared GPU isn't hit during normal chat.
+    """
+    if LLM_PROVIDER == "ollama" and await ollama_available():
         model = {
             "proposer": os.environ.get("OLLAMA_PROPOSER", "qwen2.5"),
             "verifier": os.environ.get("OLLAMA_VERIFIER", "deepseek-coder"),
             "critic":   os.environ.get("OLLAMA_CRITIC",   "llama3.1"),
         }.get(role, "qwen2.5")
         try:
-            text = await _openai_compat(f"{OLLAMA_URL}/v1", None, model, system, user)
+            text = await ollama_call(model, system, user)
             return text, f"ollama:{model}"
         except Exception as e:  # noqa: BLE001
-            LOG.warning("ollama call failed, falling back: %s", e)
+            LOG.warning("ollama call failed, falling back to claude: %s", e)
     text = await _emergent(session, system, user)
     return text, f"{LLM_PROVIDER}:{LLM_MODEL.split('-2025')[0]}"
 
@@ -188,7 +194,7 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
     if provider == "ollama" and await ollama_available():
         try:
             model = cfg.get("ollama_model", "qwen2.5")
-            text = await _openai_compat(f"{OLLAMA_URL}/v1", None, model, system, user)
+            text = await ollama_call(model, system, user)
             return text, f"ollama:{model}"
         except Exception as e:  # noqa: BLE001
             LOG.warning("ollama call failed: %s", e)
@@ -215,7 +221,7 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
 
     if await ollama_available():
         try:
-            text = await _openai_compat(f"{OLLAMA_URL}/v1", None, "qwen2.5", system, user)
+            text = await ollama_call("qwen2.5", system, user)
             return text, "ollama:qwen2.5"
         except Exception as e:  # noqa: BLE001
             LOG.warning("auto ollama call failed: %s", e)
