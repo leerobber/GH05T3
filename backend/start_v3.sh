@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GH05T3 — gateway v3 startup
-# Runs alongside the existing server.py (which owns port 8000).
+# Runs alongside the existing server.py (which owns port 8001).
 # Set GATEWAY_PORT in .env to override.
 set -e
 
@@ -10,7 +10,7 @@ if [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi
 
-PORT="${GATEWAY_PORT:-8001}"
+PORT="${GATEWAY_PORT:-8002}"
 
 echo "🖤 Starting GH05T3 gateway_v3 on port $PORT"
 exec uvicorn gateway_v3:app \
