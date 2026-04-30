@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
 export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API, timeout: 180000 });
@@ -63,7 +63,7 @@ export const wsUrl = () => {
 };
 
 // --- v3 Gateway (SwarmBus · Claude · GitHub) ---
-const GW3_URL = process.env.REACT_APP_GW3_URL || "http://localhost:8001";
+const GW3_URL = process.env.REACT_APP_GW3_URL || "http://localhost:8002";
 export const gw3 = axios.create({ baseURL: GW3_URL, timeout: 60000 });
 
 export const gw3WsUrl = () => GW3_URL.replace(/^http/, "ws") + "/ws";

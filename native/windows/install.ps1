@@ -97,7 +97,10 @@ SAGE_ELITE_THRESHOLD=0.90
 }
 
 # ---- Frontend .env.local (baked into React build at build time) ----
-Set-Content "$APP\frontend\.env.local" "REACT_APP_GW3_URL=http://localhost:8002"
+Set-Content "$APP\frontend\.env.local" @"
+REACT_APP_BACKEND_URL=http://localhost:8001
+REACT_APP_GW3_URL=http://localhost:8002
+"@
 
 # ---- Backend venv ----
 Write-Host "Creating Python venv..." -ForegroundColor Cyan
