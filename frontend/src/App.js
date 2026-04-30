@@ -5,10 +5,11 @@ import { fetchState, pclTick, runKairosCycle, runNightly } from "./lib/ghostApi"
 import { useGhostWS } from "./lib/useGhostWS";
 import { ChatInterface } from "./components/ghost/ChatInterface";
 import {
-  AutotelicPanel, GhostProtocolPanel, HardwarePanel, HcmPanel,
+  GhostProtocolPanel, HardwarePanel, HcmPanel,
   IdentityHeader, KairosPanel, MemoryPalacePanel, NightlyPanel,
   PclPanel, ScoreboardPanel, SeancePanel, SubAgentsPanel, TwinEnginePanel,
 } from "./components/ghost/panels";
+import { AutotelicPanel } from "./components/ghost/AutotelicPanel";
 import { HcmCloudPanel } from "./components/ghost/HcmCloudPanel";
 import { GhostShellPanel } from "./components/ghost/GhostShellPanel";
 import { CassandraPanel } from "./components/ghost/CassandraPanel";
@@ -114,6 +115,23 @@ function App() {
       });
     } else if (event === "cassandra") {
       // no toast — displayed inline
+    } else if (event === "goal_added") {
+      setState((prev) => ({
+        ...(prev || {}),
+        autotelic_goals: [...(prev?.autotelic_goals || []), data],
+      }));
+    } else if (event === "goal_updated") {
+      setState((prev) => ({
+        ...(prev || {}),
+        autotelic_goals: (prev?.autotelic_goals || []).map((g) =>
+          g.id === data.id ? data : g
+        ),
+      }));
+    } else if (event === "goal_deleted") {
+      setState((prev) => ({
+        ...(prev || {}),
+        autotelic_goals: (prev?.autotelic_goals || []).filter((g) => g.id !== data.id),
+      }));
     }
   });
 
@@ -220,7 +238,12 @@ function App() {
             <JournalPanel refreshKey={journalTick} />
             <PclPanel pcl={state.pcl} onTick={onPclTick} />
             <WhisperPanel />
-            <AutotelicPanel goals={state.autotelic_goals} />
+            <AutotelicPanel
+              goals={state.autotelic_goals}
+              onGoalsChange={(updated) =>
+                setState((prev) => ({ ...(prev || {}), autotelic_goals: updated }))
+              }
+            />
             <LlmConfigPanel />
             <StegoPanel />
             <ScoreboardPanel scoreboard={state.scoreboard} />

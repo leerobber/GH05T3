@@ -57,6 +57,20 @@ export const swarmReset = () => api.post("/swarm/reset").then((r) => r.data);
 export const swarmLedger = (limit = 30) =>
   api.get("/swarm/ledger", { params: { limit } }).then((r) => r.data);
 
+// --- Autotelic Goals ---
+export const listGoals = (status, category) =>
+  api.get("/goals", { params: { status, category } }).then((r) => r.data);
+export const createGoal = (title, detail = "", priority = 2, category = "general") =>
+  api.post("/goals", { title, detail, priority, category }).then((r) => r.data);
+export const updateGoal = (id, fields) =>
+  api.put(`/goals/${id}`, fields).then((r) => r.data);
+export const deleteGoal = (id) =>
+  api.delete(`/goals/${id}`).then((r) => r.data);
+export const completeGoal = (id) =>
+  api.post(`/goals/${id}/complete`).then((r) => r.data);
+export const suggestGoals = (count = 3) =>
+  api.post("/goals/suggest", null, { params: { count } }).then((r) => r.data);
+
 export const wsUrl = () => {
   const base = BACKEND_URL.replace(/^http/, "ws");
   return `${base}/api/ws`;

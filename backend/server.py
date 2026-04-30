@@ -66,6 +66,7 @@ from telegram_bot import TelegramPoller
 from ws_manager import WSManager
 from companion import router as companion_router, bind_ws as companion_accept_ws
 from ghosteye_reactor import GhostEyeReactor
+from autotelic import AutotelicEngine
 from phase6 import (
     companion_audit, daily_summary, decay_memories, dream_cycle,
     get_reasoning_trace, kairos_trajectory, kill_deep_freeze, kill_reset,
@@ -97,6 +98,7 @@ logger = logging.getLogger("ghost")
 # Swarm uses nightly_chat by default (free) — main chat_once is available for
 # heavier reasoning if we need it.
 swarm = AgentSwarm(db, nightly_chat, memory_engine=memory)
+autotelic = AutotelicEngine(db, ws_mgr)
 
 
 def _now_iso() -> str:
@@ -1373,6 +1375,66 @@ async def api_swarm_ledger(limit: int = 60):
 async def root():
     return {"name": "GH05T3 Gateway", "version": "0.2.0",
             "status": "ARMED", "verdict": "OWNED"}
+
+
+# ---------------------------------------------------------------------------
+# Autotelic Goals
+# ---------------------------------------------------------------------------
+class GoalCreate(BaseModel):
+    title: str
+    detail: str = ""
+    priority: int = 2
+    category: str = "general"
+
+
+class GoalUpdate(BaseModel):
+    title: Optional[str] = None
+    detail: Optional[str] = None
+    progress: Optional[float] = None
+    status: Optional[str] = None
+    priority: Optional[int] = None
+    category: Optional[str] = None
+
+
+@api.get("/goals")
+async def list_goals(status: Optional[str] = None, category: Optional[str] = None):
+    return await autotelic.list_goals(status=status, category=category)
+
+
+@api.post("/goals")
+async def create_goal(req: GoalCreate):
+    return await autotelic.create_goal(req.title, req.detail, req.priority, req.category)
+
+
+@api.post("/goals/suggest")
+async def suggest_goals(count: int = 3):
+    state = await _state_snapshot()
+    return await autotelic.suggest_goals(state, count)
+
+
+@api.put("/goals/{goal_id}")
+async def update_goal(goal_id: str, req: GoalUpdate):
+    fields = {k: v for k, v in req.model_dump().items() if v is not None}
+    result = await autotelic.update_goal(goal_id, **fields)
+    if result is None:
+        raise HTTPException(404, "Goal not found")
+    return result
+
+
+@api.delete("/goals/{goal_id}")
+async def delete_goal(goal_id: str):
+    ok = await autotelic.delete_goal(goal_id)
+    if not ok:
+        raise HTTPException(404, "Goal not found")
+    return {"deleted": goal_id}
+
+
+@api.post("/goals/{goal_id}/complete")
+async def complete_goal(goal_id: str):
+    result = await autotelic.complete_goal(goal_id)
+    if result is None:
+        raise HTTPException(404, "Goal not found")
+    return result
 
 
 app.include_router(api)
