@@ -22,7 +22,6 @@ dnspython==2.8.0
 durationpy==0.10
 ecdsa==0.19.2
 email-validator==2.3.0
-emergentintegrations==0.1.0
 fastapi==0.136.0
 fastembed==0.8.0
 fastuuid==0.14.0
@@ -45,7 +44,6 @@ h11==0.16.0
 hf-xet==1.4.3
 httpcore==1.0.9
 httplib2==0.31.2
-httptools==0.7.1
 httpx==0.28.1
 huggingface_hub==1.9.2
 idna==3.11
@@ -56,11 +54,9 @@ isort==8.0.1
 Jinja2==3.1.6
 jiter==0.13.0
 jmespath==1.1.0
-jq==1.11.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 kubernetes==35.0.0
-librt==0.8.1
 litellm==1.80.0
 loguru==0.7.3
 markdown-it-py==4.0.0
@@ -150,7 +146,6 @@ tzlocal==5.3.1
 uritemplate==4.2.0
 urllib3==2.6.3
 uvicorn==0.46.0
-uvloop==0.22.1
 watchfiles==1.1.1
 websocket-client==1.9.0
 websockets==16.0
