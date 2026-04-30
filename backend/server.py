@@ -65,6 +65,7 @@ from companion import router as companion_router, bind_ws as companion_accept_ws
 from ghosteye_reactor import GhostEyeReactor
 from autotelic import AutotelicEngine
 from peer_mesh import PeerMesh
+from training.pipeline import run_pipeline, pipeline_status
 from phase6 import (
     companion_audit, daily_summary, decay_memories, dream_cycle,
     get_reasoning_trace, kairos_trajectory, kill_deep_freeze, kill_reset,
@@ -899,6 +900,16 @@ async def _scheduler_status() -> dict:
     return {"running": scheduler.running, "jobs": jobs}
 
 
+async def _job_training_pipeline():
+    logger.info("[cron] 01:00 — training data pipeline (collect + generate)")
+    try:
+        result = await run_pipeline(collect=True, generate=True,
+                                    ws_broadcast=ws_mgr.broadcast)
+        logger.info("training pipeline done: %s", result.get("total", 0))
+    except Exception:
+        logger.exception("training pipeline cron failed")
+
+
 async def _job_kairos_nightly():
     logger.info("[cron] %02d:00 ET — firing %d KAIROS cycles",
                 NIGHTLY_HOUR_KAIROS, KAIROS_CYCLES_PER_NIGHT)
@@ -944,6 +955,7 @@ def _register_jobs():
         return
     # max_instances=1 prevents a second run starting if the previous is still going
     _jkw = {"max_instances": 1, "misfire_grace_time": 3600}
+    scheduler.add_job(_job_training_pipeline,  CronTrigger(hour=1, minute=0),              id="training_nightly",   **_jkw)
     scheduler.add_job(_job_kairos_nightly,    CronTrigger(hour=NIGHTLY_HOUR_KAIROS,  minute=0),  id="kairos_nightly",    **_jkw)
     scheduler.add_job(_job_amplifiers_nightly, CronTrigger(hour=NIGHTLY_HOUR_AMP,    minute=0),  id="amplifiers_nightly", **_jkw)
     scheduler.add_job(_job_dream,              CronTrigger(hour=NIGHTLY_HOUR_DREAM,  minute=0),  id="dream_nightly",      **_jkw)
@@ -1562,6 +1574,39 @@ async def receive_sync(request: Request):
 async def push_sync_all():
     asyncio.create_task(peers.sync_all())
     return {"status": "queued", "peers": len(peers.peers)}
+
+
+# ─────────────────────────────────────────────────────────────
+# Training pipeline endpoints
+# ─────────────────────────────────────────────────────────────
+@api.get("/training/status")
+async def training_status_ep():
+    return pipeline_status()
+
+
+@api.post("/training/run")
+async def training_run_ep(collect: bool = True, generate: bool = True):
+    asyncio.create_task(
+        run_pipeline(collect=collect, generate=generate,
+                     ws_broadcast=ws_mgr.broadcast)
+    )
+    return {"status": "started", "targets": pipeline_status()["targets"]}
+
+
+@api.post("/training/collect")
+async def training_collect_ep():
+    asyncio.create_task(
+        run_pipeline(collect=True, generate=False, ws_broadcast=ws_mgr.broadcast)
+    )
+    return {"status": "collecting"}
+
+
+@api.post("/training/generate")
+async def training_generate_ep():
+    asyncio.create_task(
+        run_pipeline(collect=False, generate=True, ws_broadcast=ws_mgr.broadcast)
+    )
+    return {"status": "generating"}
 
 
 app.include_router(api)

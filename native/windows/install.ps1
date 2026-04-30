@@ -150,6 +150,16 @@ OLLAMA_NUM_PREDICT=512
 # e.g. RTX 3060 12GB → 12, RTX 5050 24GB → 24, iGPU 4GB → 4
 OLLAMA_VRAM_GB=0
 
+# --- Training pipeline ---
+# Set TRAIN_USE_ANTHROPIC=1 to use Claude for fast high-quality generation (uses credits).
+# Leave 0 for fully free: Groq free tier → Google free → local Ollama.
+TRAIN_USE_ANTHROPIC=0
+# Per-dataset targets (reduce for quick test runs, e.g. 100 each)
+TRAIN_TARGET_DEFENSE=5000
+TRAIN_TARGET_REASONING=3000
+TRAIN_TARGET_CVE=3000
+TRAIN_TARGET_BOUNTY=5000
+
 # --- Resource / scheduling tuning ---
 # How many KAIROS self-improvement cycles to run each night (default 10)
 KAIROS_CYCLES_PER_NIGHT=10
