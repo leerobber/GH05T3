@@ -10,6 +10,14 @@
 $ErrorActionPreference = "Stop"
 Write-Host "==> GH05T3 native install starting (v3)" -ForegroundColor Yellow
 
+# ---- Stop any running GH05T3 processes (frees lock on .venv\python.exe) ----
+Write-Host "Stopping any running GH05T3 processes..." -ForegroundColor Cyan
+foreach ($t in @("gh05t3-mongo","gh05t3-backend","gh05t3-gateway-v3","gh05t3-frontend","gh05t3-whisper")) {
+    & taskkill /FI "WINDOWTITLE eq $t" /F 2>$null | Out-Null
+}
+Stop-Process -Name "mongod" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+
 function Have($cmd) {
     return (Get-Command $cmd -ErrorAction SilentlyContinue) -ne $null
 }
@@ -113,9 +121,13 @@ REACT_APP_BACKEND_URL=http://localhost:8001
 REACT_APP_GW3_URL=http://localhost:8002
 "@
 
-# ---- Backend venv ----
+# ---- Backend venv (delete first so a locked/stale venv never blocks pip) ----
 Write-Host "Creating Python venv..." -ForegroundColor Cyan
 Push-Location "$APP\backend"
+if (Test-Path ".venv") {
+    Write-Host "Removing old venv..." -ForegroundColor Cyan
+    Remove-Item -Recurse -Force ".venv"
+}
 python -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip --quiet
 .\.venv\Scripts\pip install -r requirements.txt --quiet
