@@ -57,6 +57,14 @@ export const swarmReset = () => api.post("/swarm/reset").then((r) => r.data);
 export const swarmLedger = (limit = 30) =>
   api.get("/swarm/ledger", { params: { limit } }).then((r) => r.data);
 
+// --- Peer Mesh ---
+export const listPeers    = ()              => api.get("/peers").then((r) => r.data);
+export const pingPeers    = ()              => api.post("/peers/ping").then((r) => r.data);
+export const pushSyncAll  = ()              => api.post("/peers/sync/push").then((r) => r.data);
+export const registerPeer = (url, label, role = "peer") =>
+  api.post("/peers", { url, label, role }).then((r) => r.data);
+export const removePeer   = (url)           => api.delete(`/peers/${encodeURIComponent(url)}`).then((r) => r.data);
+
 // --- Autotelic Goals ---
 export const listGoals = (status, category) =>
   api.get("/goals", { params: { status, category } }).then((r) => r.data);

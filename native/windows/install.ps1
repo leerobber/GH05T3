@@ -113,6 +113,17 @@ GH05T3_SECRET=sovereign-ghost-mesh-key-2025
 
 MEMORY_DB_PATH=$APP\backend\memory\palace.db
 SAGE_ELITE_THRESHOLD=0.90
+
+# --- Multi-instance peer mesh ---
+# Set INSTANCE_LABEL to a human name for this machine (TatorTot, Laptop, Cloud).
+# Set INSTANCE_URL to the URL other peers use to reach THIS instance.
+# Set PEER_URLS to comma-separated base URLs of other GH05T3 instances.
+# Use Tailscale hostnames for cross-network connectivity.
+INSTANCE_LABEL=TatorTot
+INSTANCE_ROLE=primary
+INSTANCE_URL=http://localhost:8001
+PEER_URLS=
+SYNC_INTERVAL=300
 "@
     Write-Host "Created $envPath" -ForegroundColor Yellow
 }

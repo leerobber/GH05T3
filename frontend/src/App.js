@@ -28,6 +28,7 @@ import { OllamaPanel } from "./components/ghost/OllamaPanel";
 import { CoderPanel } from "./components/ghost/CoderPanel";
 import { SwarmPanel } from "./components/ghost/SwarmPanel";
 import { SwarmBusPanel } from "./components/ghost/SwarmBusPanel";
+import { PeersPanel } from "./components/ghost/PeersPanel";
 
 function speakWhisper(data) {
   try {
@@ -132,6 +133,12 @@ function App() {
         ...(prev || {}),
         autotelic_goals: (prev?.autotelic_goals || []).filter((g) => g.id !== data.id),
       }));
+    } else if (event === "peer_sync_received") {
+      toast(`Sync received from ${data.from}`, {
+        description: `+${data.counts?.memories ?? 0} mem · +${data.counts?.goals ?? 0} goals · +${data.counts?.seance ?? 0} lessons`,
+      });
+    } else if (event === "peer_synced") {
+      toast(`Synced → ${data.label}`);
     }
   });
 
@@ -216,6 +223,7 @@ function App() {
             <TwinEnginePanel twin={state.twin_engine} lastEngine={engineHint} />
             <SwarmPanel />
             <SwarmBusPanel />
+            <PeersPanel />
             <KairosPanel kairos={state.kairos} onRun={onRunKairos} running={running.kairos} />
             <TranscriptPanel refreshKey={cycleTick} />
             <CassandraPanel />

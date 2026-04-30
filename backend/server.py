@@ -67,6 +67,7 @@ from ws_manager import WSManager
 from companion import router as companion_router, bind_ws as companion_accept_ws
 from ghosteye_reactor import GhostEyeReactor
 from autotelic import AutotelicEngine
+from peer_mesh import PeerMesh
 from phase6 import (
     companion_audit, daily_summary, decay_memories, dream_cycle,
     get_reasoning_trace, kairos_trajectory, kill_deep_freeze, kill_reset,
@@ -77,11 +78,18 @@ from phase6 import (
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
-DB_NAME   = os.environ.get("DB_NAME",   "gh05t3")
+MONGO_URL        = os.environ.get("MONGO_URL",       "mongodb://localhost:27017")
+DB_NAME          = os.environ.get("DB_NAME",         "gh05t3")
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")
-LLM_MODEL = os.environ.get("LLM_MODEL", "claude-sonnet-4-5-20250929")
+LLM_PROVIDER     = os.environ.get("LLM_PROVIDER",    "anthropic")
+LLM_MODEL        = os.environ.get("LLM_MODEL",       "claude-sonnet-4-5-20250929")
+
+import platform as _platform
+INSTANCE_LABEL   = os.environ.get("INSTANCE_LABEL",  _platform.node() or "gh05t3")
+INSTANCE_ROLE    = os.environ.get("INSTANCE_ROLE",   "peer")
+INSTANCE_URL     = os.environ.get("INSTANCE_URL",    "http://localhost:8001")
+PEER_URLS_RAW    = os.environ.get("PEER_URLS",       "")
+SYNC_INTERVAL    = int(os.environ.get("SYNC_INTERVAL", "300"))
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -97,8 +105,13 @@ logger = logging.getLogger("ghost")
 
 # Swarm uses nightly_chat by default (free) — main chat_once is available for
 # heavier reasoning if we need it.
-swarm = AgentSwarm(db, nightly_chat, memory_engine=memory)
+swarm    = AgentSwarm(db, nightly_chat, memory_engine=memory)
 autotelic = AutotelicEngine(db, ws_mgr)
+peers    = PeerMesh(db, ws_mgr, INSTANCE_URL, INSTANCE_LABEL, INSTANCE_ROLE)
+
+# Register peers from env on startup (label defaults to URL until first handshake)
+for _raw in (u.strip() for u in PEER_URLS_RAW.split(",") if u.strip()):
+    peers.add_peer(_raw, _raw)
 
 
 def _now_iso() -> str:
@@ -1168,13 +1181,18 @@ async def _seed_identity():
     except Exception:
         pass
 
-    logger.info("GH05T3 gateway online — ollama=%s db=%s",
+    peers.start_auto_sync(interval=SYNC_INTERVAL)
+    asyncio.create_task(peers.ping_all())
+
+    logger.info("GH05T3 gateway online — ollama=%s db=%s peers=%d label=%s role=%s",
                 "yes" if await ollama_available() else "no",
-                "ok" if await _db_ping() else "OFFLINE")
+                "ok" if await _db_ping() else "OFFLINE",
+                len(peers.peers), INSTANCE_LABEL, INSTANCE_ROLE)
 
 
 @app.on_event("shutdown")
 async def _shutdown():
+    peers.stop()
     try:
         scheduler.shutdown(wait=False)
     except Exception:
@@ -1485,6 +1503,63 @@ async def complete_goal(goal_id: str):
     if result is None:
         raise HTTPException(404, "Goal not found")
     return result
+
+
+# ---------------------------------------------------------------------------
+# Peer Mesh
+# ---------------------------------------------------------------------------
+class PeerRegisterReq(BaseModel):
+    url:   str
+    label: str
+    role:  str = "peer"
+
+
+@api.get("/peers")
+async def list_peers():
+    return {"self": peers.self_info(), "peers": peers.peers}
+
+
+@api.get("/peers/me")
+async def peer_me():
+    return peers.self_info()
+
+
+@api.post("/peers")
+async def register_peer(req: PeerRegisterReq):
+    p = peers.add_peer(req.url, req.label, req.role)
+    if p is None:
+        return {"status": "self"}
+    asyncio.create_task(peers.sync_peer(p))
+    return {"status": "registered", **p.to_dict()}
+
+
+@api.delete("/peers/{peer_url:path}")
+async def remove_peer(peer_url: str):
+    peers.remove_peer(peer_url)
+    return {"removed": peer_url}
+
+
+@api.post("/peers/ping")
+async def ping_peers():
+    await peers.ping_all()
+    return {"peers": peers.peers}
+
+
+@api.post("/peers/sync")
+async def receive_sync(request: Request):
+    payload = await request.json()
+    counts = await peers.apply_payload(payload)
+    await ws_mgr.broadcast("peer_sync_received", {
+        "from":   payload.get("from_label", "unknown"),
+        "counts": counts,
+    })
+    return {"status": "ok", "applied": counts}
+
+
+@api.post("/peers/sync/push")
+async def push_sync_all():
+    asyncio.create_task(peers.sync_all())
+    return {"status": "queued", "peers": len(peers.peers)}
 
 
 app.include_router(api)
