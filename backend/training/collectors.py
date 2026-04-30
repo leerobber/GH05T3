@@ -39,10 +39,20 @@ async def collect_nvd_cves(max_results: int = 3000,
     results: list[dict] = []
     base = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 
+    # NVD rejects date ranges > 120 days without an API key — use 90-day windows
+    windows: list[tuple[str, str]] = []
+    for year in years:
+        windows += [
+            (f"{year}-01-01T00:00:00.000", f"{year}-03-31T23:59:59.999"),
+            (f"{year}-04-01T00:00:00.000", f"{year}-06-30T23:59:59.999"),
+            (f"{year}-07-01T00:00:00.000", f"{year}-09-30T23:59:59.999"),
+            (f"{year}-10-01T00:00:00.000", f"{year}-12-31T23:59:59.999"),
+        ]
+
     async with httpx.AsyncClient(timeout=30) as c:
-        for year in years:
-            start = f"{year}-01-01T00:00:00.000"
-            end   = f"{year}-12-31T23:59:59.999"
+        for start, end in windows:
+            if len(results) >= max_results:
+                break
             idx = 0
             while len(results) < max_results:
                 try:
@@ -85,7 +95,7 @@ async def collect_nvd_cves(max_results: int = 3000,
                     idx += len(items)
                     time.sleep(0.7)  # stay under 5 req/30s rate limit
                 except Exception as e:
-                    LOG.warning("NVD fetch error (year=%d idx=%d): %s", year, idx, e)
+                    LOG.warning("NVD fetch error (%s idx=%d): %s", start[:10], idx, e)
                     break
 
     LOG.info("Collected %d CVE records from NVD", len(results))
