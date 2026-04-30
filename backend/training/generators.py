@@ -1,48 +1,153 @@
 """
-Training data generators — uses Groq free tier + local Ollama.
-Zero API cost. Runs overnight using GH05T3's own LLM routing.
+Training data generators — hybrid: Haiku (budget-capped) + Groq/Ollama (free).
 
-Produces JSONL in formats ready for Qwen2.5-Coder fine-tuning.
+Cost model (claude-haiku-4-5-20251001):
+    $0.80 / MTok input  |  $4.00 / MTok output
+    ~$0.0016 per training example (300 in + 350 out tokens)
+
+Budget defaults:
+    TRAIN_BUDGET_TARGET = $5.00  (soft — logs warning, keeps going)
+    TRAIN_BUDGET_HARD   = $7.50  (hard stop — switches to free-only)
+
+Set TRAIN_USE_ANTHROPIC=1 to enable paid path.
+Leave 0 for fully free (Groq → Google → Ollama).
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import random
 from pathlib import Path
-from typing import AsyncGenerator
 
 LOG = logging.getLogger("ghost.training.generators")
 
 OUT_DIR = Path(__file__).parent / "datasets"
 OUT_DIR.mkdir(exist_ok=True)
 
+# ── Haiku pricing (as of 2025) ────────────────────────────────
+_HAIKU_MODEL   = "claude-haiku-4-5-20251001"
+_IN_PER_TOK    = 0.80  / 1_000_000   # $ per input token
+_OUT_PER_TOK   = 4.00  / 1_000_000   # $ per output token
+
+BUDGET_TARGET  = float(os.environ.get("TRAIN_BUDGET_TARGET", "5.00"))
+BUDGET_HARD    = float(os.environ.get("TRAIN_BUDGET_HARD",   "7.50"))
+
 
 # ─────────────────────────────────────────────────────────────
-# Shared helpers
+# Cost tracker — shared across all datasets in a pipeline run
 # ─────────────────────────────────────────────────────────────
+class CostTracker:
+    def __init__(self, hard_limit: float = BUDGET_HARD,
+                 target: float = BUDGET_TARGET):
+        self.spent         = 0.0
+        self.hard_limit    = hard_limit
+        self.target        = target
+        self.input_tokens  = 0
+        self.output_tokens = 0
+        self.calls         = 0
+        self.free_calls    = 0
+
+    def record_paid(self, in_tok: int, out_tok: int) -> float:
+        cost = (in_tok * _IN_PER_TOK) + (out_tok * _OUT_PER_TOK)
+        self.spent         += cost
+        self.input_tokens  += in_tok
+        self.output_tokens += out_tok
+        self.calls         += 1
+        if self.spent >= self.target:
+            LOG.info("cost tracker: $%.4f spent (target $%.2f reached)",
+                     self.spent, self.target)
+        return cost
+
+    def record_free(self):
+        self.free_calls += 1
+
+    def over_hard_limit(self) -> bool:
+        return self.spent >= self.hard_limit
+
+    def remaining(self) -> float:
+        return max(0.0, self.hard_limit - self.spent)
+
+    def use_paid(self) -> bool:
+        return (os.environ.get("TRAIN_USE_ANTHROPIC") == "1"
+                and bool(os.environ.get("ANTHROPIC_API_KEY"))
+                and not self.over_hard_limit())
+
+    def to_dict(self) -> dict:
+        return {
+            "spent":         round(self.spent, 4),
+            "target":        self.target,
+            "hard_limit":    self.hard_limit,
+            "remaining":     round(self.remaining(), 4),
+            "paid_calls":    self.calls,
+            "free_calls":    self.free_calls,
+            "input_tokens":  self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "over_target":   self.spent >= self.target,
+            "over_limit":    self.over_hard_limit(),
+        }
+
+
+# Global tracker — reset at pipeline start
+_tracker: CostTracker = CostTracker()
+
+
+def reset_tracker(hard_limit: float = BUDGET_HARD,
+                  target: float = BUDGET_TARGET) -> CostTracker:
+    global _tracker
+    _tracker = CostTracker(hard_limit=hard_limit, target=target)
+    return _tracker
+
+
+def get_tracker() -> CostTracker:
+    return _tracker
+
+
+# ─────────────────────────────────────────────────────────────
+# LLM routing — Haiku (paid, budget-gated) → free fallback
+# ─────────────────────────────────────────────────────────────
+async def _call_haiku(system: str, user: str) -> tuple[str, int, int]:
+    """Returns (text, input_tokens, output_tokens)."""
+    import anthropic
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise RuntimeError("ANTHROPIC_API_KEY not set")
+    client = anthropic.AsyncAnthropic(api_key=key)
+    resp = await client.messages.create(
+        model=_HAIKU_MODEL,
+        max_tokens=512,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    return (resp.content[0].text,
+            resp.usage.input_tokens,
+            resp.usage.output_tokens)
+
+
 async def _llm(system: str, user: str) -> str:
     """
-    Hybrid routing for training generation:
-      - TRAIN_USE_ANTHROPIC=1 + ANTHROPIC_API_KEY set → use Claude (fastest, best quality)
-      - Otherwise → Groq free tier → Google free → local Ollama (zero cost)
-    Set TRAIN_USE_ANTHROPIC=1 when you want maximum speed and have credits.
-    Leave unset for fully free overnight generation.
+    Budget-aware hybrid routing.
+    Paid (Haiku) while under hard limit, then free forever after.
     """
-    if os.environ.get("TRAIN_USE_ANTHROPIC") == "1":
-        from ghost_llm import _call_anthropic, nightly_chat
-        ak = os.environ.get("ANTHROPIC_API_KEY", "")
-        if ak:
-            try:
-                text = await _call_anthropic(system, user)
-                return text.strip()
-            except Exception as e:
-                LOG.debug("anthropic failed, falling back to free: %s", e)
+    if _tracker.use_paid():
+        try:
+            text, in_tok, out_tok = await _call_haiku(system, user)
+            cost = _tracker.record_paid(in_tok, out_tok)
+            LOG.debug("haiku call: $%.5f | total $%.4f / $%.2f",
+                      cost, _tracker.spent, _tracker.hard_limit)
+            return text.strip()
+        except Exception as e:
+            LOG.warning("haiku failed, switching to free: %s", e)
+
+    _tracker.record_free()
     from ghost_llm import nightly_chat
     text, _ = await nightly_chat("training", system, user)
     return text.strip()
 
 
+# ─────────────────────────────────────────────────────────────
+# Shared helpers
+# ─────────────────────────────────────────────────────────────
 def _write(path: Path, record: dict):
     with open(path, "a") as f:
         f.write(json.dumps(record) + "\n")
@@ -55,8 +160,19 @@ def _count(path: Path) -> int:
         return sum(1 for line in f if line.strip())
 
 
+def _extract_json(raw: str) -> dict | None:
+    start = raw.find("{")
+    end   = raw.rfind("}") + 1
+    if start == -1 or end == 0:
+        return None
+    try:
+        return json.loads(raw[start:end])
+    except Exception:
+        return None
+
+
 # ─────────────────────────────────────────────────────────────
-# Dataset 1 — Adversarial Defense  (~5,000 examples)
+# Dataset 1 — Adversarial Defense  (target: 5,000)
 # ─────────────────────────────────────────────────────────────
 DEFENSE_SYS = """You are a defensive security expert generating training data.
 Given a threat vector, produce a JSON object with exactly these fields:
@@ -69,36 +185,26 @@ Given a threat vector, produce a JSON object with exactly these fields:
 Respond with valid JSON only. No explanation. Focus on detection and defense, never on weaponization."""
 
 _THREAT_SEEDS = [
-    "SQL injection via login form",
-    "XSS reflected attack on search parameter",
-    "SSRF via URL parameter in image fetcher",
-    "Path traversal in file download endpoint",
-    "Broken object level authorization in REST API",
-    "JWT algorithm confusion attack",
-    "LDAP injection in authentication",
-    "XML external entity injection",
-    "Command injection via filename parameter",
-    "Insecure deserialization in session cookie",
-    "Open redirect via callback URL",
-    "CSRF on state-changing API endpoint",
-    "Subdomain takeover via dangling CNAME",
-    "HTTP request smuggling",
-    "GraphQL introspection abuse",
-    "Rate limiting bypass via IP rotation",
-    "Mass assignment vulnerability in ORM",
-    "Insecure direct object reference in profile endpoint",
-    "SSTI in Jinja2 template engine",
-    "DNS rebinding attack on localhost services",
-    "Prototype pollution in JavaScript",
-    "ReDoS via malicious regex input",
-    "Account enumeration via timing difference",
-    "Password reset token predictability",
-    "Clickjacking via iframe embedding",
-    "Cache poisoning via unkeyed header",
-    "Business logic flaw in coupon redemption",
-    "Information disclosure via verbose error",
-    "Weak cryptographic key generation",
-    "Session fixation after login",
+    "SQL injection via login form","XSS reflected attack on search parameter",
+    "SSRF via URL parameter in image fetcher","Path traversal in file download endpoint",
+    "Broken object level authorization in REST API","JWT algorithm confusion attack",
+    "LDAP injection in authentication","XML external entity injection",
+    "Command injection via filename parameter","Insecure deserialization in session cookie",
+    "Open redirect via callback URL","CSRF on state-changing API endpoint",
+    "Subdomain takeover via dangling CNAME","HTTP request smuggling",
+    "GraphQL introspection abuse","Rate limiting bypass via IP rotation",
+    "Mass assignment vulnerability in ORM","Insecure direct object reference in profile endpoint",
+    "SSTI in Jinja2 template engine","DNS rebinding attack on localhost services",
+    "Prototype pollution in JavaScript","ReDoS via malicious regex input",
+    "Account enumeration via timing difference","Password reset token predictability",
+    "Clickjacking via iframe embedding","Cache poisoning via unkeyed header",
+    "Business logic flaw in coupon redemption","Information disclosure via verbose error",
+    "Weak cryptographic key generation","Session fixation after login",
+    "CORS misconfiguration allowing arbitrary origin","WebSocket hijacking",
+    "NoSQL injection in MongoDB query","Template injection in email system",
+    "Blind SSRF via out-of-band DNS","Race condition in concurrent requests",
+    "HTTP parameter pollution","Insecure file permissions on config files",
+    "Default credentials on admin interface","Unvalidated redirect after login",
 ]
 
 
@@ -114,49 +220,41 @@ async def generate_adversarial_defense(
         return existing
 
     seeds = list(_THREAT_SEEDS)
-
-    # Enrich seeds from NVD descriptions
     for rec in (nvd_records or [])[:500]:
         desc = rec.get("description", "")
         if desc and len(desc) > 40:
             seeds.append(desc[:200])
-
-    # Enrich seeds from MITRE ATT&CK techniques
     for rec in (mitre_records or [])[:200]:
         name = rec.get("name", "")
         if name:
-            seeds.append(f"ATT&CK technique: {name}")
+            seeds.append(f"ATT&CK: {name}")
 
     generated = existing
     random.shuffle(seeds)
-    seed_cycle = (seeds * ((target // len(seeds)) + 2))[:target]
+    seed_cycle = (seeds * ((target // len(seeds)) + 2))
 
-    for i, seed in enumerate(seed_cycle[existing:], start=existing + 1):
+    for seed in seed_cycle[existing:target]:
         try:
             raw = await _llm(DEFENSE_SYS, f"Threat vector: {seed}")
-            # extract JSON even if wrapped in markdown
-            start = raw.find("{")
-            end   = raw.rfind("}") + 1
-            if start == -1 or end == 0:
+            obj = _extract_json(raw)
+            if not obj:
                 continue
-            obj = json.loads(raw[start:end])
-            required = {"threat_vector", "exploitation_method",
-                        "detection_pattern", "mitigation_strategy"}
-            if not required.issubset(obj.keys()):
+            if not {"threat_vector","exploitation_method",
+                    "detection_pattern","mitigation_strategy"}.issubset(obj):
                 continue
             _write(out, obj)
             generated += 1
-            if generated % 100 == 0:
-                LOG.info("adversarial_defense: %d/%d", generated, target)
+            if generated % 200 == 0:
+                LOG.info("adversarial_defense: %d/%d | cost: %s",
+                         generated, target, _tracker.to_dict())
         except Exception as e:
-            LOG.debug("adversarial_defense gen error: %s", e)
+            LOG.debug("defense gen error: %s", e)
 
-    LOG.info("adversarial_defense complete: %d examples", generated)
     return generated
 
 
 # ─────────────────────────────────────────────────────────────
-# Dataset 2 — Multi-turn Reasoning Chains  (~3,000 examples)
+# Dataset 2 — Multi-turn Reasoning Chains  (target: 3,000)
 # ─────────────────────────────────────────────────────────────
 REASONING_SYS = """You are generating reasoning chain training data for an AI agent.
 Given a question, produce a JSON object with exactly these fields:
@@ -170,26 +268,26 @@ Given a question, produce a JSON object with exactly these fields:
 Respond with valid JSON only. Make reasoning explicit, auditable, and step-by-step."""
 
 _REASONING_SEEDS = [
-    "Why did the authentication system choose rate limiting over CAPTCHA?",
-    "How should an AI agent decide between two conflicting security policies?",
-    "What is the safest way to store API keys in a distributed system?",
-    "Why might an anomaly detection system produce false positives?",
-    "How do you determine if a system vulnerability is critical enough to patch immediately?",
-    "What factors should influence the choice of encryption algorithm?",
+    "Why should an AI agent choose rate limiting over CAPTCHA for brute force prevention?",
+    "How do you determine if a CVE is critical enough to patch immediately?",
+    "What factors should influence the choice of encryption algorithm for stored passwords?",
     "Why is defense-in-depth more effective than perimeter-only security?",
     "How should a security agent prioritize incidents during a multi-vector attack?",
     "What makes a bug bounty report valid vs invalid?",
-    "How does an attacker enumerate valid usernames without triggering alerts?",
-    "Why is input validation at the server side necessary even with client-side checks?",
+    "Why is input validation at server side necessary even with client-side checks?",
     "What signals indicate a system is being used as a pivot point in an attack?",
-    "How does a security agent determine attribution for an attack?",
     "Why should secrets be rotated on a schedule rather than only after compromise?",
     "How do you evaluate whether a third-party library introduces supply chain risk?",
-    "What reasoning process identifies a zero-day from behavioral anomalies?",
-    "Why is least privilege important and how is it violated in practice?",
-    "How should a system respond to an authenticated user performing unusual bulk exports?",
     "What evidence distinguishes a security researcher from a malicious actor?",
     "How does threat modeling change risk prioritization decisions?",
+    "Why is least privilege important and how is it violated in practice?",
+    "How should a system respond to authenticated user performing unusual bulk exports?",
+    "What reasoning process identifies a zero-day from behavioral anomalies alone?",
+    "Why is memory-safe code preferable to manual memory management for security?",
+    "How do you decide between logging more vs logging less for security monitoring?",
+    "Why might two identical vulnerabilities have different risk scores?",
+    "How should an AI agent handle conflicting security policies from two sources?",
+    "What is the correct order of operations when responding to an active breach?",
 ]
 
 
@@ -200,57 +298,51 @@ async def generate_reasoning_chains(
     out = OUT_DIR / "reasoning_chains.jsonl"
     existing = _count(out)
     if existing >= target:
-        LOG.info("reasoning_chains already at %d/%d", existing, target)
         return existing
 
     seeds = list(_REASONING_SEEDS)
-
-    # Use HF examples as question seeds
     for rec in (hf_records or [])[:300]:
         q = rec.get("question", "")
         if q and len(q) > 20:
             seeds.append(q[:300])
 
     generated = existing
-    seed_cycle = (seeds * ((target // len(seeds)) + 2))[:target]
+    seed_cycle = (seeds * ((target // len(seeds)) + 2))
 
-    for seed in seed_cycle[existing:]:
+    for seed in seed_cycle[existing:target]:
         try:
             raw = await _llm(REASONING_SYS, f"Question: {seed}")
-            start = raw.find("{")
-            end   = raw.rfind("}") + 1
-            if start == -1 or end == 0:
+            obj = _extract_json(raw)
+            if not obj:
                 continue
-            obj = json.loads(raw[start:end])
-            required = {"question", "reasoning_steps", "data_sources",
-                        "synthesis", "final_answer"}
-            if not required.issubset(obj.keys()):
+            if not {"question","reasoning_steps","data_sources",
+                    "synthesis","final_answer"}.issubset(obj):
                 continue
             if not isinstance(obj["reasoning_steps"], list):
                 continue
             _write(out, obj)
             generated += 1
-            if generated % 100 == 0:
-                LOG.info("reasoning_chains: %d/%d", generated, target)
+            if generated % 200 == 0:
+                LOG.info("reasoning_chains: %d/%d | cost: $%.4f",
+                         generated, target, _tracker.spent)
         except Exception as e:
-            LOG.debug("reasoning_chains gen error: %s", e)
+            LOG.debug("reasoning gen error: %s", e)
 
-    LOG.info("reasoning_chains complete: %d examples", generated)
     return generated
 
 
 # ─────────────────────────────────────────────────────────────
-# Dataset 3 — CVE Pattern Analysis  (~3,000 examples)
+# Dataset 3 — CVE Pattern Analysis  (target: 3,000)
 # ─────────────────────────────────────────────────────────────
 CVE_SYS = """You are a security analyst generating training data about vulnerability patterns.
 Given a CVE description, produce a JSON object with exactly these fields:
 {
-  "vulnerability_pattern": "abstract pattern this CVE represents (e.g. 'buffer overflow in parsing')",
+  "vulnerability_pattern": "abstract pattern this CVE represents",
   "discovery_indicators": ["observable signs that this class of vulnerability exists"],
   "exploitation_timeline": "typical time from discovery to weaponization for this pattern",
   "defensive_lessons": "what defenders should implement to prevent this class of issue"
 }
-Respond with valid JSON only. Focus on pattern recognition and defense, not exploitation."""
+Respond with valid JSON only. Focus on pattern recognition and defense."""
 
 
 async def generate_cve_patterns(
@@ -260,12 +352,12 @@ async def generate_cve_patterns(
     out = OUT_DIR / "cve_patterns.jsonl"
     existing = _count(out)
     if existing >= target:
-        LOG.info("cve_patterns already at %d/%d", existing, target)
         return existing
 
-    records = [r for r in (nvd_records or []) if r.get("description") and len(r["description"]) > 60]
+    records = [r for r in (nvd_records or [])
+               if r.get("description") and len(r["description"]) > 60]
     if not records:
-        LOG.warning("no NVD records for cve_patterns — collect NVD data first")
+        LOG.warning("no NVD records — run collection first")
         return existing
 
     random.shuffle(records)
@@ -273,48 +365,42 @@ async def generate_cve_patterns(
 
     for rec in records[existing:existing + (target - existing)]:
         try:
-            desc = rec["description"][:600]
+            desc   = rec["description"][:500]
             cve_id = rec.get("cve_id", "unknown")
-            prompt = f"CVE ID: {cve_id}\nDescription: {desc}"
-            raw = await _llm(CVE_SYS, prompt)
-            start = raw.find("{")
-            end   = raw.rfind("}") + 1
-            if start == -1 or end == 0:
+            raw    = await _llm(CVE_SYS, f"CVE ID: {cve_id}\nDescription: {desc}")
+            obj    = _extract_json(raw)
+            if not obj:
                 continue
-            obj = json.loads(raw[start:end])
-            required = {"vulnerability_pattern", "discovery_indicators",
-                        "exploitation_timeline", "defensive_lessons"}
-            if not required.issubset(obj.keys()):
+            if not {"vulnerability_pattern","discovery_indicators",
+                    "exploitation_timeline","defensive_lessons"}.issubset(obj):
                 continue
-            obj["source_cve"] = cve_id
+            obj["source_cve"]  = cve_id
             obj["cvss_score"]  = rec.get("cvss_score", 0)
             _write(out, obj)
             generated += 1
-            if generated % 100 == 0:
-                LOG.info("cve_patterns: %d/%d", generated, target)
+            if generated % 200 == 0:
+                LOG.info("cve_patterns: %d/%d | cost: $%.4f",
+                         generated, target, _tracker.spent)
         except Exception as e:
-            LOG.debug("cve_patterns gen error: %s", e)
+            LOG.debug("cve gen error: %s", e)
 
-    LOG.info("cve_patterns complete: %d examples", generated)
     return generated
 
 
 # ─────────────────────────────────────────────────────────────
-# Dataset 4 — Bug Bounty Methodologies  (~5,000 examples)
-# Scaled back from 12,000 to what's realistic free/local
+# Dataset 4 — Bug Bounty Methodologies  (target: 5,000)
 # ─────────────────────────────────────────────────────────────
 BOUNTY_SYS = """You are a security researcher generating ethical bug bounty training data.
 Given a target system type and vulnerability class, produce a JSON object:
 {
-  "target_system": "type of system (e.g. REST API, web app, mobile app)",
+  "target_system": "type of system",
   "recon_method": "passive or non-intrusive discovery technique",
   "vulnerability_found": "specific vulnerability class and location",
-  "non_weaponized_poc": "proof of concept that ONLY demonstrates existence, not exploitation",
-  "impact_assessment": "business impact if this were exploited",
+  "non_weaponized_poc": "proof of concept that ONLY demonstrates existence",
+  "impact_assessment": "business impact if exploited",
   "remediation": "specific code-level or configuration fix"
 }
-All examples must be from a defensive/researcher perspective.
-Respond with valid JSON only."""
+All examples must be from a defensive/researcher perspective. Valid JSON only."""
 
 _BOUNTY_SEEDS = [
     ("REST API", "IDOR on user profile endpoint"),
@@ -337,6 +423,11 @@ _BOUNTY_SEEDS = [
     ("CDN configuration", "cache poisoning via unkeyed Host header"),
     ("session management", "session not invalidated after logout"),
     ("debug endpoint", "stack trace leaking internal paths in production"),
+    ("mobile API", "certificate pinning bypass in debug build"),
+    ("third-party integration", "OAuth token leakage via referrer header"),
+    ("multi-tenant SaaS", "tenant data isolation failure"),
+    ("CI/CD pipeline", "secrets exposed in build logs"),
+    ("kubernetes dashboard", "unauthenticated access via exposed NodePort"),
 ]
 
 
@@ -347,47 +438,40 @@ async def generate_bug_bounty(
     out = OUT_DIR / "bug_bounty.jsonl"
     existing = _count(out)
     if existing >= target:
-        LOG.info("bug_bounty already at %d/%d", existing, target)
         return existing
 
     seeds = list(_BOUNTY_SEEDS)
-
-    # Generate additional seeds from MITRE techniques
     for rec in (mitre_records or [])[:100]:
         name = rec.get("name", "")
-        tactics = rec.get("tactics", [])
-        if name and "web" in " ".join(tactics).lower():
+        if name:
             seeds.append(("web application", name))
 
     generated = existing
-    seed_cycle = (seeds * ((target // len(seeds)) + 2))[:target]
+    seed_cycle = (seeds * ((target // len(seeds)) + 2))
 
-    for target_sys, vuln_class in seed_cycle[existing:]:
+    for target_sys, vuln_class in seed_cycle[existing:target]:
         try:
-            prompt = f"Target system: {target_sys}\nVulnerability class: {vuln_class}"
-            raw = await _llm(BOUNTY_SYS, prompt)
-            start = raw.find("{")
-            end   = raw.rfind("}") + 1
-            if start == -1 or end == 0:
+            raw = await _llm(BOUNTY_SYS,
+                             f"Target system: {target_sys}\nVulnerability: {vuln_class}")
+            obj = _extract_json(raw)
+            if not obj:
                 continue
-            obj = json.loads(raw[start:end])
-            required = {"target_system", "recon_method", "vulnerability_found",
-                        "non_weaponized_poc", "impact_assessment", "remediation"}
-            if not required.issubset(obj.keys()):
+            if not {"target_system","recon_method","vulnerability_found",
+                    "non_weaponized_poc","impact_assessment","remediation"}.issubset(obj):
                 continue
             _write(out, obj)
             generated += 1
-            if generated % 100 == 0:
-                LOG.info("bug_bounty: %d/%d", generated, target)
+            if generated % 200 == 0:
+                LOG.info("bug_bounty: %d/%d | cost: $%.4f",
+                         generated, target, _tracker.spent)
         except Exception as e:
-            LOG.debug("bug_bounty gen error: %s", e)
+            LOG.debug("bounty gen error: %s", e)
 
-    LOG.info("bug_bounty complete: %d examples", generated)
     return generated
 
 
 # ─────────────────────────────────────────────────────────────
-# Dataset stats
+# Stats
 # ─────────────────────────────────────────────────────────────
 def dataset_stats() -> dict:
     stats = {}

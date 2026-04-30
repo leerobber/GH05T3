@@ -65,7 +65,10 @@ async def run_pipeline(
         from training.generators import (
             generate_adversarial_defense, generate_reasoning_chains,
             generate_cve_patterns, generate_bug_bounty, dataset_stats,
+            reset_tracker, get_tracker,
         )
+
+        reset_tracker()
 
         # ── Phase 1: Collect raw public data ─────────────────────────
         nvd_records = mitre_records = hf_records = []
@@ -119,11 +122,13 @@ async def run_pipeline(
 
         final = dataset_stats()
         total = sum(final.values())
+        cost  = get_tracker().to_dict()
         _progress["phase"] = "complete"
         _progress["datasets"] = final
         _progress["total"] = total
+        _progress["cost"] = cost
         await _emit(f"Pipeline complete. Total: {total} training examples.", {"phase": "complete"})
-        return {"status": "complete", "datasets": final, "total": total}
+        return {"status": "complete", "datasets": final, "total": total, "cost": cost}
 
     except Exception as e:
         LOG.exception("pipeline error")
@@ -135,7 +140,7 @@ async def run_pipeline(
 
 
 def pipeline_status() -> dict:
-    from training.generators import dataset_stats
+    from training.generators import dataset_stats, get_tracker
     from training.collectors import raw_stats
     return {
         "running":  _running,
@@ -143,6 +148,7 @@ def pipeline_status() -> dict:
         "datasets": dataset_stats(),
         "raw":      raw_stats(),
         "targets":  TARGETS,
+        "cost":     get_tracker().to_dict(),
     }
 
 

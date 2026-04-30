@@ -154,6 +154,11 @@ OLLAMA_VRAM_GB=0
 # Set TRAIN_USE_ANTHROPIC=1 to use Claude for fast high-quality generation (uses credits).
 # Leave 0 for fully free: Groq free tier → Google free → local Ollama.
 TRAIN_USE_ANTHROPIC=0
+# Budget cap for Anthropic (Haiku) calls during training (only when TRAIN_USE_ANTHROPIC=1)
+# TRAIN_BUDGET_TARGET: soft warning threshold (keeps going, just logs)
+# TRAIN_BUDGET_HARD:   hard stop — switches to free providers. Set < $8 to stay safe.
+TRAIN_BUDGET_TARGET=5.00
+TRAIN_BUDGET_HARD=7.50
 # Per-dataset targets (reduce for quick test runs, e.g. 100 each)
 TRAIN_TARGET_DEFENSE=5000
 TRAIN_TARGET_REASONING=3000
