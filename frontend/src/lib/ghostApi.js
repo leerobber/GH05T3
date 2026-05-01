@@ -109,3 +109,9 @@ export const gw3KairosElite    = () => gw3.get("/kairos/elite").then((r) => r.da
 export const gw3SecretsStatus  = () => gw3.get("/setup/secrets/status").then((r) => r.data);
 export const gw3SaveSecrets    = (anthropic_api_key, github_pat, groq_api_key, google_ai_key) =>
   gw3.post("/setup/secrets", { anthropic_api_key, github_pat, groq_api_key, google_ai_key }).then((r) => r.data);
+
+// GitHub mesh relay sync (cross-instance sync without direct TCP)
+export const gw3MeshPush  = () => gw3.post("/github/mesh/push").then((r) => r.data);
+export const gw3MeshPull  = () => gw3.post("/github/mesh/pull").then((r) => r.data);
+export const gw3MeshSync  = () => gw3.post("/github/mesh/sync").then((r) => r.data);
+export const gw3MeshPeers = () => gw3.get("/github/mesh/peers").then((r) => r.data);

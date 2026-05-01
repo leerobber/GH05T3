@@ -416,6 +416,67 @@ async def github_sync_memory():
     return {"ok": True, "note": "Sync task delegated to GITHUB agent"}
 
 
+@app.post("/github/mesh/push")
+async def github_mesh_push():
+    """Push this instance's memory to GitHub mesh/sync/<label>/ so peers can pull it."""
+    gh_agent = next((a for a in bus._agents.values() if a.name == "GITHUB"), None)
+    if not gh_agent:
+        return {"ok": False, "error": "GITHUB agent not running"}
+    result = await gh_agent.push_relay()
+    return result
+
+
+@app.post("/github/mesh/pull")
+async def github_mesh_pull():
+    """Pull peer memory from GitHub mesh/sync/ and merge into local data."""
+    gh_agent = next((a for a in bus._agents.values() if a.name == "GITHUB"), None)
+    if not gh_agent:
+        return {"ok": False, "error": "GITHUB agent not running"}
+    result = await gh_agent.pull_relay()
+    return result
+
+
+@app.post("/github/mesh/sync")
+async def github_mesh_sync():
+    """Push then pull — full bidirectional sync via GitHub relay."""
+    gh_agent = next((a for a in bus._agents.values() if a.name == "GITHUB"), None)
+    if not gh_agent:
+        return {"ok": False, "error": "GITHUB agent not running"}
+    push_result = await gh_agent.push_relay()
+    pull_result = await gh_agent.pull_relay()
+    return {"push": push_result, "pull": pull_result}
+
+
+@app.get("/github/mesh/peers")
+async def github_mesh_peers():
+    """List all instances that have pushed to the GitHub mesh relay."""
+    gh_agent = next((a for a in bus._agents.values() if a.name == "GITHUB"), None)
+    if not gh_agent:
+        return {"peers": [], "error": "GITHUB agent not running"}
+    branch = os.environ.get("GITHUB_BRANCH", "main")
+    try:
+        r = await gh_agent._gh._http.get(
+            f"/repos/{gh_agent._gh._repo}/contents/mesh/sync",
+            params={"ref": branch}
+        )
+        if r.status_code != 200:
+            return {"peers": [], "note": "mesh/sync not yet initialised"}
+        import base64 as _b64, json as _json
+        peers = []
+        for item in r.json():
+            if item["type"] != "dir":
+                continue
+            manifest = await gh_agent._gh.get_file(f"mesh/sync/{item['name']}/manifest.json", branch)
+            if manifest:
+                data = _json.loads(_b64.b64decode(manifest["content"]).decode())
+                peers.append(data)
+            else:
+                peers.append({"label": item["name"]})
+        return {"peers": peers, "count": len(peers)}
+    except Exception as e:
+        return {"peers": [], "error": str(e)}
+
+
 @app.post("/github/commit")
 async def github_commit(message: str = "🖤 GH05T3 manual commit"):
     await bus.emit(

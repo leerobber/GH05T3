@@ -371,13 +371,97 @@ class GitHubAgent(SwarmAgent):
         """Auto-commit elite KAIROS cycle."""
         cycle_id = msg.metadata.get("cycle_id", "?")
         score    = msg.metadata.get("score", 0.0)
-        commit_msg = f"⚡ [KAIROS Elite #{cycle_id}] score={score:.2f} — auto-committed"
+        commit_msg = f"[KAIROS Elite #{cycle_id}] score={score:.2f} -- auto-committed"
         self._git.add_all()
         self._git.commit(commit_msg)
         await self.say(
             f"Elite cycle #{cycle_id} (score {score:.2f}) committed to GitHub",
             channel="#github", msg_type=MsgType.GITHUB,
         )
+
+    # ── CROSS-INSTANCE GITHUB RELAY SYNC ─────────────────────────────────────
+
+    async def push_relay(self) -> dict:
+        """Push this instance's memory/KAIROS data to GitHub under mesh/sync/<label>/.
+        Any other instance with a GitHub PAT can pull it — no direct TCP needed."""
+        label = os.environ.get("INSTANCE_LABEL", "unknown")
+        branch = os.environ.get("GITHUB_BRANCH", "main")
+        files: dict[str, str] = {}
+
+        base = Path(__file__).parent.parent
+        for src, dest in [
+            (base / "memory" / "conversations.jsonl", f"mesh/sync/{label}/conversations.jsonl"),
+            (base / "evolution" / "kairos_log.jsonl",  f"mesh/sync/{label}/kairos_log.jsonl"),
+        ]:
+            if src.exists() and src.stat().st_size > 0:
+                files[dest] = src.read_text(errors="replace")
+
+        # Write a small manifest so peers know when this instance last synced
+        files[f"mesh/sync/{label}/manifest.json"] = json.dumps({
+            "label":    label,
+            "role":     os.environ.get("INSTANCE_ROLE", "peer"),
+            "url":      os.environ.get("INSTANCE_URL", ""),
+            "synced_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "files":    list(files.keys()),
+        }, indent=2)
+
+        if not files:
+            return {"ok": False, "reason": "no local data to push"}
+
+        try:
+            url = await self._gh.push_files(
+                files, f"[GH05T3 mesh] {label} sync {time.strftime('%Y-%m-%d %H:%M')}", branch
+            )
+            log.info("[GH relay] pushed %d files for %s", len(files), label)
+            return {"ok": True, "files": len(files), "url": url, "label": label}
+        except Exception as e:
+            log.warning("[GH relay] push failed: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def pull_relay(self) -> dict:
+        """Pull peer memory from GitHub mesh/sync/ and merge into local KAIROS log."""
+        branch = os.environ.get("GITHUB_BRANCH", "main")
+        my_label = os.environ.get("INSTANCE_LABEL", "unknown")
+        base = Path(__file__).parent.parent
+
+        # List all peers by scanning mesh/sync/ directory
+        try:
+            r = await self._gh._http.get(
+                f"/repos/{self._gh._repo}/contents/mesh/sync",
+                params={"ref": branch}
+            )
+            if r.status_code != 200:
+                return {"ok": False, "reason": f"mesh/sync not found (HTTP {r.status_code})"}
+            peers = [item["name"] for item in r.json() if item["type"] == "dir" and item["name"] != my_label]
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+        merged = 0
+        for peer_label in peers:
+            for filename, local_path in [
+                ("kairos_log.jsonl", base / "evolution" / "kairos_log.jsonl"),
+                ("conversations.jsonl", base / "memory" / "conversations.jsonl"),
+            ]:
+                file_data = await self._gh.get_file(f"mesh/sync/{peer_label}/{filename}", branch)
+                if not file_data:
+                    continue
+                try:
+                    remote_text = base64.b64decode(file_data["content"]).decode(errors="replace")
+                    remote_lines = set(remote_text.strip().splitlines())
+                    local_lines: set[str] = set()
+                    if local_path.exists():
+                        local_lines = set(local_path.read_text(errors="replace").strip().splitlines())
+                    new_lines = remote_lines - local_lines
+                    if new_lines:
+                        local_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(local_path, "a") as f:
+                            f.write("\n".join(sorted(new_lines)) + "\n")
+                        merged += len(new_lines)
+                        log.info("[GH relay] merged %d new lines from %s/%s", len(new_lines), peer_label, filename)
+                except Exception as e:
+                    log.warning("[GH relay] merge error %s/%s: %s", peer_label, filename, e)
+
+        return {"ok": True, "peers_found": len(peers), "lines_merged": merged}
 
     @property
     def stats(self) -> dict:
