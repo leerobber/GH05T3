@@ -76,7 +76,7 @@ async def set_nightly_config(cfg: dict) -> dict:
 # ---------------------------------------------------------------------------
 async def _call_anthropic(system: str, user: str, model: str | None = None) -> str:
     import anthropic  # in requirements.txt
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    key = _env_key("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
     client = anthropic.AsyncAnthropic(api_key=key)
@@ -94,7 +94,7 @@ async def _call_anthropic(system: str, user: str, model: str | None = None) -> s
 async def _call_groq(system: str, user: str,
                      model: str = "llama-3.3-70b-versatile",
                      api_key: str | None = None) -> str:
-    key = api_key or os.environ.get("GROQ_API_KEY", "")
+    key = api_key or _env_key("GROQ_API_KEY")
     if not key:
         raise RuntimeError("GROQ_API_KEY not set")
     return await _openai_compat(
@@ -105,7 +105,7 @@ async def _call_groq(system: str, user: str,
 async def _call_google(system: str, user: str,
                        model: str = "gemini-2.0-flash",
                        api_key: str | None = None) -> str:
-    key = api_key or os.environ.get("GOOGLE_AI_KEY", "")
+    key = api_key or _env_key("GOOGLE_AI_KEY")
     if not key:
         raise RuntimeError("GOOGLE_AI_KEY not set")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
@@ -161,7 +161,44 @@ async def ollama_available() -> bool:
         return False
 
 
+async def ollama_ensure_model(model: str = "qwen2.5:0.5b") -> bool:
+    """Pull a small Ollama model if Ollama is running but has no models loaded.
+    qwen2.5:0.5b is ~400 MB — guaranteed local fallback."""
+    url = ollama_resolved_url()
+    if not url:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.get(f"{url}/api/tags")
+            if r.status_code != 200:
+                return False
+            models = [m["name"] for m in r.json().get("models", [])]
+            if models:
+                return True  # already has models
+            # Pull the smallest useful model
+            LOG.info("[ollama] no models found, pulling %s as fallback...", model)
+            pull = await c.post(f"{url}/api/pull", json={"name": model}, timeout=600)
+            return pull.status_code == 200
+    except Exception as e:
+        LOG.warning("[ollama] ensure_model failed: %s", e)
+        return False
+
+
 _ENV_PATH = Path(__file__).parent / ".env"
+
+
+def _classify_anthropic_error(e: Exception) -> str:
+    """Return a short human-readable reason for an Anthropic failure."""
+    s = str(e).lower()
+    if "rate_limit" in s or "429" in s:
+        return "Anthropic rate limit hit"
+    if any(w in s for w in ("quota", "usage", "exceeded", "credit", "budget")):
+        return "Anthropic quota/budget exceeded"
+    if "overloaded" in s or "529" in s or "503" in s:
+        return "Anthropic API overloaded"
+    if "401" in s or "authentication" in s or "invalid.*key" in s:
+        return "Anthropic API key invalid"
+    return f"Anthropic error: {type(e).__name__}"
 
 
 def _env_key(name: str) -> str:
@@ -212,46 +249,41 @@ async def chat_once(session: str, system: str, user: str,
                 LOG.warning("ollama call failed, trying next provider: %s", e)
 
     # 1. Anthropic
-    _anthropic_fail_reason = ""
+    _fail_reason = ""
     if _anthropic_key():
         try:
             text = await _call_anthropic(system, user)
             tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
             return text, f"anthropic:{tag}"
         except Exception as e:
-            err_str = str(e).lower()
-            if "rate_limit" in err_str or "429" in err_str:
-                _anthropic_fail_reason = "Anthropic rate limit hit."
-            elif "quota" in err_str or "usage" in err_str or "exceeded" in err_str or "credit" in err_str:
-                _anthropic_fail_reason = "Anthropic quota/credits exceeded."
-            elif "overloaded" in err_str or "529" in err_str or "503" in err_str:
-                _anthropic_fail_reason = "Anthropic API overloaded."
-            else:
-                _anthropic_fail_reason = f"Anthropic error: {e}"
-            LOG.warning("anthropic failed: %s", e)
+            _fail_reason = _classify_anthropic_error(e)
+            LOG.warning("anthropic failed (%s): %s", _fail_reason, e)
 
-    # 2. Groq (free tier)
-    if _groq_key():
+    # 2. Groq (free tier) — silent fallback, no error shown to user
+    groq_key = _groq_key()
+    if groq_key:
         cfg = await get_nightly_config()
         model = cfg.get("groq_model", "llama-3.3-70b-versatile")
         try:
-            text = await _call_groq(system, user, model)
+            text = await _call_groq(system, user, model, api_key=groq_key)
             return text, f"groq:{model}"
         except Exception as e:
             LOG.warning("groq failed: %s", e)
 
-    # 3. Google Gemini (free tier)
-    if _google_key():
+    # 3. Google Gemini (free tier) — silent fallback
+    google_key = _google_key()
+    if google_key:
         cfg = await get_nightly_config()
         model = cfg.get("google_model", "gemini-2.0-flash")
         try:
-            text = await _call_google(system, user, model)
+            text = await _call_google(system, user, model, api_key=google_key)
             return text, f"google:{model}"
         except Exception as e:
             LOG.warning("google failed: %s", e)
 
-    # 4. Ollama (local free)
+    # 4. Ollama (local free) — silent fallback; auto-pull tiny model if needed
     if await ollama_available():
+        await ollama_ensure_model("qwen2.5:0.5b")
         model = OLLAMA_PREFERRED.get(role, "qwen2.5")
         try:
             text = await ollama_call(model, system, user)
@@ -259,7 +291,8 @@ async def chat_once(session: str, system: str, user: str,
         except Exception as e:
             LOG.warning("ollama failed: %s", e)
 
-    reason = f" ({_anthropic_fail_reason})" if _anthropic_fail_reason else ""
+    # All providers exhausted — only NOW tell the user
+    reason = f" ({_fail_reason})" if _fail_reason else ""
     raise NoLLMError(
         f"No LLM provider available{reason}. "
         "Add a free Groq key (console.groq.com) or Google AI key (aistudio.google.com) "
@@ -299,50 +332,45 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
 
     # --- Auto-detect: cheapest first ---
 
-    # Ollama — completely free, local
+    # Ollama — completely free, local; auto-pull tiny model if needed
     if await ollama_available():
+        await ollama_ensure_model("qwen2.5:0.5b")
         try:
             text = await ollama_call("qwen2.5", system, user)
             return text, "ollama:qwen2.5"
         except Exception as e:
             LOG.warning("auto ollama failed: %s", e)
 
-    # Groq env key — free tier
-    if _groq_key():
+    # Groq env key — free tier (pass key explicitly so hot-reload works)
+    groq_key = _groq_key()
+    if groq_key:
         try:
-            text = await _call_groq(system, user)
+            text = await _call_groq(system, user, api_key=groq_key)
             return text, "groq:llama-3.3-70b-versatile"
         except Exception as e:
             LOG.warning("env groq failed: %s", e)
 
     # Google env key — free tier
-    if _google_key():
+    google_key = _google_key()
+    if google_key:
         try:
-            text = await _call_google(system, user)
+            text = await _call_google(system, user, api_key=google_key)
             return text, "google:gemini-2.0-flash"
         except Exception as e:
             LOG.warning("env google failed: %s", e)
 
-    # Anthropic — paid, last resort
-    _nightly_fail_reason = ""
+    # Anthropic — paid, last resort for nightly
+    _fail_reason = ""
     if _anthropic_key():
         try:
             text = await _call_anthropic(system, user)
             tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
             return text, f"anthropic:{tag}"
         except Exception as e:
-            err_str = str(e).lower()
-            if "rate_limit" in err_str or "429" in err_str:
-                _nightly_fail_reason = "Anthropic rate limit hit."
-            elif any(w in err_str for w in ("quota", "usage", "exceeded", "credit", "budget")):
-                _nightly_fail_reason = "Anthropic quota/budget exceeded."
-            elif "overloaded" in err_str or "529" in err_str or "503" in err_str:
-                _nightly_fail_reason = "Anthropic API overloaded."
-            else:
-                _nightly_fail_reason = f"Anthropic error: {e}"
-            LOG.warning("anthropic nightly fallback failed: %s", e)
+            _fail_reason = _classify_anthropic_error(e)
+            LOG.warning("anthropic nightly failed (%s): %s", _fail_reason, e)
 
-    reason = f" ({_nightly_fail_reason})" if _nightly_fail_reason else ""
+    reason = f" ({_fail_reason})" if _fail_reason else ""
     raise NoLLMError(
         f"No LLM provider available for nightly chat{reason}. "
         "Set GROQ_API_KEY or GOOGLE_AI_KEY in the LLM Config panel for free fallback."
