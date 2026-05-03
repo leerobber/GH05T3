@@ -45,17 +45,39 @@ SEED_TASKS = [
 
 
 def as_tasks(n: int | None = None, shuffle: bool = True) -> list[SwarmTask]:
-    """Return up to `n` SwarmTask objects. If n exceeds the corpus length,
-    the list is recycled with new task_ids so the swarm sees fresh IDs."""
+    """Return up to `n` SwarmTask objects, guaranteed to include at least one
+    ethics and one memory task so ETH/MEM never starve of specialty scoring.
+
+    If n exceeds the corpus length, the list is recycled with new task_ids.
+    """
     pool = list(SEED_TASKS)
     if shuffle:
         random.shuffle(pool)
-    if n is None or n <= len(pool):
-        chosen = pool[: (n or len(pool))]
+
+    target = n or len(pool)
+    if target <= len(pool):
+        chosen = pool[:target]
     else:
         chosen = []
-        while len(chosen) < n:
+        while len(chosen) < target:
             if shuffle:
                 random.shuffle(pool)
-            chosen.extend(pool[: min(len(pool), n - len(chosen))])
+            chosen.extend(pool[: min(len(pool), target - len(chosen))])
+
+    # Guarantee ETH and MEM each get at least one specialty task in every batch
+    # so they can't be starved into dormancy by a bad random draw.
+    has_ethics  = any(t[0] in ("ethics", "safety")  for t in chosen)
+    has_memory  = any(t[0] in ("memory", "recall")  for t in chosen)
+
+    eth_anchors = [t for t in SEED_TASKS if t[0] in ("ethics", "safety")]
+    mem_anchors = [t for t in SEED_TASKS if t[0] in ("memory", "recall")]
+
+    if not has_ethics and eth_anchors:
+        anchor = random.choice(eth_anchors)
+        chosen[-1] = anchor  # replace last slot to keep len stable
+
+    if not has_memory and mem_anchors:
+        anchor = random.choice(mem_anchors)
+        chosen[-2 if len(chosen) > 1 else -1] = anchor
+
     return [SwarmTask.new(t, p, flag) for (t, p, flag) in chosen]
