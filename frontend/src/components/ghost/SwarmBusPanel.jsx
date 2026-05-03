@@ -2,95 +2,390 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity, Bot, Github, Send, Zap, Search, RefreshCw,
   AlertTriangle, CheckCircle, Loader2, KeyRound, Eye, EyeOff,
+  Shield, Cpu, Network,
 } from "lucide-react";
-import { Panel } from "./primitives";
 import {
   gw3WsUrl, gw3Agents, gw3Delegate, gw3Convos, gw3ConvoSearch,
   gw3GithubStatus, gw3GithubSyncMemory, gw3ClaudeTrain, gw3KairosElite,
   gw3SecretsStatus, gw3SaveSecrets,
 } from "../../lib/ghostApi";
 
-// ── constants ─────────────────────────────────────────────────────
+// ── palette ───────────────────────────────────────────────────────
+const C = {
+  bg:       "#03050a",
+  panel:    "#060c14",
+  border:   "rgba(0,200,255,0.12)",
+  borderHi: "rgba(0,200,255,0.35)",
+  cyan:     "#00c8ff",
+  cyanDim:  "#00648a",
+  amber:    "#f59e0b",
+  amberDim: "#7a5010",
+  purple:   "#9333ea",
+  green:    "#10b981",
+  red:      "#ef4444",
+  ghost:    "#e2e8f0",
+  muted:    "#475569",
+  deep:     "#0a111c",
+};
+
 const AGENT_COLORS = {
-  ORACLE: "#40c8d4", FORGE: "#ff9933", CODEX: "#9966ff",
-  SENTINEL: "#d44040", NEXUS: "#8bc668", GITHUB: "#cccccc",
-  CLAUDE: "#cc785c", OMEGA: "#d4941c", KAIROS: "#9966ff",
-  SAGE: "#40c8d4", USER: "#e8d8b8", SYSTEM: "#7a5010", GH05T3: "#ff7820",
+  ORACLE:   "#00c8ff", FORGE:    "#ff9933", CODEX:    "#9333ea",
+  SENTINEL: "#ef4444", NEXUS:    "#10b981", GITHUB:   "#cbd5e1",
+  CLAUDE:   "#cc785c", OMEGA:    "#f59e0b", KAIROS:   "#9333ea",
+  SAGE:     "#00c8ff", USER:     "#e2e8f0", SYSTEM:   "#475569",
+  GH05T3:   "#ff7820", GATEWAY:  "#f59e0b",
 };
 const MSG_ICONS = {
-  chat: "💬", task: "📋", result: "✅", thought: "💭",
-  critique: "🔍", verdict: "⚖️", kairos: "⚡", github: "🐙",
-  claude: "🧠", system: "⚙️", heartbeat: "💓", error: "🔴",
+  chat:"💬", task:"📋", result:"✅", thought:"💭",
+  critique:"🔍", verdict:"⚖️", kairos:"⚡", github:"🐙",
+  claude:"🧠", system:"⚙️", heartbeat:"💓", error:"🔴",
 };
-const AGENTS_ORDER = ["ORACLE", "FORGE", "CODEX", "SENTINEL", "NEXUS"];
+const AGENTS_ORDER = ["ORACLE","FORGE","CODEX","SENTINEL","NEXUS"];
 
 const agentColor = (id) =>
-  AGENT_COLORS[(id || "").toUpperCase().split("-")[0]] || "#a0a0a0";
+  AGENT_COLORS[(id||"").toUpperCase().split("-")[0]] || "#64748b";
 
 const timeAgo = (ts) => {
   if (!ts) return "";
-  const s = Date.now() / 1000 - ts;
-  if (s < 60) return `${~~s}s`;
-  if (s < 3600) return `${~~(s / 60)}m`;
-  return new Date(ts * 1000).toLocaleTimeString();
+  const s = Date.now()/1000 - ts;
+  if (s < 60)   return `${~~s}s`;
+  if (s < 3600) return `${~~(s/60)}m`;
+  return new Date(ts*1000).toLocaleTimeString();
 };
+
+// ── keyframe injection ────────────────────────────────────────────
+const HOLO_CSS = `
+  @keyframes holo-scan {
+    0%   { transform: translateY(-100%); opacity: 0; }
+    10%  { opacity: 0.06; }
+    90%  { opacity: 0.06; }
+    100% { transform: translateY(1200%); opacity: 0; }
+  }
+  @keyframes holo-pulse {
+    0%,100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+    50%      { box-shadow: 0 0 0 6px transparent; opacity: 0.7; }
+  }
+  @keyframes holo-ring {
+    0%   { transform: scale(1);   opacity: 0.7; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
+  @keyframes holo-flicker {
+    0%,100% { opacity: 1; }
+    92%     { opacity: 1; }
+    93%     { opacity: 0.7; }
+    94%     { opacity: 1; }
+    97%     { opacity: 0.85; }
+  }
+  @keyframes msg-appear {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes dot-live {
+    0%,100% { box-shadow: 0 0 4px 1px #00c8ff88; }
+    50%     { box-shadow: 0 0 10px 3px #00c8ffcc; }
+  }
+  @keyframes grid-drift {
+    0%   { background-position: 0 0; }
+    100% { background-position: 40px 40px; }
+  }
+  @keyframes conn-flow {
+    0%   { stroke-dashoffset: 24; }
+    100% { stroke-dashoffset: 0; }
+  }
+  .holo-panel {
+    position: relative;
+    background: ${C.panel};
+    border: 1px solid ${C.border};
+    animation: holo-flicker 8s infinite;
+    overflow: hidden;
+  }
+  .holo-panel::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 39px,
+      rgba(0,200,255,0.03) 39px,
+      rgba(0,200,255,0.03) 40px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 39px,
+      rgba(0,200,255,0.03) 39px,
+      rgba(0,200,255,0.03) 40px
+    );
+    pointer-events: none;
+    animation: grid-drift 20s linear infinite;
+    z-index: 0;
+  }
+  .holo-panel::after {
+    content: '';
+    position: absolute; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, ${C.cyan}88, transparent);
+    animation: holo-scan 4s linear infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .holo-inner { position: relative; z-index: 2; }
+  .holo-tab-active {
+    background: linear-gradient(135deg, rgba(0,200,255,0.08), rgba(0,200,255,0.02));
+    border-color: rgba(0,200,255,0.4) !important;
+    color: ${C.cyan} !important;
+    text-shadow: 0 0 8px ${C.cyan}88;
+  }
+  .holo-tab {
+    transition: all 160ms ease;
+    border: 1px solid rgba(255,255,255,0.07);
+    color: ${C.muted};
+  }
+  .holo-tab:hover { color: ${C.ghost}; border-color: rgba(0,200,255,0.2); }
+  .msg-row { animation: msg-appear 220ms ease both; }
+  .agent-node-ring {
+    position: absolute; inset: 0;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    animation: holo-ring 2s ease-out infinite;
+  }
+  .ws-live-dot {
+    animation: dot-live 1.4s ease-in-out infinite;
+  }
+  .holo-input {
+    background: ${C.deep};
+    border: 1px solid rgba(0,200,255,0.15);
+    color: ${C.ghost};
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    outline: none;
+    transition: border-color 150ms ease;
+  }
+  .holo-input:focus { border-color: rgba(0,200,255,0.45); box-shadow: 0 0 0 1px rgba(0,200,255,0.15); }
+  .holo-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    transition: all 150ms ease;
+    border: 1px solid rgba(0,200,255,0.2);
+    color: ${C.muted};
+  }
+  .holo-btn:hover { border-color: rgba(0,200,255,0.5); color: ${C.cyan}; background: rgba(0,200,255,0.05); }
+  .holo-btn:disabled { opacity: 0.3; pointer-events: none; }
+  .holo-btn-primary {
+    border-color: rgba(245,158,11,0.35) !important;
+    color: ${C.amber} !important;
+  }
+  .holo-btn-primary:hover { background: rgba(245,158,11,0.08) !important; border-color: rgba(245,158,11,0.6) !important; }
+  .holo-select {
+    background: ${C.deep};
+    border: 1px solid rgba(0,200,255,0.15);
+    color: ${C.muted};
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    outline: none;
+  }
+  .conn-line { animation: conn-flow 1.5s linear infinite; }
+`;
+
+let _cssInjected = false;
+function injectCss() {
+  if (_cssInjected || typeof document === "undefined") return;
+  const el = document.createElement("style");
+  el.textContent = HOLO_CSS;
+  document.head.appendChild(el);
+  _cssInjected = true;
+}
 
 // ── sub-components ────────────────────────────────────────────────
 
-function MsgRow({ msg }) {
-  const color  = agentColor(msg.src);
-  const icon   = MSG_ICONS[msg.msg_type] || "·";
+function MsgRow({ msg, fresh }) {
+  const color = agentColor(msg.src);
+  const icon  = MSG_ICONS[msg.msg_type] || "·";
   const isThou = msg.msg_type === "thought";
   return (
-    <div className={`flex gap-2 py-1 border-b border-white/5 ${isThou ? "opacity-40" : ""}`}>
-      <span className="font-mono-term text-[9px] text-zinc-600 w-6 shrink-0 pt-0.5">
+    <div
+      className="msg-row flex gap-2 py-1.5"
+      style={{
+        borderBottom: "1px solid rgba(0,200,255,0.06)",
+        opacity: isThou ? 0.45 : 1,
+        animationDelay: fresh ? "0ms" : "none",
+      }}
+    >
+      <span style={{ fontFamily:"monospace", fontSize:10, color:C.muted, width:16, flexShrink:0, paddingTop:2 }}>
         {icon}
       </span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-1.5 flex-wrap">
-          <span className="font-mono-term text-[10px] font-bold" style={{ color }}>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ display:"flex", alignItems:"baseline", gap:6, flexWrap:"wrap" }}>
+          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, fontWeight:700, color, textShadow:`0 0 6px ${color}66` }}>
             {msg.src}
           </span>
           {msg.dst && msg.dst !== "*" && (
-            <span className="font-mono-term text-[9px] text-zinc-600">
-              → {msg.dst}
-            </span>
+            <span style={{ fontFamily:"monospace", fontSize:9, color:C.muted }}>→ {msg.dst}</span>
           )}
-          <span className="font-mono-term text-[9px] text-zinc-700 ml-auto shrink-0">
-            {timeAgo(msg.timestamp || msg.ts)}
+          <span style={{ fontFamily:"monospace", fontSize:9, color:"#2d3f50", marginLeft:"auto", flexShrink:0 }}>
+            {timeAgo(msg.timestamp||msg.ts)}
           </span>
         </div>
-        <p className="font-mono-term text-[11px] text-zinc-300 leading-relaxed break-words">
-          {(msg.content || "").slice(0, 300)}
-          {(msg.content || "").length > 300 && (
-            <span className="text-zinc-600"> …</span>
-          )}
+        <p style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, color:"#94a3b8", lineHeight:1.5, wordBreak:"break-word", margin:0 }}>
+          {(msg.content||"").slice(0,280)}
+          {(msg.content||"").length > 280 && <span style={{ color:C.muted }}> …</span>}
         </p>
       </div>
     </div>
   );
 }
 
-function AgentRow({ agent }) {
-  const [id, meta] = agent;
-  const color = agentColor(id);
-  const upSec = meta.uptime ? ~~meta.uptime : null;
+function AgentNodeSvg({ agents }) {
+  const size = 200;
+  const cx   = size/2, cy = size/2, r = 72;
+  const n    = agents.length || 1;
+  const positions = agents.map((_, i) => {
+    const theta = (i/n)*Math.PI*2 - Math.PI/2;
+    return { x: cx + Math.cos(theta)*r, y: cy + Math.sin(theta)*r };
+  });
   return (
-    <div className="flex items-center gap-2 py-1 border-b border-white/5">
-      <span
-        className="w-2 h-2 rounded-full shrink-0"
-        style={{ background: meta.active ? color : "#444", boxShadow: meta.active ? `0 0 4px ${color}88` : "none" }}
-      />
-      <span className="font-mono-term text-[11px] font-bold w-20 shrink-0" style={{ color }}>
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow:"visible" }}>
+      {/* connection ring */}
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(0,200,255,0.08)" strokeWidth={1} />
+      {/* edges */}
+      {agents.map((_, i) => {
+        const a = positions[i];
+        const b = positions[(i+1)%n];
+        const active = agents[i]?.[1]?.active && agents[(i+1)%n]?.[1]?.active;
+        return (
+          <line
+            key={i}
+            x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+            stroke={active ? "rgba(0,200,255,0.25)" : "rgba(0,200,255,0.06)"}
+            strokeWidth={active ? 1 : 0.5}
+            strokeDasharray={active ? "4 4" : "2 6"}
+            className={active ? "conn-line" : ""}
+          />
+        );
+      })}
+      {/* center node */}
+      <circle cx={cx} cy={cy} r={8} fill="rgba(245,158,11,0.15)" stroke="rgba(245,158,11,0.5)" strokeWidth={1} />
+      <text x={cx} y={cy+4} textAnchor="middle" fill="#f59e0b" fontSize={6} fontFamily="monospace" fontWeight="bold">GH05T3</text>
+      {/* agent nodes */}
+      {agents.map(([id, meta], i) => {
+        const { x, y } = positions[i];
+        const color = agentColor(id);
+        const active = meta?.active;
+        return (
+          <g key={id}>
+            {active && (
+              <circle cx={x} cy={y} r={12}
+                fill="none"
+                stroke={color}
+                strokeWidth={0.8}
+                opacity={0.4}
+                style={{ animation:"holo-ring 2.5s ease-out infinite", transformOrigin:`${x}px ${y}px` }}
+              />
+            )}
+            <circle
+              cx={x} cy={y} r={8}
+              fill={active ? `${color}22` : "rgba(30,40,50,0.8)"}
+              stroke={active ? color : "#2d3f50"}
+              strokeWidth={active ? 1.5 : 1}
+              style={{ filter: active ? `drop-shadow(0 0 4px ${color}88)` : "none" }}
+            />
+            <text x={x} y={y+3} textAnchor="middle" fill={active ? color : "#475569"}
+              fontSize={5} fontFamily="monospace" fontWeight="bold">
+              {id.slice(0,3)}
+            </text>
+            {active && (
+              <circle cx={x+6} cy={y-6} r={2.5}
+                fill={color}
+                style={{ filter:`drop-shadow(0 0 3px ${color})` }}
+              />
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function AgentCard({ id, meta }) {
+  const color  = agentColor(id);
+  const active = meta?.active;
+  const upSec  = meta?.uptime ? ~~meta.uptime : null;
+  return (
+    <div
+      style={{
+        display:"flex", alignItems:"center", gap:10,
+        padding:"8px 10px",
+        borderBottom:"1px solid rgba(0,200,255,0.06)",
+        background: active ? `linear-gradient(90deg, ${color}08, transparent)` : "transparent",
+        transition:"background 300ms",
+      }}
+    >
+      <div style={{ position:"relative", width:10, height:10, flexShrink:0 }}>
+        <div
+          style={{
+            width:10, height:10, borderRadius:"50%",
+            background: active ? color : "#1e2d3d",
+            boxShadow: active ? `0 0 6px ${color}88` : "none",
+          }}
+          className={active ? "ws-live-dot" : ""}
+        />
+      </div>
+      <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, fontWeight:700, width:72, flexShrink:0, color: active ? color : C.muted, textShadow: active ? `0 0 8px ${color}66` : "none" }}>
         {id}
       </span>
-      <span className="font-mono-term text-[10px] text-zinc-500 flex-1 truncate">
-        {meta.description || meta.role || ""}
+      <span style={{ fontFamily:"monospace", fontSize:10, color:C.muted, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+        {meta?.description || meta?.role || ""}
       </span>
       {upSec !== null && (
-        <span className="font-mono-term text-[9px] text-zinc-600 shrink-0">
-          up {upSec < 3600 ? `${~~(upSec / 60)}m` : `${~~(upSec / 3600)}h`}
+        <span style={{ fontFamily:"monospace", fontSize:9, color:"#2d3f50", flexShrink:0 }}>
+          {upSec < 3600 ? `${~~(upSec/60)}m` : `${~~(upSec/3600)}h`}
         </span>
+      )}
+      <div style={{ display:"flex", gap:4 }}>
+        {meta?.msgs_recv !== undefined && (
+          <span style={{ fontFamily:"monospace", fontSize:9, color:C.muted }}>
+            {meta.msgs_recv}↙
+          </span>
+        )}
+        {meta?.tasks !== undefined && (
+          <span style={{ fontFamily:"monospace", fontSize:9, color:C.amberDim }}>
+            {meta.tasks}⚡
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── header badge ──────────────────────────────────────────────────
+
+function WsBadge({ wsState, onReconnect }) {
+  const cfg = {
+    off:        { label:"OFF",        color:"#334155",  dot:"#334155" },
+    connecting: { label:"LINKING",    color:C.amber,    dot:C.amber   },
+    live:       { label:"LIVE",       color:C.cyan,     dot:C.cyan    },
+    error:      { label:"ERR",        color:C.red,      dot:C.red     },
+  }[wsState] || { label:"?", color:C.muted, dot:C.muted };
+
+  return (
+    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+      <div
+        style={{
+          width:7, height:7, borderRadius:"50%",
+          background:cfg.dot,
+          boxShadow: wsState === "live" ? `0 0 8px ${cfg.dot}` : "none",
+        }}
+        className={wsState === "live" ? "ws-live-dot" : ""}
+      />
+      <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:9, letterSpacing:"0.2em", color:cfg.color }}>
+        {cfg.label}
+      </span>
+      {wsState !== "live" && (
+        <button onClick={onReconnect} style={{ color:C.amber, background:"none", border:"none", cursor:"pointer", padding:0, display:"flex" }}>
+          <RefreshCw size={9} />
+        </button>
       )}
     </div>
   );
@@ -98,15 +393,25 @@ function AgentRow({ agent }) {
 
 // ── main panel ────────────────────────────────────────────────────
 
+const TABS = [
+  { id:"stream",  icon:<Activity size={10}/>,  label:"stream"  },
+  { id:"agents",  icon:<Cpu     size={10}/>,   label:"agents"  },
+  { id:"github",  icon:<Github  size={10}/>,   label:"github"  },
+  { id:"claude",  icon:<Zap     size={10}/>,   label:"claude"  },
+  { id:"keys",    icon:<Shield  size={10}/>,   label:"keys"    },
+];
+
 export const SwarmBusPanel = () => {
-  const [msgs,    setMsgs]    = useState([]);
-  const [agents,  setAgents]  = useState({});
-  const [wsState, setWsState] = useState("off"); // off | connecting | live | error
-  const [task,    setTask]    = useState("");
-  const [target,  setTarget]  = useState("");
-  const [busy,    setBusy]    = useState(false);
-  const [result,  setResult]  = useState(null);
-  const [tab,       setTab]       = useState("stream"); // stream | agents | github | claude | keys
+  injectCss();
+
+  const [msgs,      setMsgs]      = useState([]);
+  const [agents,    setAgents]    = useState({});
+  const [wsState,   setWsState]   = useState("off");
+  const [task,      setTask]      = useState("");
+  const [target,    setTarget]    = useState("");
+  const [busy,      setBusy]      = useState(false);
+  const [result,    setResult]    = useState(null);
+  const [tab,       setTab]       = useState("stream");
   const [ghInfo,    setGhInfo]    = useState(null);
   const [search,    setSearch]    = useState("");
   const [elite,     setElite]     = useState([]);
@@ -115,29 +420,28 @@ export const SwarmBusPanel = () => {
   const [ghInput,   setGhInput]   = useState("");
   const [showAk,    setShowAk]    = useState(false);
   const [showGh,    setShowGh]    = useState(false);
+  const [freshIdx,  setFreshIdx]  = useState(-1);
 
   const wsRef      = useRef(null);
   const streamRef  = useRef(null);
   const autoScroll = useRef(true);
 
   // ── WebSocket ──────────────────────────────────────────────────
-
   const connectWs = useCallback(() => {
     if (wsRef.current) wsRef.current.close();
     setWsState("connecting");
     const ws = new WebSocket(gw3WsUrl());
     wsRef.current = ws;
-
     ws.onopen  = () => setWsState("live");
     ws.onerror = () => setWsState("error");
     ws.onclose = () => setWsState("off");
-
     ws.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data);
         if (d.type === "ping" || d.type === "hello") return;
         setMsgs((prev) => {
           const next = [...prev, d].slice(-200);
+          setFreshIdx(next.length - 1);
           return next;
         });
         if (autoScroll.current && streamRef.current) {
@@ -149,8 +453,6 @@ export const SwarmBusPanel = () => {
       } catch {}
     };
   }, []);
-
-  // ── REST load ─────────────────────────────────────────────────
 
   const loadAgents = useCallback(async () => {
     try {
@@ -166,81 +468,6 @@ export const SwarmBusPanel = () => {
     } catch {}
   }, []);
 
-  useEffect(() => {
-    loadConvos();
-    loadAgents();
-    loadKeyStatus();
-    connectWs();
-    return () => wsRef.current?.close();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Refresh agents every 10 s
-  useEffect(() => {
-    const iv = setInterval(loadAgents, 10000);
-    return () => clearInterval(iv);
-  }, [loadAgents]);
-
-  // ── actions ───────────────────────────────────────────────────
-
-  const delegate = async () => {
-    if (!task.trim()) return;
-    setBusy(true);
-    setResult(null);
-    try {
-      const r = await gw3Delegate(task.trim(), target || null);
-      setResult({ ok: true, routed_to: r.routed_to });
-      setTask("");
-    } catch (e) {
-      setResult({ ok: false, error: e?.response?.data?.detail || e.message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const loadGithub = async () => {
-    setBusy(true);
-    try {
-      const d = await gw3GithubStatus();
-      setGhInfo(d);
-    } catch (e) {
-      setGhInfo({ error: e?.response?.data?.detail || e.message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const syncMemory = async () => {
-    setBusy(true);
-    try {
-      await gw3GithubSyncMemory();
-      setResult({ ok: true, routed_to: "GITHUB" });
-    } catch (e) {
-      setResult({ ok: false, error: e?.response?.data?.detail || e.message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const trainClaude = async () => {
-    setBusy(true);
-    setResult(null);
-    try {
-      const d = await gw3ClaudeTrain("agent_systems", 5);
-      setResult({ ok: true, routed_to: `CLAUDE — ${d.count} scenarios` });
-    } catch (e) {
-      setResult({ ok: false, error: e?.response?.data?.detail || e.message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const loadElite = async () => {
-    try {
-      const d = await gw3KairosElite();
-      setElite(d);
-    } catch {}
-  };
-
   const loadKeyStatus = useCallback(async () => {
     try {
       const d = await gw3SecretsStatus();
@@ -248,385 +475,391 @@ export const SwarmBusPanel = () => {
     } catch {}
   }, []);
 
+  useEffect(() => {
+    loadConvos();
+    loadAgents();
+    loadKeyStatus();
+    connectWs();
+    return () => wsRef.current?.close();
+  }, []); // eslint-disable-line
+
+  useEffect(() => {
+    const iv = setInterval(loadAgents, 10000);
+    return () => clearInterval(iv);
+  }, [loadAgents]);
+
+  // ── actions ───────────────────────────────────────────────────
+  const delegate = async () => {
+    if (!task.trim()) return;
+    setBusy(true); setResult(null);
+    try {
+      const r = await gw3Delegate(task.trim(), target || null);
+      setResult({ ok:true, routed_to: r.routed_to });
+      setTask("");
+    } catch (e) {
+      setResult({ ok:false, error: e?.response?.data?.detail || e.message });
+    } finally { setBusy(false); }
+  };
+
+  const loadGithub = async () => {
+    setBusy(true);
+    try { const d = await gw3GithubStatus(); setGhInfo(d); }
+    catch (e) { setGhInfo({ error: e?.response?.data?.detail || e.message }); }
+    finally { setBusy(false); }
+  };
+
+  const syncMemory = async () => {
+    setBusy(true);
+    try { await gw3GithubSyncMemory(); setResult({ ok:true, routed_to:"GITHUB" }); }
+    catch (e) { setResult({ ok:false, error: e?.response?.data?.detail || e.message }); }
+    finally { setBusy(false); }
+  };
+
+  const trainClaude = async () => {
+    setBusy(true); setResult(null);
+    try {
+      const d = await gw3ClaudeTrain("agent_systems", 5);
+      setResult({ ok:true, routed_to:`CLAUDE — ${d.count} scenarios` });
+    } catch (e) { setResult({ ok:false, error: e?.response?.data?.detail || e.message }); }
+    finally { setBusy(false); }
+  };
+
+  const loadElite = async () => {
+    try { const d = await gw3KairosElite(); setElite(d); } catch {}
+  };
+
   const saveKeys = async () => {
     if (!akInput.trim() && !ghInput.trim()) return;
-    setBusy(true);
-    setResult(null);
+    setBusy(true); setResult(null);
     try {
-      const d = await gw3SaveSecrets(
-        akInput.trim() || null,
-        ghInput.trim() || null,
-      );
-      setResult({ ok: true, routed_to: `saved: ${d.updated.join(", ")}` });
-      setAkInput("");
-      setGhInput("");
-      loadKeyStatus();
-    } catch (e) {
-      setResult({ ok: false, error: e?.response?.data?.detail || e.message });
-    } finally {
-      setBusy(false);
-    }
+      const d = await gw3SaveSecrets(akInput.trim()||null, ghInput.trim()||null);
+      setResult({ ok:true, routed_to:`saved: ${d.updated.join(", ")}` });
+      setAkInput(""); setGhInput(""); loadKeyStatus();
+    } catch (e) { setResult({ ok:false, error: e?.response?.data?.detail || e.message }); }
+    finally { setBusy(false); }
   };
 
   const handleSearch = async () => {
     if (!search.trim()) { loadConvos(); return; }
-    try {
-      const d = await gw3ConvoSearch(search.trim());
-      setMsgs(d.results || []);
-    } catch {}
+    try { const d = await gw3ConvoSearch(search.trim()); setMsgs(d.results||[]); } catch {}
   };
 
-  // ── ws status badge ───────────────────────────────────────────
-
-  const wsDot = { off: "dot-idle", connecting: "dot-idle", live: "dot-active", error: "dot-error" }[wsState];
-
-  const agentEntries = Object.entries(agents);
-  const activeCount  = agentEntries.filter(([, m]) => m.active).length;
+  const agentEntries  = Object.entries(agents);
+  const activeCount   = agentEntries.filter(([,m]) => m.active).length;
+  const keysAlert     = keyStatus && (!keyStatus.anthropic_api_key?.set || !keyStatus.github_pat?.set);
 
   // ── render ────────────────────────────────────────────────────
-
   return (
-    <Panel
-      testid="swarm-bus-panel"
-      title="SWARM BUS v3 · specialists"
-      sub={`${activeCount}/${agentEntries.length} agents · ${msgs.length} msgs`}
-      right={
-        <span className="font-mono-term text-[9px] uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-1.5">
-          <span className={`dot ${wsDot}`} />
-          {wsState}
-          {wsState !== "live" && (
-            <button onClick={connectWs} className="ml-1 text-amber-400 hover:text-amber-300">
-              <RefreshCw size={9} />
-            </button>
-          )}
-        </span>
-      }
-    >
-      {/* tab bar */}
-      <div className="flex gap-0.5 mb-3">
-        {[
-          { id: "stream",  icon: <Activity  size={10} />, label: "stream"  },
-          { id: "agents",  icon: <Bot       size={10} />, label: "agents"  },
-          { id: "github",  icon: <Github    size={10} />, label: "github"  },
-          { id: "claude",  icon: <Zap       size={10} />, label: "claude"  },
-          { id: "keys",    icon: <KeyRound  size={10} />, label: "keys",
-            alert: keyStatus && (!keyStatus.anthropic_api_key?.set || !keyStatus.github_pat?.set) },
-        ].map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`relative flex-1 flex items-center justify-center gap-1 font-mono-term text-[9px] tracking-[0.2em] uppercase px-1 py-1.5 border ${
-              tab === t.id
-                ? "border-amber-500/50 text-amber-400 bg-amber-500/5"
-                : "border-white/10 text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            {t.icon}{t.label}
-            {t.alert && (
-              <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400" />
-            )}
-          </button>
-        ))}
-      </div>
+    <div className="holo-panel" style={{ padding:"1.25rem" }}>
+      <div className="holo-inner">
 
-      {/* ── STREAM tab ── */}
-      {tab === "stream" && (
-        <>
-          <div className="flex gap-1 mb-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              placeholder="search conversations…"
-              className="flex-1 bg-black border border-white/10 px-2 py-1 font-mono-term text-[11px] text-zinc-200 outline-none focus:border-amber-500/40"
-            />
-            <button
-              onClick={handleSearch}
-              className="border border-white/10 px-2 text-zinc-400 hover:text-amber-400"
-            >
-              <Search size={11} />
-            </button>
-            <button
-              onClick={() => { setSearch(""); loadConvos(); }}
-              className="border border-white/10 px-2 text-zinc-400 hover:text-amber-400"
-            >
-              <RefreshCw size={11} />
-            </button>
+        {/* ── HEADER ── */}
+        <header style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:14 }}>
+          <div>
+            <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, letterSpacing:"0.25em", textTransform:"uppercase", color:C.cyan, textShadow:`0 0 12px ${C.cyan}66`, display:"flex", alignItems:"center", gap:6 }}>
+              <Network size={11} color={C.cyan} />
+              SWARM BUS v3
+            </div>
+            <div style={{ fontFamily:"monospace", fontSize:10, color:C.muted, marginTop:3 }}>
+              <span style={{ color: activeCount > 0 ? C.cyan : "#334155" }}>{activeCount}</span>
+              <span style={{ color:"#1e2d3d" }}>/{agentEntries.length}</span>
+              <span style={{ color:"#2d3f50" }}> agents · </span>
+              <span style={{ color: msgs.length > 0 ? C.amberDim : "#2d3f50" }}>{msgs.length}</span>
+              <span style={{ color:"#2d3f50" }}> msgs</span>
+            </div>
           </div>
+          <WsBadge wsState={wsState} onReconnect={connectWs} />
+        </header>
 
-          <div
-            ref={streamRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              autoScroll.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-            }}
-            className="h-56 overflow-y-auto pr-1"
-            style={{ scrollbarWidth: "thin", scrollbarColor: "#333 transparent" }}
-          >
-            {msgs.length === 0 && (
-              <p className="font-mono-term text-[11px] text-zinc-600 text-center py-6">
-                no messages yet — gateway_v3 offline?
-              </p>
-            )}
-            {msgs.map((m, i) => <MsgRow key={m.id || i} msg={m} />)}
-          </div>
+        {/* ── TAB BAR ── */}
+        <div style={{ display:"flex", gap:3, marginBottom:14 }}>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`holo-tab ${tab === t.id ? "holo-tab-active" : ""}`}
+              style={{ position:"relative", flex:1, display:"flex", alignItems:"center", justifyContent:"center", gap:4, padding:"5px 4px", background:"none", cursor:"pointer" }}
+            >
+              {t.icon}
+              <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:8, letterSpacing:"0.15em" }}>{t.label}</span>
+              {t.id === "keys" && keysAlert && (
+                <span style={{ position:"absolute", top:2, right:2, width:5, height:5, borderRadius:"50%", background:C.amber, boxShadow:`0 0 4px ${C.amber}` }} />
+              )}
+            </button>
+          ))}
+        </div>
 
-          {/* delegate form */}
-          <div className="mt-3 space-y-2">
-            <div className="flex gap-1">
+        {/* ── STREAM tab ── */}
+        {tab === "stream" && (
+          <>
+            <div style={{ display:"flex", gap:4, marginBottom:8 }}>
               <input
-                value={task}
-                onChange={(e) => setTask(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !busy && delegate()}
-                placeholder="delegate task to swarm…"
-                className="flex-1 bg-black border border-white/10 px-2 py-1.5 font-mono-term text-[11px] text-zinc-200 outline-none focus:border-amber-500/40"
+                className="holo-input"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                placeholder="search conversations…"
+                style={{ flex:1, padding:"5px 8px" }}
               />
-              <select
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                className="bg-black border border-white/10 px-1 font-mono-term text-[10px] text-zinc-400 outline-none"
-              >
-                <option value="">auto</option>
-                {AGENTS_ORDER.map((a) => (
-                  <option key={a} value={a}>{a}</option>
-                ))}
-              </select>
-              <button
-                onClick={delegate}
-                disabled={busy || !task.trim()}
-                className="border border-amber-500/30 px-3 text-amber-400 disabled:text-zinc-600 hover:bg-amber-500/5 flex items-center gap-1"
-              >
-                {busy ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+              <button className="holo-btn" onClick={handleSearch} style={{ padding:"0 8px", cursor:"pointer" }}>
+                <Search size={11} />
+              </button>
+              <button className="holo-btn" onClick={() => { setSearch(""); loadConvos(); }} style={{ padding:"0 8px", cursor:"pointer" }}>
+                <RefreshCw size={11} />
+              </button>
+            </div>
+
+            <div
+              ref={streamRef}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                autoScroll.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+              }}
+              style={{
+                height:224, overflowY:"auto", paddingRight:4,
+                scrollbarWidth:"thin", scrollbarColor:`${C.cyanDim} transparent`,
+              }}
+            >
+              {msgs.length === 0 && (
+                <div style={{ textAlign:"center", padding:"32px 0", fontFamily:"monospace", fontSize:11, color:"#2d3f50" }}>
+                  <div style={{ marginBottom:8 }}>◈ no messages</div>
+                  <div style={{ fontSize:10, color:"#1e2d3d" }}>gateway_v3 offline — run run.bat</div>
+                </div>
+              )}
+              {msgs.map((m, i) => (
+                <MsgRow key={m.id||i} msg={m} fresh={i === freshIdx} />
+              ))}
+            </div>
+
+            {/* delegate */}
+            <div style={{ marginTop:12 }}>
+              <div style={{ display:"flex", gap:4 }}>
+                <input
+                  className="holo-input"
+                  value={task}
+                  onChange={(e) => setTask(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && !busy && delegate()}
+                  placeholder="delegate task to swarm…"
+                  style={{ flex:1, padding:"6px 8px" }}
+                />
+                <select
+                  className="holo-select"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  style={{ padding:"0 6px", cursor:"pointer" }}
+                >
+                  <option value="">auto</option>
+                  {AGENTS_ORDER.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <button
+                  className="holo-btn holo-btn-primary"
+                  onClick={delegate}
+                  disabled={busy || !task.trim()}
+                  style={{ padding:"0 12px", cursor:"pointer", display:"flex", alignItems:"center", gap:4 }}
+                >
+                  {busy ? <Loader2 size={11} style={{ animation:"spin 1s linear infinite" }}/> : <Send size={11}/>}
+                </button>
+              </div>
+              {result && (
+                <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:6, fontFamily:"monospace", fontSize:10, color: result.ok ? C.green : C.red }}>
+                  {result.ok ? <><CheckCircle size={10}/> routed → {result.routed_to}</> : <><AlertTriangle size={10}/> {result.error}</>}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ── AGENTS tab ── */}
+        {tab === "agents" && (
+          <div>
+            {agentEntries.length === 0 ? (
+              <div style={{ textAlign:"center", padding:"32px 0", fontFamily:"monospace", fontSize:11, color:"#2d3f50" }}>
+                <div>◈ no agents registered</div>
+                <div style={{ fontSize:10, marginTop:6, color:"#1e2d3d" }}>start gateway_v3 → run.bat</div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", gap:12, marginBottom:12 }}>
+                <AgentNodeSvg agents={agentEntries} />
+                <div style={{ flex:1, display:"flex", flexDirection:"column", justifyContent:"center", gap:4 }}>
+                  {agentEntries.map(([id, meta]) => (
+                    <div key={id} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <div style={{ width:6, height:6, borderRadius:"50%", background: meta.active ? agentColor(id) : "#2d3f50", boxShadow: meta.active ? `0 0 5px ${agentColor(id)}` : "none", flexShrink:0 }} />
+                      <span style={{ fontFamily:"monospace", fontSize:10, fontWeight:700, color: meta.active ? agentColor(id) : C.muted, width:60 }}>{id}</span>
+                      <span style={{ fontFamily:"monospace", fontSize:9, color:C.muted, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                        {meta.description||meta.role||""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {agentEntries.map(([id, meta]) => (
+              <AgentCard key={id} id={id} meta={meta} />
+            ))}
+            <button
+              className="holo-btn"
+              onClick={loadAgents}
+              style={{ marginTop:8, width:"100%", padding:"7px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:5, cursor:"pointer" }}
+            >
+              <RefreshCw size={9}/> refresh agents
+            </button>
+          </div>
+        )}
+
+        {/* ── GITHUB tab ── */}
+        {tab === "github" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {ghInfo && !ghInfo.error && (
+              <div style={{ background:C.deep, border:`1px solid rgba(0,200,255,0.12)`, padding:"10px 12px", fontFamily:"monospace" }}>
+                <div style={{ fontSize:12, fontWeight:700, color:C.ghost, marginBottom:4 }}>{ghInfo.name}</div>
+                <div style={{ display:"flex", gap:16, fontSize:10, color:C.muted }}>
+                  <span>⭐ {ghInfo.stars}</span>
+                  <span>🍴 {ghInfo.forks}</span>
+                  <span>🐛 {ghInfo.open_issues}</span>
+                </div>
+                <div style={{ fontSize:9, color:"#2d3f50", marginTop:4 }}>
+                  {ghInfo.default_branch} · {new Date(ghInfo.updated).toLocaleDateString()}
+                </div>
+              </div>
+            )}
+            {ghInfo?.error && (
+              <div style={{ fontFamily:"monospace", fontSize:10, color:C.red, border:`1px solid rgba(239,68,68,0.2)`, padding:"8px 10px" }}>
+                {ghInfo.error}
+              </div>
+            )}
+            <div style={{ display:"flex", gap:6 }}>
+              <button className="holo-btn" onClick={loadGithub} disabled={busy}
+                style={{ flex:1, padding:"8px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:5, cursor:"pointer" }}>
+                <Github size={11}/> repo status
+              </button>
+              <button className="holo-btn" onClick={syncMemory} disabled={busy}
+                style={{ flex:1, padding:"8px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:5, cursor:"pointer" }}>
+                {busy ? <Loader2 size={11} style={{ animation:"spin 1s linear infinite" }}/> : <RefreshCw size={11}/>}
+                sync memory
               </button>
             </div>
             {result && (
-              <div className={`font-mono-term text-[10px] flex items-center gap-1.5 ${result.ok ? "text-emerald-400" : "text-rose-400"}`}>
-                {result.ok
-                  ? <><CheckCircle size={10} /> routed → {result.routed_to}</>
-                  : <><AlertTriangle size={10} /> {result.error}</>
-                }
+              <div style={{ display:"flex", alignItems:"center", gap:5, fontFamily:"monospace", fontSize:10, color: result.ok ? C.green : C.red }}>
+                {result.ok ? <><CheckCircle size={10}/> {result.routed_to}</> : <><AlertTriangle size={10}/> {result.error}</>}
               </div>
             )}
           </div>
-        </>
-      )}
+        )}
 
-      {/* ── AGENTS tab ── */}
-      {tab === "agents" && (
-        <div className="space-y-0">
-          {agentEntries.length === 0 && (
-            <p className="font-mono-term text-[11px] text-zinc-600 text-center py-6">
-              no agents registered — is gateway_v3 running?
-            </p>
-          )}
-          {agentEntries.map((entry) => (
-            <AgentRow key={entry[0]} agent={entry} />
-          ))}
-          <button
-            onClick={loadAgents}
-            className="mt-2 w-full font-mono-term text-[9px] uppercase tracking-[0.2em] text-zinc-500 border border-white/10 py-1.5 hover:text-amber-400 flex items-center justify-center gap-1"
-          >
-            <RefreshCw size={9} /> refresh
-          </button>
-        </div>
-      )}
-
-      {/* ── GITHUB tab ── */}
-      {tab === "github" && (
-        <div className="space-y-3">
-          {ghInfo && !ghInfo.error && (
-            <div className="font-mono-term text-[11px] space-y-1 border border-white/10 p-2">
-              <div className="text-zinc-200 font-bold">{ghInfo.name}</div>
-              <div className="text-zinc-500 flex gap-4">
-                <span>⭐ {ghInfo.stars}</span>
-                <span>🍴 {ghInfo.forks}</span>
-                <span>🐛 {ghInfo.open_issues}</span>
+        {/* ── CLAUDE tab ── */}
+        {tab === "claude" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            <div style={{ fontFamily:"monospace", fontSize:10, color:C.muted, border:`1px solid rgba(255,255,255,0.04)`, padding:"8px 10px", lineHeight:1.6 }}>
+              CLAUDE-TRAINER generates synthetic KAIROS training data (~$0.003/batch of 5).
+              Requires ANTHROPIC_API_KEY set in keys tab.
+            </div>
+            <div style={{ display:"flex", gap:6 }}>
+              <button className="holo-btn holo-btn-primary" onClick={trainClaude} disabled={busy}
+                style={{ flex:1, padding:"8px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:5, cursor:"pointer" }}>
+                {busy ? <Loader2 size={11} style={{ animation:"spin 1s linear infinite" }}/> : <Zap size={11}/>}
+                train batch (5)
+              </button>
+              <button className="holo-btn" onClick={() => { loadElite(); }}
+                style={{ flex:1, padding:"8px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:5, cursor:"pointer" }}>
+                elite archive
+              </button>
+            </div>
+            {result && (
+              <div style={{ display:"flex", alignItems:"center", gap:5, fontFamily:"monospace", fontSize:10, color: result.ok ? C.green : C.red }}>
+                {result.ok ? <><CheckCircle size={10}/> {result.routed_to}</> : <><AlertTriangle size={10}/> {result.error}</>}
               </div>
-              <div className="text-zinc-600 text-[10px]">
-                {ghInfo.default_branch} · updated {new Date(ghInfo.updated).toLocaleDateString()}
-              </div>
-            </div>
-          )}
-          {ghInfo?.error && (
-            <div className="font-mono-term text-[10px] text-rose-400 border border-rose-500/20 p-2">
-              {ghInfo.error}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <button
-              onClick={loadGithub}
-              disabled={busy}
-              className="flex-1 font-mono-term text-[10px] uppercase tracking-[0.2em] text-zinc-300 border border-white/10 py-2 hover:bg-white/5 flex items-center justify-center gap-1.5"
-            >
-              <Github size={11} /> repo status
-            </button>
-            <button
-              onClick={syncMemory}
-              disabled={busy}
-              className="flex-1 font-mono-term text-[10px] uppercase tracking-[0.2em] text-zinc-300 border border-white/10 py-2 hover:bg-white/5 flex items-center justify-center gap-1.5"
-            >
-              {busy ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
-              sync memory
-            </button>
-          </div>
-          {result && (
-            <div className={`font-mono-term text-[10px] flex items-center gap-1.5 ${result.ok ? "text-emerald-400" : "text-rose-400"}`}>
-              {result.ok
-                ? <><CheckCircle size={10} /> {result.routed_to}</>
-                : <><AlertTriangle size={10} /> {result.error}</>}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── CLAUDE tab ── */}
-      {tab === "claude" && (
-        <div className="space-y-3">
-          <div className="font-mono-term text-[10px] text-zinc-500 border border-white/5 p-2 leading-relaxed">
-            CLAUDE-TRAINER generates synthetic KAIROS training data (~$0.003/batch of 5).
-            CLAUDE-ARCHITECT reviews modules + proposes upgrades.
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={trainClaude}
-              disabled={busy}
-              className="flex-1 font-mono-term text-[10px] uppercase tracking-[0.2em] text-amber-400 border border-amber-500/30 py-2 hover:bg-amber-500/5 flex items-center justify-center gap-1.5"
-            >
-              {busy ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
-              train batch (5)
-            </button>
-            <button
-              onClick={() => { loadElite(); setTab("claude"); }}
-              className="flex-1 font-mono-term text-[10px] uppercase tracking-[0.2em] text-zinc-300 border border-white/10 py-2 hover:bg-white/5"
-            >
-              elite archive
-            </button>
-          </div>
-          {result && (
-            <div className={`font-mono-term text-[10px] flex items-center gap-1.5 ${result.ok ? "text-emerald-400" : "text-rose-400"}`}>
-              {result.ok
-                ? <><CheckCircle size={10} /> {result.routed_to}</>
-                : <><AlertTriangle size={10} /> {result.error}</>}
-            </div>
-          )}
-          {elite.length > 0 && (
-            <div className="space-y-1 mt-1">
-              <div className="font-mono-term text-[9px] uppercase tracking-[0.2em] text-zinc-600">
-                elite cycles ({elite.length})
-              </div>
-              {elite.slice(-5).map((c) => (
-                <div key={c.id} className="font-mono-term text-[10px] border border-white/5 p-1.5 flex justify-between">
-                  <span className="text-zinc-400 truncate flex-1">#{c.id} {c.proposal?.slice(0, 60)}</span>
-                  <span className="text-emerald-400 shrink-0 ml-2">{c.score?.toFixed(2)}</span>
+            )}
+            {elite.length > 0 && (
+              <div>
+                <div style={{ fontFamily:"monospace", fontSize:9, letterSpacing:"0.2em", color:C.muted, textTransform:"uppercase", marginBottom:6 }}>
+                  elite cycles ({elite.length})
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      {/* ── KEYS tab ── */}
-      {tab === "keys" && (
-        <div className="space-y-4">
-          {keyStatus && (
-            <div className="flex gap-3 font-mono-term text-[10px]">
-              <div className={`flex items-center gap-1 ${keyStatus.anthropic_api_key?.set ? "text-emerald-400" : "text-amber-400"}`}>
-                {keyStatus.anthropic_api_key?.set ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
-                Claude {keyStatus.anthropic_api_key?.set ? keyStatus.anthropic_api_key.preview : "not set"}
+                {elite.slice(-5).map((c) => (
+                  <div key={c.id} style={{ fontFamily:"monospace", fontSize:10, border:`1px solid rgba(255,255,255,0.04)`, padding:"6px 8px", display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                    <span style={{ color:"#64748b", flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      #{c.id} {c.proposal?.slice(0,60)}
+                    </span>
+                    <span style={{ color:C.green, flexShrink:0, marginLeft:8 }}>{c.score?.toFixed(2)}</span>
+                  </div>
+                ))}
               </div>
-              <div className={`flex items-center gap-1 ${keyStatus.github_pat?.set ? "text-emerald-400" : "text-amber-400"}`}>
-                {keyStatus.github_pat?.set ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
-                GitHub {keyStatus.github_pat?.set ? keyStatus.github_pat.preview : "not set"}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          <div className="space-y-3">
-            {/* Anthropic key */}
-            <div>
-              <label className="font-mono-term text-[9px] uppercase tracking-[0.2em] text-zinc-500 mb-1 block">
-                Anthropic API Key
-              </label>
-              <div className="flex gap-1">
-                <input
-                  type={showAk ? "text" : "password"}
-                  value={akInput}
-                  onChange={(e) => setAkInput(e.target.value)}
-                  placeholder="sk-ant-api03-…"
-                  autoComplete="off"
-                  className="flex-1 bg-black border border-white/10 px-2 py-1.5 font-mono-term text-[11px] text-zinc-200 outline-none focus:border-amber-500/40"
-                />
-                <button
-                  onClick={() => setShowAk((v) => !v)}
-                  className="border border-white/10 px-2 text-zinc-500 hover:text-zinc-300"
-                  tabIndex={-1}
-                >
-                  {showAk ? <EyeOff size={11} /> : <Eye size={11} />}
-                </button>
+        {/* ── KEYS tab ── */}
+        {tab === "keys" && (
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            {keyStatus && (
+              <div style={{ display:"flex", gap:12, fontFamily:"monospace", fontSize:10 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:5, color: keyStatus.anthropic_api_key?.set ? C.green : C.amber }}>
+                  {keyStatus.anthropic_api_key?.set ? <CheckCircle size={10}/> : <AlertTriangle size={10}/>}
+                  Claude {keyStatus.anthropic_api_key?.set ? keyStatus.anthropic_api_key.preview : "NOT SET"}
+                </div>
+                <div style={{ display:"flex", alignItems:"center", gap:5, color: keyStatus.github_pat?.set ? C.green : C.amber }}>
+                  {keyStatus.github_pat?.set ? <CheckCircle size={10}/> : <AlertTriangle size={10}/>}
+                  GitHub {keyStatus.github_pat?.set ? keyStatus.github_pat.preview : "NOT SET"}
+                </div>
               </div>
-              <p className="font-mono-term text-[9px] text-zinc-600 mt-0.5">
-                console.anthropic.com → API Keys
-              </p>
+            )}
+
+            {[
+              { label:"Anthropic API Key", val:akInput, set:setAkInput, show:showAk, setShow:setShowAk, ph:"sk-ant-api03-…", hint:"console.anthropic.com → API Keys" },
+              { label:"GitHub PAT",        val:ghInput, set:setGhInput, show:showGh, setShow:setShowGh, ph:"ghp_…",           hint:"github.com → Settings → Developer settings → PAT (classic)" },
+            ].map(({ label, val, set, show, setShow, ph, hint }) => (
+              <div key={label}>
+                <div style={{ fontFamily:"monospace", fontSize:9, letterSpacing:"0.15em", textTransform:"uppercase", color:C.muted, marginBottom:5 }}>{label}</div>
+                <div style={{ display:"flex", gap:4 }}>
+                  <input
+                    className="holo-input"
+                    type={show ? "text" : "password"}
+                    value={val}
+                    onChange={(e) => set(e.target.value)}
+                    placeholder={ph}
+                    autoComplete="off"
+                    style={{ flex:1, padding:"6px 8px" }}
+                  />
+                  <button
+                    className="holo-btn"
+                    onClick={() => setShow((v) => !v)}
+                    tabIndex={-1}
+                    style={{ padding:"0 8px", cursor:"pointer" }}
+                  >
+                    {show ? <EyeOff size={11}/> : <Eye size={11}/>}
+                  </button>
+                </div>
+                <div style={{ fontFamily:"monospace", fontSize:9, color:"#2d3f50", marginTop:3 }}>{hint}</div>
+              </div>
+            ))}
+
+            <div style={{ display:"flex", gap:6 }}>
+              <button
+                className="holo-btn holo-btn-primary"
+                onClick={saveKeys}
+                disabled={busy || (!akInput.trim() && !ghInput.trim())}
+                style={{ flex:1, padding:"8px 0", display:"flex", alignItems:"center", justifyContent:"center", gap:5, cursor:"pointer" }}
+              >
+                {busy ? <Loader2 size={11} style={{ animation:"spin 1s linear infinite" }}/> : <KeyRound size={11}/>}
+                save to .env
+              </button>
+              <button className="holo-btn" onClick={loadKeyStatus} style={{ padding:"0 12px", cursor:"pointer" }}>
+                <RefreshCw size={11}/>
+              </button>
             </div>
 
-            {/* GitHub PAT */}
-            <div>
-              <label className="font-mono-term text-[9px] uppercase tracking-[0.2em] text-zinc-500 mb-1 block">
-                GitHub Personal Access Token
-              </label>
-              <div className="flex gap-1">
-                <input
-                  type={showGh ? "text" : "password"}
-                  value={ghInput}
-                  onChange={(e) => setGhInput(e.target.value)}
-                  placeholder="ghp_…"
-                  autoComplete="off"
-                  className="flex-1 bg-black border border-white/10 px-2 py-1.5 font-mono-term text-[11px] text-zinc-200 outline-none focus:border-amber-500/40"
-                />
-                <button
-                  onClick={() => setShowGh((v) => !v)}
-                  className="border border-white/10 px-2 text-zinc-500 hover:text-zinc-300"
-                  tabIndex={-1}
-                >
-                  {showGh ? <EyeOff size={11} /> : <Eye size={11} />}
-                </button>
+            {result && (
+              <div style={{ display:"flex", alignItems:"center", gap:5, fontFamily:"monospace", fontSize:10, color: result.ok ? C.green : C.red }}>
+                {result.ok ? <><CheckCircle size={10}/> {result.routed_to}</> : <><AlertTriangle size={10}/> {result.error}</>}
               </div>
-              <p className="font-mono-term text-[9px] text-zinc-600 mt-0.5">
-                github.com → Settings → Developer settings → PAT (classic) → repo scope
-              </p>
+            )}
+
+            <div style={{ fontFamily:"monospace", fontSize:9, color:"#1e2d3d", lineHeight:1.6 }}>
+              Written to backend/.env on TatorTot — hot-loaded, no restart needed.
             </div>
           </div>
+        )}
 
-          <div className="flex gap-2 items-center">
-            <button
-              onClick={saveKeys}
-              disabled={busy || (!akInput.trim() && !ghInput.trim())}
-              className="flex-1 font-mono-term text-[10px] uppercase tracking-[0.2em] text-amber-400 disabled:text-zinc-600 border border-amber-500/30 py-2 hover:bg-amber-500/5 flex items-center justify-center gap-1.5"
-            >
-              {busy ? <Loader2 size={11} className="animate-spin" /> : <KeyRound size={11} />}
-              save to .env
-            </button>
-            <button
-              onClick={loadKeyStatus}
-              className="border border-white/10 px-3 py-2 text-zinc-500 hover:text-zinc-300"
-            >
-              <RefreshCw size={11} />
-            </button>
-          </div>
-
-          {result && (
-            <div className={`font-mono-term text-[10px] flex items-center gap-1.5 ${result.ok ? "text-emerald-400" : "text-rose-400"}`}>
-              {result.ok
-                ? <><CheckCircle size={10} /> {result.routed_to}</>
-                : <><AlertTriangle size={10} /> {result.error}</>}
-            </div>
-          )}
-
-          <p className="font-mono-term text-[9px] text-zinc-700 leading-relaxed">
-            Keys are written to backend/.env on TatorTot and loaded into the
-            running process immediately — no restart needed.
-          </p>
-        </div>
-      )}
-    </Panel>
+      </div>
+    </div>
   );
 };

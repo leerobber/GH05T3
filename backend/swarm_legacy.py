@@ -74,6 +74,8 @@ class SwarmLedger:
 
     STARTING_BALANCE = 100
     DORMANT_THRESHOLD = 10
+    REVIVE_BALANCE = 30       # tokens granted on auto-revive
+    REVIVE_COOLDOWN_S = 120   # don't revive the same agent more than once per 2 min
 
     def __init__(self, db):
         self.db = db
@@ -135,6 +137,43 @@ class SwarmLedger:
             {}, {"_id": 0}
         ).sort("at", -1).to_list(limit)
         return rows
+
+    async def revive_dormant(self) -> list[str]:
+        """Reset dormant agents that haven't been revived recently.
+        Returns list of revived agent IDs."""
+        now_iso = _now()
+        rows = await self.db.swarm_agents.find(
+            {"dormant": True}, {"_id": 1, "last_revived_at": 1}
+        ).to_list(10)
+        revived = []
+        for r in rows:
+            aid = r["_id"]
+            last = r.get("last_revived_at")
+            if last:
+                try:
+                    from datetime import datetime, timezone
+                    delta = (datetime.now(timezone.utc) -
+                             datetime.fromisoformat(last)).total_seconds()
+                    if delta < self.REVIVE_COOLDOWN_S:
+                        continue
+                except Exception:
+                    pass
+            await self.db.swarm_agents.update_one(
+                {"_id": aid},
+                {"$set": {"tokens": self.REVIVE_BALANCE,
+                          "dormant": False,
+                          "last_revived_at": now_iso}},
+            )
+            await self.db.swarm_ledger.insert_one({
+                "_id": str(uuid.uuid4()),
+                "agent_id": aid, "delta": self.REVIVE_BALANCE,
+                "reason": "auto-revive (dormancy cleared)",
+                "balance_after": self.REVIVE_BALANCE,
+                "task_id": "", "at": now_iso,
+            })
+            revived.append(aid)
+            LOG.info("[SwarmLedger] Revived dormant agent %s → %d tokens", aid, self.REVIVE_BALANCE)
+        return revived
 
     async def reset(self) -> None:
         await self.db.swarm_agents.update_many(
@@ -465,6 +504,7 @@ class AgentSwarm:
 
     async def run_task(self, task: SwarmTask) -> TaskResult:
         await self.ensure()
+        await self.ledger.revive_dormant()   # wake ETH/MEM if they've been dormant
         dormant = await self._dormant_set()
         order = choose_order(self.agents, task.task_type, dormant)
         pattern = topology_for_task(task.task_type)

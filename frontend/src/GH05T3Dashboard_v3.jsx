@@ -5,8 +5,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 // Steampunk industrial aesthetic | Live swarm conversations
 // ══════════════════════════════════════════════════════════════════
 
-const API  = "http://127.0.0.1:8000";
-const WS   = "ws://127.0.0.1:8000/ws";
+const API  = "http://127.0.0.1:8002";
+const WS   = "ws://127.0.0.1:8002/ws";
 const SECRET = "";  // set GH05T3_SECRET or leave blank
 
 // ── THEME ────────────────────────────────────────────────────────
