@@ -56,7 +56,7 @@ export const LlmConfigPanel = () => {
       sub={status.provider}
       right={
         <span className="font-mono-term text-[9px] tracking-[0.2em] uppercase text-zinc-500 flex items-center gap-1.5">
-          fallback: {status.fallback.split(":")[1]}
+          fallback: {status.fallback?.split(":")[1] ?? "—"}
         </span>
       }
     >

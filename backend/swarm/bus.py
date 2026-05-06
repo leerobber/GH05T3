@@ -215,6 +215,12 @@ class SwarmBus:
         """Subscribe to a channel. '#broadcast' receives all messages."""
         self._subs[channel].append(handler)
 
+    def unsubscribe(self, channel: str, handler: Handler):
+        """Remove a previously registered handler from a channel."""
+        ch = self._subs.get(channel)
+        if ch and handler in ch:
+            ch.remove(handler)
+
     def subscribe_all(self, handler: Handler):
         """Receive every message on every channel."""
         self.subscribe("__ALL__", handler)

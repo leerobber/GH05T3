@@ -19,6 +19,7 @@ Cost tracking: token counts logged per call.
 from __future__ import annotations
 import asyncio
 import json
+import os
 import time
 import logging
 from dataclasses import dataclass, field
@@ -34,6 +35,7 @@ log = logging.getLogger("gh0st3.claude")
 
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL   = "claude-sonnet-4-20250514"
+_TRUE_VALUES   = {"1", "true", "yes", "on"}
 
 # Token usage log
 USAGE_LOG = Path("memory/claude_usage.jsonl")
@@ -84,6 +86,8 @@ class ClaudeClient:
 
     async def call(self, system: str, user: str, max_tokens: int = 1024,
                    role_label: str = "claude", task_label: str = "") -> tuple[str, ClaudeUsage]:
+        if os.environ.get("ALLOW_PAID_LLM", "").strip().lower() not in _TRUE_VALUES:
+            return "[Claude disabled: set ALLOW_PAID_LLM=1 to permit paid Anthropic calls]", ClaudeUsage()
         if not self._key:
             return "[Claude API key not configured — set ANTHROPIC_API_KEY]", ClaudeUsage()
 

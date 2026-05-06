@@ -32,9 +32,13 @@ from ollama_gateway import PREFERRED as OLLAMA_PREFERRED
 
 LOG = logging.getLogger("ghost.llm")
 
-LLM_PROVIDER    = os.environ.get("LLM_PROVIDER",    "anthropic")
+LLM_PROVIDER    = os.environ.get("LLM_PROVIDER",    "ollama")
 LLM_MODEL       = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
 ANTHROPIC_MODEL = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
+
+_LOCAL_ONLY_PROVIDERS = {"ollama", "local", "free", "cost_free", "cost-free"}
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_FALSE_VALUES = {"0", "false", "no", "off"}
 
 
 # ---------------------------------------------------------------------------
@@ -229,28 +233,54 @@ def _google_key() -> str:
     return _env_key("GOOGLE_AI_KEY")
 
 
+def _llm_provider() -> str:
+    return (os.environ.get("LLM_PROVIDER") or LLM_PROVIDER or "ollama").strip().lower()
+
+
+def _cost_free_only() -> bool:
+    raw = os.environ.get("COST_FREE_ONLY")
+    if raw is not None:
+        return raw.strip().lower() not in _FALSE_VALUES
+    return _llm_provider() in _LOCAL_ONLY_PROVIDERS
+
+
+def _paid_llm_allowed() -> bool:
+    return os.environ.get("ALLOW_PAID_LLM", "").strip().lower() in _TRUE_VALUES
+
+
+async def _call_ollama_preferred(system: str, user: str, role: str = "proposer") -> tuple[str, str]:
+    if not await ollama_available():
+        raise RuntimeError("Ollama is not reachable at OLLAMA_GATEWAY_URL")
+    await ollama_ensure_model("qwen2.5:0.5b")
+    model = OLLAMA_PREFERRED.get(role) or OLLAMA_PREFERRED.get("proposer") or "qwen2.5:0.5b"
+    text = await ollama_call(model, system, user)
+    return text, f"ollama:{model}"
+
+
 # ---------------------------------------------------------------------------
 # Public chat functions
 # ---------------------------------------------------------------------------
 async def chat_once(session: str, system: str, user: str,
                     role: str = "proposer") -> tuple[str, str]:
-    """Premium path: Anthropic → Groq → Google → Ollama.
+    """Main chat path.
 
-    Forces Ollama only when LLM_PROVIDER=='ollama' to protect the GPU
-    from being hit during normal chat.
+    Defaults to local Ollama only. Cloud providers require COST_FREE_ONLY=0,
+    and paid Anthropic additionally requires ALLOW_PAID_LLM=1.
     """
-    if LLM_PROVIDER == "ollama":
-        if await ollama_available():
-            model = OLLAMA_PREFERRED.get(role, "qwen2.5")
-            try:
-                text = await ollama_call(model, system, user)
-                return text, f"ollama:{model}"
-            except Exception as e:
-                LOG.warning("ollama call failed, trying next provider: %s", e)
+    provider = _llm_provider()
+    if _cost_free_only() or provider in _LOCAL_ONLY_PROVIDERS:
+        try:
+            return await _call_ollama_preferred(system, user, role)
+        except Exception as e:
+            LOG.warning("ollama local-only chat failed: %s", e)
+            raise NoLLMError(
+                "Local free LLM unavailable. Start Ollama and verify "
+                "OLLAMA_GATEWAY_URL, or explicitly disable COST_FREE_ONLY to use cloud providers."
+            ) from e
 
-    # 1. Anthropic
+    # 1. Anthropic, paid and explicit opt-in only
     _fail_reason = ""
-    if _anthropic_key():
+    if provider == "anthropic" and _paid_llm_allowed() and _anthropic_key():
         try:
             text = await _call_anthropic(system, user)
             tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
@@ -259,10 +289,10 @@ async def chat_once(session: str, system: str, user: str,
             _fail_reason = _classify_anthropic_error(e)
             LOG.warning("anthropic failed (%s): %s", _fail_reason, e)
 
-    # 2. Groq (free tier) — silent fallback, no error shown to user
-    groq_key = _groq_key()
-    if groq_key:
-        cfg = await get_nightly_config()
+    # 2. Groq (free tier) — env/file first, then MongoDB config as fallback
+    cfg = await get_nightly_config()
+    groq_key = _groq_key() or cfg.get("groq_api_key", "")
+    if provider in {"auto", "groq"} and groq_key:
         model = cfg.get("groq_model", "llama-3.3-70b-versatile")
         try:
             text = await _call_groq(system, user, model, api_key=groq_key)
@@ -270,10 +300,9 @@ async def chat_once(session: str, system: str, user: str,
         except Exception as e:
             LOG.warning("groq failed: %s", e)
 
-    # 3. Google Gemini (free tier) — silent fallback
-    google_key = _google_key()
-    if google_key:
-        cfg = await get_nightly_config()
+    # 3. Google Gemini (free tier) — env/file first, then MongoDB config as fallback
+    google_key = _google_key() or cfg.get("google_api_key", "")
+    if provider in {"auto", "google"} and google_key:
         model = cfg.get("google_model", "gemini-2.0-flash")
         try:
             text = await _call_google(system, user, model, api_key=google_key)
@@ -282,14 +311,10 @@ async def chat_once(session: str, system: str, user: str,
             LOG.warning("google failed: %s", e)
 
     # 4. Ollama (local free) — silent fallback; auto-pull tiny model if needed
-    if await ollama_available():
-        await ollama_ensure_model("qwen2.5:0.5b")
-        model = OLLAMA_PREFERRED.get(role, "qwen2.5")
-        try:
-            text = await ollama_call(model, system, user)
-            return text, f"ollama:{model}"
-        except Exception as e:
-            LOG.warning("ollama failed: %s", e)
+    try:
+        return await _call_ollama_preferred(system, user, role)
+    except Exception as e:
+        LOG.warning("ollama failed: %s", e)
 
     # All providers exhausted — only NOW tell the user
     reason = f" ({_fail_reason})" if _fail_reason else ""
@@ -302,6 +327,16 @@ async def chat_once(session: str, system: str, user: str,
 
 async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
     """Cost-free path: checks Mongo config first, then auto-picks cheapest available."""
+    if _cost_free_only():
+        try:
+            return await _call_ollama_preferred(system, user, "proposer")
+        except Exception as e:
+            LOG.warning("ollama local-only nightly failed: %s", e)
+            raise NoLLMError(
+                "Local free LLM unavailable for nightly/background work. Start Ollama "
+                "and verify OLLAMA_GATEWAY_URL."
+            ) from e
+
     cfg = await get_nightly_config()
     provider = cfg.get("nightly_provider") or _auto_pick_provider(cfg)
 
@@ -359,9 +394,9 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
         except Exception as e:
             LOG.warning("env google failed: %s", e)
 
-    # Anthropic — paid, last resort for nightly
+    # Anthropic — paid, last resort for nightly and explicit opt-in only
     _fail_reason = ""
-    if _anthropic_key():
+    if _paid_llm_allowed() and _anthropic_key():
         try:
             text = await _call_anthropic(system, user)
             tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]

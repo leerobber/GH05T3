@@ -1,4 +1,29 @@
 import React, { useCallback, useEffect, useState } from "react";
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  componentDidCatch(e, info) { console.error("GH05T3 render crash:", e, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ minHeight: "100vh", background: "#0f0f11", color: "#f59e0b", fontFamily: "monospace", padding: "2rem" }}>
+          <div style={{ fontSize: "1.2rem", marginBottom: "1rem" }}>⚠ GH05T3 RENDER ERROR</div>
+          <pre style={{ color: "#ef4444", fontSize: "0.8rem", whiteSpace: "pre-wrap", marginBottom: "1rem" }}>
+            {this.state.error?.toString()}
+          </pre>
+          <pre style={{ color: "#6b7280", fontSize: "0.7rem", whiteSpace: "pre-wrap" }}>
+            {this.state.error?.stack}
+          </pre>
+          <button onClick={() => this.setState({ error: null })} style={{ marginTop: "1rem", background: "#f59e0b", color: "#000", border: "none", padding: "0.5rem 1rem", cursor: "pointer" }}>
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import "@/App.css";
 import { toast, Toaster } from "sonner";
 import { fetchState, pclTick, runKairosCycle, runNightly } from "./lib/ghostApi";
@@ -265,4 +290,12 @@ function App() {
   );
 }
 
-export default App;
+function AppWithBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
+export default AppWithBoundary;

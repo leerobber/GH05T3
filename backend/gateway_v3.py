@@ -161,6 +161,14 @@ class PushRequest(BaseModel):
     message: str = "🖤 GH05T3 auto-push"
     branch: str = "main"
 
+class GhostScriptRunRequest(BaseModel):
+    src: str
+    reply_timeout: float = 30.0
+
+class GhostScriptFileRequest(BaseModel):
+    path: str
+    reply_timeout: float = 30.0
+
 class SecretsRequest(BaseModel):
     anthropic_api_key: Optional[str] = None
     github_pat: Optional[str] = None
@@ -592,6 +600,81 @@ async def save_secrets(req: SecretsRequest):
         "github_pat":        {"set": bool(env.get("GITHUB_PAT")),        "preview": _mask(env.get("GITHUB_PAT", ""))},
         "groq_api_key":      {"set": bool(env.get("GROQ_API_KEY")),      "preview": _mask(env.get("GROQ_API_KEY", ""))},
         "google_ai_key":     {"set": bool(env.get("GOOGLE_AI_KEY")),     "preview": _mask(env.get("GOOGLE_AI_KEY", ""))},
+    }
+
+
+# ─────────────────────────────────────────────
+# GHOSTSCRIPT — AI PROGRAM RUNNER
+# ─────────────────────────────────────────────
+
+from ghostscript import run_async as _gs_run_async, run_file_async as _gs_run_file_async
+from ghost_llm import chat_once as _chat_once
+
+
+async def _gs_llm_fn(prompt: str) -> str:
+    """Adapter: wraps chat_once for GhostScript's single-arg llm_fn interface."""
+    text, _ = await _chat_once(session="ghostscript", system="", user=prompt)
+    return text
+
+
+@app.post("/ghostscript/run")
+async def ghostscript_run(req: GhostScriptRunRequest):
+    """
+    Execute a GhostScript program string.
+    Returns the full execution trace and archive of proposals/emits.
+
+    Example body:
+      { "src": "let x = llm.chat('Hello') \\nprint(x)" }
+    """
+    result = await _gs_run_async(
+        req.src,
+        llm_fn=_gs_llm_fn,
+        memory_engine=memory,
+        agent_id="gateway-gs",
+        reply_timeout=req.reply_timeout,
+    )
+    return result
+
+
+@app.post("/ghostscript/run-file")
+async def ghostscript_run_file(req: GhostScriptFileRequest):
+    """
+    Load and execute a .gs file from disk.
+    Path is relative to the backend/ directory.
+
+    Example body:
+      { "path": "programs/sage_cycle.gs" }
+    """
+    import pathlib
+    gs_path = pathlib.Path(__file__).parent / req.path
+    if not gs_path.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {req.path}")
+    if gs_path.suffix not in (".gs", ".ghostscript", ".txt"):
+        raise HTTPException(status_code=400, detail="Only .gs files allowed")
+    result = await _gs_run_file_async(
+        str(gs_path),
+        llm_fn=_gs_llm_fn,
+        memory_engine=memory,
+        reply_timeout=req.reply_timeout,
+    )
+    return result
+
+
+@app.get("/ghostscript/demos")
+async def ghostscript_demos():
+    """Return all built-in demo programs for testing in the dashboard."""
+    from ghostscript import (
+        DEMO_AGENT, DEMO_PIPELINE, DEMO_ASYNC,
+        DEMO_IF_FOR, DEMO_MULTI_AGENT,
+    )
+    return {
+        "demos": {
+            "agent_sage":    {"name": "SAGE Agent Cycle",      "src": DEMO_AGENT},
+            "pipeline":      {"name": "Pipeline Operator",     "src": DEMO_PIPELINE},
+            "async_block":   {"name": "Async Parallel Calls",  "src": DEMO_ASYNC},
+            "if_for":        {"name": "if/else + for Loop",    "src": DEMO_IF_FOR},
+            "multi_agent":   {"name": "Multi-Agent Routing",   "src": DEMO_MULTI_AGENT},
+        }
     }
 
 

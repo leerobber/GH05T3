@@ -47,7 +47,8 @@ import coder_agent
 from embeddings import embed_status
 from swarm_legacy import AgentSwarm, SwarmTask
 from swarm_tasks import as_tasks as swarm_seed_tasks
-from ghostscript import DEMO as GHOSTSCRIPT_DEMO, run as run_ghostscript
+from ghostscript import DEMO as GHOSTSCRIPT_DEMO, run_async as run_ghostscript_async
+from job_runtime import run_ghostscript_job
 from hcm_vectors import build_cloud, make_seed_corpus
 from memory_engine import (
     MemoryEngine,
@@ -843,16 +844,41 @@ async def ghosteye_frame(frame_id: str):
 # ---------------------------------------------------------------------------
 class GhostScriptReq(BaseModel):
     source: str
+    title: str = "GhostScript job"
+    description: str = ""
+    paths: list[str] = Field(default_factory=list)
+    emergency: bool = False
 
 
 @api.post("/ghostscript/run")
 async def ghostscript_run(req: GhostScriptReq):
-    return run_ghostscript(req.source)
+    async def _llm(prompt: str) -> str:
+        text, _ = await nightly_chat("ghostscript", "", prompt)
+        return text
+
+    async def _runner(source: str):
+        return await run_ghostscript_async(
+            source,
+            llm_fn=_llm,
+            memory_engine=memory,
+            agent_id="api-ghostscript",
+            reply_timeout=8.0,
+        )
+
+    return await run_ghostscript_job(
+        title=req.title,
+        description=req.description or req.title,
+        source=req.source,
+        paths=req.paths,
+        emergency=req.emergency,
+        runner=_runner,
+        db=db,
+    )
 
 
 @api.get("/ghostscript/demo")
 async def ghostscript_demo():
-    return {"source": GHOSTSCRIPT_DEMO, "result": run_ghostscript(GHOSTSCRIPT_DEMO)}
+    return {"source": GHOSTSCRIPT_DEMO}
 
 
 # ---------------------------------------------------------------------------
@@ -1514,6 +1540,58 @@ async def complete_goal(goal_id: str):
     if result is None:
         raise HTTPException(404, "Goal not found")
     return result
+
+
+@api.post("/goals/{goal_id}/run")
+async def run_goal(goal_id: str):
+    goal = await autotelic.get_goal(goal_id)
+    if goal is None:
+        raise HTTPException(404, "Goal not found")
+    source = (
+        f'think: "Autotelic goal: {goal["title"]}"\n'
+        f'let plan = llm.chat("Create a concise execution plan for this GH05T3 goal: {goal["title"]} - {goal.get("detail", "")}")\n'
+        'memory.store("autotelic_last_plan", plan)\n'
+        'kairos.propose(plan)\n'
+    )
+    async def _llm(prompt: str) -> str:
+        text, _ = await nightly_chat(f"goal-{goal_id}", "", prompt)
+        return text
+
+    async def _runner(src: str):
+        return await run_ghostscript_async(
+            src,
+            llm_fn=_llm,
+            memory_engine=memory,
+            agent_id=f"goal-{goal_id}",
+            reply_timeout=8.0,
+        )
+
+    job = await run_ghostscript_job(
+        title=f"Run goal: {goal['title']}",
+        description=f"Autotelic goal execution for GH05T3: {goal['title']} {goal.get('detail', '')}",
+        source=source,
+        paths=[],
+        goal_id=goal_id,
+        runner=_runner,
+        db=db,
+    )
+    if job["status"] == "complete":
+        await autotelic.update_goal(goal_id, progress=min(0.95, goal.get("progress", 0) + 0.1))
+    return job
+
+
+@api.get("/jobs")
+async def list_jobs(limit: int = 30):
+    rows = await db.jobs.find({}, {"_id": 0}).sort("created_at", -1).to_list(max(1, min(100, limit)))
+    return {"jobs": rows}
+
+
+@api.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    row = await db.jobs.find_one({"_id": job_id}, {"_id": 0})
+    if not row:
+        raise HTTPException(404, "Job not found")
+    return row
 
 
 # ---------------------------------------------------------------------------
