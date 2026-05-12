@@ -50,6 +50,10 @@ from integrations.stripe_integration import (
     all_subscribers, subscriber_count, STRIPE_WEBHOOK_SECRET,
 )
 from personas import team_roster, get_persona
+from integrations.story_editor import (
+    story_editor_greeting, story_editor_turn,
+    get_session, reset_session, list_sessions,
+)
 
 log = logging.getLogger("gh0st3.gateway_v3")
 
@@ -709,6 +713,76 @@ async def avery_identity():
 async def avery_team():
     """Return full agent team roster with humanized personas."""
     return {"team": team_roster()}
+
+
+# ─────────────────────────────────────────────
+# AVERY / STORY EDITOR — developmental editor mode
+# ─────────────────────────────────────────────
+
+class StoryEditorTurnRequest(BaseModel):
+    session_id: str
+    message:    str
+
+
+async def _story_llm(system: str, messages: list) -> str:
+    """Bridge story editor sessions to the active LLM provider."""
+    # Build a single user turn from the full conversation history
+    history_text = "\n".join(
+        f"{m['role'].upper()}: {m['content']}" for m in messages
+    )
+    try:
+        from ghost_llm import chat_once
+        text, _ = await chat_once(
+            session="story_editor",
+            system=system,
+            user=history_text,
+        )
+        return text
+    except Exception as e:
+        log.error("Story editor LLM call failed: %s", e)
+        return f"[Story editor LLM unavailable: {e}]"
+
+
+@app.get("/avery/story/start/{session_id}")
+async def story_editor_start(session_id: str):
+    """Open a new story editor session and return the first intake question."""
+    reset_session(session_id)
+    greeting = story_editor_greeting()
+    return {
+        "session_id": session_id,
+        "stage":      0,
+        "reply":      greeting,
+        "story":      {},
+    }
+
+
+@app.post("/avery/story/turn")
+async def story_editor_turn_endpoint(req: StoryEditorTurnRequest):
+    """Send one message to an active story editor session."""
+    result = await story_editor_turn(
+        session_id  = req.session_id,
+        user_message= req.message,
+        llm_call    = _story_llm,
+    )
+    return result
+
+
+@app.get("/avery/story/sessions")
+async def story_sessions():
+    """List all active story editor sessions."""
+    return {"sessions": list_sessions()}
+
+
+@app.get("/avery/story/session/{session_id}")
+async def story_session_state(session_id: str):
+    """Return current state of a story editor session."""
+    sess = get_session(session_id)
+    return {
+        "session_id": session_id,
+        "stage":      sess["stage"],
+        "story":      sess["story"],
+        "turns":      len(sess["history"]),
+    }
 
 
 # ─────────────────────────────────────────────
