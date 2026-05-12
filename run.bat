@@ -65,6 +65,9 @@ if not exist "%APP%mongo-data" mkdir "%APP%mongo-data"
 start "mongo" mongod --dbpath "%APP%mongo-data" --port 27017 --bind_ip 127.0.0.1
 timeout /t 3 >nul
 
+REM ── GH05T3 inference server (fine-tuned local model — port 8010) ──────────
+start "gh05t3-model" cmd /c "cd /d "%APP%backend" && "%PY%" gh05t3_inference.py"
+
 REM ── Backend: server.py (economy engine, CFO, Telegram) ───────────────────
 echo Starting backend:8001...
 start "backend" cmd /c "cd /d "%APP%backend" && "%PY%" -m uvicorn server:app --host 0.0.0.0 --port 8001"
