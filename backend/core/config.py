@@ -16,3 +16,7 @@ GATEWAY_PORT  = int(os.environ.get("GATEWAY_PORT", "8002"))
 GITHUB_PAT    = os.environ.get("GITHUB_PAT",    "")
 GITHUB_REPO   = os.environ.get("GITHUB_REPO",   "leerobber/GH05T3")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
+
+# Stripe — billing & subscriptions
+STRIPE_SECRET_KEY     = os.environ.get("STRIPE_SECRET_KEY",     "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
