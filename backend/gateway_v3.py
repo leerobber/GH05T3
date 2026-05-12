@@ -877,6 +877,27 @@ async def ws_stream(ws: WebSocket):
 
 
 # ─────────────────────────────────────────────
+# INSTALL SCRIPTS — served directly for one-liner bootstrapping
+# ─────────────────────────────────────────────
+
+@app.get("/install/android")
+async def install_android():
+    """
+    Serve the Termux setup script so the phone can bootstrap without git auth.
+    On phone: pkg install wget -y && wget http://TATORTOT_IP:8002/install/android -O setup.sh && bash setup.sh
+    """
+    from fastapi.responses import PlainTextResponse
+    script_path = Path(__file__).parent.parent / "native" / "android" / "termux_setup.sh"
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail="Setup script not found")
+    return PlainTextResponse(
+        content=script_path.read_text(),
+        media_type="text/x-sh",
+        headers={"Content-Disposition": "attachment; filename=termux_setup.sh"},
+    )
+
+
+# ─────────────────────────────────────────────
 # PROMETHEUS /metrics
 # Falls back to JSON if prometheus_client not installed.
 # ─────────────────────────────────────────────
