@@ -92,6 +92,16 @@ tailscale_ip.txt
 *.deb
 *.dylib
 
+# Model weights — large binaries, pulled from Kaggle/HuggingFace at deploy time
+# Configs/metadata (adapter_config.json, training_config.json, tokenizer*.json) ARE tracked
+backend/models/**/*.safetensors
+backend/models/**/*.bin
+backend/models/**/optimizer.pt
+backend/models/**/*.pt
+backend/models/**/*.pth
+backend/models/**/training_args.bin
+backend/models/**/*.log
+
 # Build caches
 .cache/
 

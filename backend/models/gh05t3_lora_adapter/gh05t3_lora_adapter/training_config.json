@@ -1,0 +1,7 @@
+{
+  "model": "Qwen/Qwen2.5-Coder-3B-Instruct",
+  "lora_rank": 16,
+  "steps": 500,
+  "final_loss": 5.32332177734375,
+  "dataset_size": 7324
+}
