@@ -17,6 +17,7 @@ start "mongo" mongod --dbpath "%APP%mongo-data" --port 27017 --bind_ip 127.0.0.1
 
 timeout /t 3 >nul
 
+start "gh05t3-model" cmd /c "cd /d "%APP%backend" && %PY% gh05t3_inference.py"
 start "backend" cmd /c "cd /d "%APP%backend" && %PY% -m uvicorn server:app --host 0.0.0.0 --port 8001"
 start "gateway" cmd /c "cd /d "%APP%backend" && %PY% -m uvicorn gateway_v3:app --host 0.0.0.0 --port 8002"
 start "frontend" cmd /c "%PY% -m http.server 3210 --directory frontend\build"
