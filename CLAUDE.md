@@ -1,6 +1,37 @@
 # GH05T3 — Claude Session Memory
 > READ THIS FIRST. Test every fix before presenting it.
 
+## ══════════════════════════════════════════════════════════
+## NON-NEGOTIABLE TRAINING RULES — PERMANENT. NEVER REMOVE.
+## ══════════════════════════════════════════════════════════
+## These bugs killed EVERY Kaggle run (v29–v34). Both must be
+## present in EVERY training script, notebook, or adaptation.
+##
+## RULE 1 — Cast LoRA adapters to fp16 after get_peft_model()
+##   WHY: PEFT inits adapters fp32. Base model is fp16.
+##        GradScaler detects NaN at step 10 → skips ALL updates
+##        forever → loss = 0.0 for entire run. Adapter is garbage.
+##   FIX: for _, p in model.named_parameters():
+##            if p.requires_grad: p.data = p.data.to(torch.float16)
+##
+## RULE 2 — gradient_checkpointing_kwargs={"use_reentrant": False}
+##   WHY: use_reentrant=True (PyTorch default) reruns forward pass
+##        during backward. With fp16 + enable_input_require_grads()
+##        hooks this produces NaN gradients from step 1.
+##   FIX: gradient_checkpointing_kwargs={"use_reentrant": False}
+##        in TrainingArguments.
+##
+## RULE 3 — Collapse detection before saving
+##   WHY: A collapsed adapter (loss=0.0 or >50) wastes everyone's
+##        time and looks identical to a good save on disk.
+##   FIX: assert 0.3 < loss < 10 before model.save_pretrained()
+##
+## RULE 4 — T4 x2 only, never P100
+##   WHY: P100 (sm_60) is too slow for 7B and resets on every push.
+##   FIX: GPU check in Cell 2 hard-fails if sm_major==6.
+##        kernel-metadata.json: "accelerator": "nvidiagput4x2"
+## ══════════════════════════════════════════════════════════
+
 ## Project layout
 ```
 GH05T3/
