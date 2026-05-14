@@ -4,22 +4,22 @@
 ## ══════════════════════════════════════════════════════════
 ## NON-NEGOTIABLE TRAINING RULES — PERMANENT. NEVER REMOVE.
 ## ══════════════════════════════════════════════════════════
-## These bugs killed EVERY Kaggle run (v29–v34). Both must be
-## present in EVERY training script, notebook, or adaptation.
+## RULE 1 killed v35. RULE 2 killed v29–v34. Never repeat either.
 ##
-## RULE 1 — Cast LoRA adapters to fp16 after get_peft_model()
-##   WHY: PEFT inits adapters fp32. Base model is fp16.
-##        GradScaler detects NaN at step 10 → skips ALL updates
-##        forever → loss = 0.0 for entire run. Adapter is garbage.
-##   FIX: for _, p in model.named_parameters():
-##            if p.requires_grad: p.data = p.data.to(torch.float16)
+## RULE 1 — DO NOT cast LoRA adapters to fp16 after get_peft_model()
+##   WHY: PEFT keeps adapters fp32 intentionally — they are "master weights".
+##        fp16=True (GradScaler) requires fp32 gradients to unscale.
+##        Casting adapters to fp16 → backward produces fp16 gradients →
+##        GradScaler throws "Attempting to unscale FP16 gradients." → crash.
+##   FIX: Leave adapters in fp32. AMP autocast handles dtype during forward.
+##        NEVER add: for p in model.parameters(): p.data = p.data.to(fp16)
 ##
 ## RULE 2 — gradient_checkpointing_kwargs={"use_reentrant": False}
-##   WHY: use_reentrant=True (PyTorch default) reruns forward pass
-##        during backward. With fp16 + enable_input_require_grads()
-##        hooks this produces NaN gradients from step 1.
+##   WHY: use_reentrant=True (PyTorch default) reruns forward pass during
+##        backward. With fp16 + enable_input_require_grads() hooks this
+##        produces NaN gradients from step 1 → loss=0.0 forever.
 ##   FIX: gradient_checkpointing_kwargs={"use_reentrant": False}
-##        in TrainingArguments.
+##        in TrainingArguments. THIS IS THE ONLY REQUIRED FIX.
 ##
 ## RULE 3 — Collapse detection before saving
 ##   WHY: A collapsed adapter (loss=0.0 or >50) wastes everyone's
