@@ -168,13 +168,28 @@ def build_dataset(data_dir: Path):
                 f"**Remediation:** {rec.get('remediation', 'N/A')}"},
         ]))
 
+    # ── Sovereign Recall — highest quality source (pre-formatted ChatML) ──────
+    recall_file = REPO / "backend" / "data" / "training" / "sovereign_recall.jsonl"
+    recall_count = 0
+    for rec in read_jsonl(recall_file):
+        text = rec.get("text", "")
+        quality = rec.get("quality", 0)
+        if not text or quality < 4:          # only high-quality recall examples
+            continue
+        if "<|im_start|>user" not in text:   # must have at least one turn
+            continue
+        texts.append(text)
+        recall_count += 1
+    if recall_count:
+        log.info("Sovereign Recall: +%d examples (quality≥4) from %s", recall_count, recall_file)
+
     if not texts:
         log.error("No training examples found in %s", data_dir)
         sys.exit(1)
 
     random.seed(42)
     random.shuffle(texts)
-    log.info("Dataset: %d examples", len(texts))
+    log.info("Dataset: %d examples (%d from Sovereign Recall)", len(texts), recall_count)
     return Dataset.from_dict({"text": texts})
 
 
