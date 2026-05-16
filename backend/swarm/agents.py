@@ -1,13 +1,15 @@
 """
 GH05T3 — SPECIALIST SWARM AGENTS v3
 ======================================
-Five sub-specialists that collaborate under the ZERO Committee.
+Six sub-specialists that collaborate under the ZERO Committee.
 
-ORACLE   — Research + knowledge retrieval. Answers deep questions.
-FORGE    — Code generation, architecture, implementation.
-CODEX    — Code review, debugging, optimization.
-SENTINEL — Security, adversarial testing, anomaly detection.
-NEXUS    — Integration routing: GitHub, Claude API, external services.
+ORACLE    — Research + knowledge retrieval. Answers deep questions.
+FORGE     — Code generation, architecture, implementation.
+CODEX     — Code review, debugging, optimization.
+SENTINEL  — Security, adversarial testing, anomaly detection.
+NEXUS     — Integration routing: GitHub, Claude API, external services.
+CHRONICLE — Sovereign Recall. Captures everything on TatorTot and
+            converts it into high-quality training data for Avery.
 
 Each agent:
   - Registers on the SwarmBus
@@ -369,6 +371,104 @@ class NexusAgent(SwarmAgent):
 
 
 # ─────────────────────────────────────────────
+# CHRONICLE — Sovereign Recall Agent
+# ─────────────────────────────────────────────
+
+class ChronicleAgent(SwarmAgent):
+    """
+    Sovereign Recall — captures everything on TatorTot and converts it
+    into high-quality training data. Runs sovereign_recall.py as a
+    background task. Earns tokens per training example produced.
+    Queryable by ORACLE for captured knowledge.
+    """
+    ROLE        = "chronicle"
+    DESCRIPTION = "Continuous intelligence capture & training data engine"
+    CHANNELS    = ["#broadcast", "#omega", "#chronicle"]
+
+    def __init__(self):
+        super().__init__("CHRONICLE")
+        self._recall      = None
+        self._scan_task   = None
+        self._examples    = 0
+        self._last_scan   = None
+
+    async def boot(self):
+        try:
+            import sys, os
+            sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+            from sovereign_recall import SovereignRecall
+            self._recall = SovereignRecall()
+            self._scan_task = asyncio.create_task(self._recall.run())
+            await self.think("CHRONICLE ONLINE — Sovereign Recall capturing all TatorTot intelligence")
+        except Exception as e:
+            log.warning("CHRONICLE boot error (non-fatal): %s", e)
+            await self.think(f"CHRONICLE: recall engine unavailable ({e}) — agent standing by")
+
+    async def on_message(self, msg: SwarmMessage):
+        if msg.msg_type != MsgType.TASK:
+            return
+
+        content_low = msg.content.lower()
+
+        if any(w in content_low for w in ["recall", "capture", "chronicle", "training data"]):
+            await self._handle_recall_query(msg)
+        elif any(w in content_low for w in ["scan", "harvest", "refresh"]):
+            await self._trigger_scan(msg)
+        elif any(w in content_low for w in ["status", "stats"]):
+            await self._report_status(msg)
+
+    async def _handle_recall_query(self, msg: SwarmMessage):
+        if self._recall:
+            status = self._recall.status()
+            await self.say(
+                f"CHRONICLE: {status['total_examples']} training examples captured. "
+                f"Tokens: {status['tokens']}. "
+                f"Last output: {status['output_file']}",
+                dst=msg.src,
+            )
+        else:
+            await self.say("CHRONICLE: recall engine not yet initialized", dst=msg.src)
+
+    async def _trigger_scan(self, msg: SwarmMessage):
+        if self._recall:
+            await self.think("CHRONICLE: manual scan triggered by " + msg.src)
+            stats = await self._recall.scan_once()
+            await self.say(
+                f"CHRONICLE scan complete: {stats['quality_passed']} new examples, "
+                f"total {stats['total_examples']}, tokens {stats['tokens']}",
+                dst=msg.src,
+            )
+        else:
+            await self.say("CHRONICLE: not initialized", dst=msg.src)
+
+    async def _report_status(self, msg: SwarmMessage):
+        if self._recall:
+            s = self._recall.status()
+            await self.say(
+                f"CHRONICLE STATUS — examples: {s['total_examples']} | "
+                f"tokens: {s['tokens']} | scan_interval: {s['scan_interval']}s | "
+                f"quality_min: {s['quality_threshold']} | output: {s['output_file']}",
+                dst=msg.src,
+            )
+
+    @property
+    def stats(self) -> dict:
+        base = super().stats
+        extra = {}
+        if self._recall:
+            extra = {
+                "total_examples":  self._recall.writer.count,
+                "tokens_earned":   self._recall._total_tokens_earned,
+                "scan_interval":   RECALL_SCAN_INTERVAL if True else 300,
+            }
+        return {**base, **extra}
+
+    async def close(self):
+        if self._scan_task:
+            self._scan_task.cancel()
+
+
+# ─────────────────────────────────────────────
 # SWARM ORCHESTRATOR
 # ─────────────────────────────────────────────
 
@@ -379,23 +479,25 @@ class GH05T3Swarm:
     """
 
     def __init__(self):
-        self.bus      = SwarmBus.instance()
-        self.oracle   = OracleAgent()
-        self.forge    = ForgeAgent()
-        self.codex    = CodexAgent()
-        self.sentinel = SentinelAgent()
-        self.nexus    = NexusAgent()
-        self._agents  = [self.oracle, self.forge, self.codex,
-                          self.sentinel, self.nexus]
+        self.bus       = SwarmBus.instance()
+        self.oracle    = OracleAgent()
+        self.forge     = ForgeAgent()
+        self.codex     = CodexAgent()
+        self.sentinel  = SentinelAgent()
+        self.nexus     = NexusAgent()
+        self.chronicle = ChronicleAgent()
+        self._agents   = [self.oracle, self.forge, self.codex,
+                          self.sentinel, self.nexus, self.chronicle]
         log.info(f"[Swarm] {len(self._agents)} specialists online")
 
     async def boot_announcement(self):
         """Announce swarm boot to all channels."""
+        await self.chronicle.boot()
         await self.bus.emit(
             src="GH05T3",
             content=(
-                "⚡ SWARM ONLINE — 5 specialists active: "
-                "ORACLE · FORGE · CODEX · SENTINEL · NEXUS"
+                "⚡ SWARM ONLINE — 6 specialists active: "
+                "ORACLE · FORGE · CODEX · SENTINEL · NEXUS · CHRONICLE"
             ),
             channel="#broadcast",
             msg_type=MsgType.SYSTEM,
@@ -421,6 +523,8 @@ class GH05T3Swarm:
             target = "SENTINEL"
         elif any(w in task_low for w in ["github", "push", "claude", "sync"]):
             target = "NEXUS"
+        elif any(w in task_low for w in ["recall", "capture", "chronicle", "training data", "harvest"]):
+            target = "CHRONICLE"
         else:
             target = "ORACLE"   # default
 

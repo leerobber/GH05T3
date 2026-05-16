@@ -981,6 +981,59 @@ async def integrations_status():
 
 
 # ─────────────────────────────────────────────
+# SOVEREIGN RECALL / CHRONICLE ENDPOINTS
+# ─────────────────────────────────────────────
+
+_recall_instance = None
+
+def _get_recall():
+    global _recall_instance
+    if _recall_instance is None:
+        try:
+            from sovereign_recall import SovereignRecall
+            _recall_instance = SovereignRecall()
+        except Exception:
+            pass
+    return _recall_instance
+
+
+@app.get("/chronicle/status")
+async def chronicle_status():
+    """Sovereign Recall status — examples, tokens, source breakdown."""
+    r = _get_recall()
+    if r is None:
+        return {"agent_id": "CHRONICLE", "status": "offline", "total_examples": 0}
+    s = r.status()
+    # add source breakdown from the output file
+    sources: dict = {}
+    try:
+        from pathlib import Path
+        import json as _json
+        recall_file = Path(s["output_file"])
+        if recall_file.exists():
+            for line in recall_file.open():
+                try:
+                    rec = _json.loads(line)
+                    src = rec.get("source", "unknown")
+                    sources[src] = sources.get(src, 0) + 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return {**s, "sources": sources, "status": "online"}
+
+
+@app.post("/chronicle/scan")
+async def chronicle_scan():
+    """Trigger an immediate Sovereign Recall scan."""
+    r = _get_recall()
+    if r is None:
+        raise HTTPException(status_code=503, detail="Sovereign Recall not initialized")
+    stats = await r.scan_once()
+    return {"ok": True, "stats": stats}
+
+
+# ─────────────────────────────────────────────
 # ENTRYPOINT
 # ─────────────────────────────────────────────
 
