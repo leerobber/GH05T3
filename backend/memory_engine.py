@@ -72,6 +72,8 @@ class MemoryEngine:
         if mtype not in MEMORY_TYPES:
             mtype = "fact"
         er = await embed_semantic(content)
+        # Dual-brain: also compute HCM (SHA-seeded 10k-dim) vector for second space
+        hcm_vec = embed(content)
         doc = {
             "_id": str(uuid.uuid4()),
             "type": mtype,
@@ -81,6 +83,7 @@ class MemoryEngine:
             "embedding": er.vector.tobytes(),
             "embed_mode": er.mode,
             "embed_dim": er.dim,
+            "hcm_embedding": hcm_vec.tobytes(),
             "metadata": metadata or {},
             "created_at": _now(),
             "last_accessed": _now(),
@@ -111,27 +114,62 @@ class MemoryEngine:
 
     async def search(self, query: str, k: int = 5, mtypes: list[str] | None = None) -> list[dict]:
         er = await embed_semantic(query)
-        q = er.vector
+        q_semantic = er.vector
+        # HCM (second brain) — SHA-seeded 10k-dim query vector
+        q_hcm = embed(query)
+
         filt: dict = {}
         if mtypes:
             filt["type"] = {"$in": mtypes}
-        # pull candidate pool (fresh + important); limit for cost
-        rows = await self.db.memories.find(filt).sort("created_at", -1).to_list(500)
+
+        # Deep pool — score ALL memories, not just recent 500
+        # Also always include high-importance memories regardless of age
+        all_rows = await self.db.memories.find(filt).to_list(None)
+
         scored = []
-        for r in rows:
-            v = np.frombuffer(r["embedding"], dtype=np.float32)
-            # Only compare vectors that share our current embedding space.
-            # Legacy 10k-dim SHA vectors (pre-MiniLM) are skipped — they'll be
-            # re-embedded the next time they're touched.
+        query_words = set(er.text.lower().split()) if hasattr(er, "text") else set()
+
+        for r in all_rows:
+            raw_bytes = r.get("embedding")
+            if not raw_bytes:
+                continue
+            v = np.frombuffer(raw_bytes, dtype=np.float32)
             mode = r.get("embed_mode")
-            if mode and mode != er.mode:
-                continue
-            if v.shape[0] != q.shape[0]:
-                continue
-            s = semantic_cosine(q, v)
-            # importance + recency uplift
-            s = s + 0.10 * r.get("importance", 0.5)
+            imp = float(r.get("importance", 0.5))
+
+            # ── Semantic score (primary brain) ─────────────────────────
+            if mode and mode == er.mode and v.shape[0] == q_semantic.shape[0]:
+                s_semantic = semantic_cosine(q_semantic, v)
+            else:
+                # Mismatched space — keyword overlap baseline
+                content_words = set(r.get("content", "").lower().split())
+                overlap = len(query_words & content_words) / max(len(query_words), 1)
+                s_semantic = 0.2 + 0.3 * overlap
+
+            # ── HCM score (second brain — 10k-dim conceptual space) ────
+            hcm_bytes = r.get("hcm_embedding")
+            if hcm_bytes:
+                try:
+                    v_hcm = np.frombuffer(hcm_bytes, dtype=np.float32)
+                    if v_hcm.shape[0] == q_hcm.shape[0]:
+                        s_hcm = cosine(q_hcm, v_hcm)
+                    else:
+                        s_hcm = 0.0
+                except Exception:
+                    s_hcm = 0.0
+            else:
+                s_hcm = 0.0
+
+            # ── Dual-brain blend ────────────────────────────────────────
+            # 65% semantic + 25% HCM conceptual + 10% importance floor
+            s = 0.65 * s_semantic + 0.25 * s_hcm + 0.10 * imp
+
+            # Importance floor: critical memories always surface (identity, rules)
+            if imp >= 0.9:
+                s = max(s, 0.35)
+
             scored.append((s, r))
+
         scored.sort(key=lambda x: x[0], reverse=True)
         top = scored[:k]
         # record access
@@ -167,12 +205,27 @@ class MemoryEngine:
 # Retrieval injection for chat
 # ---------------------------------------------------------------------------
 async def build_context_prefix(engine: MemoryEngine, user_msg: str, k: int = 3) -> str:
-    hits = await engine.search(user_msg, k=k)
-    if not hits:
+    # Always pin identity memories at the top regardless of query
+    identity_hits = await engine.search("who am I Avery GH05T3 SovereignNation Robert", k=4,
+                                        mtypes=["identity"])
+    regular_hits = await engine.search(user_msg, k=k)
+
+    # Merge: identity first, then regular, dedup
+    seen: set = set()
+    merged = []
+    for h in identity_hits + regular_hits:
+        if h["id"] not in seen:
+            seen.add(h["id"])
+            merged.append(h)
+
+    if not merged:
         return ""
-    lines = ["(memory palace retrieval — closest stored memories)"]
-    for h in hits:
-        lines.append(f"- [{h['type']}·{h['source']}·{h['score']}] {h['content']}")
+
+    lines = ["[memory palace]"]
+    # Identity memories labeled clearly so the model weights them highest
+    for h in merged:
+        prefix = "IDENTITY: " if h["type"] == "identity" else ""
+        lines.append(f"- {prefix}{h['content']}")
     return "\n".join(lines) + "\n\n"
 
 
@@ -339,7 +392,7 @@ async def distill_seance(engine: MemoryEngine, nightly_chat, seance_entries: lis
 # Helpers
 # ---------------------------------------------------------------------------
 def _expose(doc: dict) -> dict:
-    out = {k: v for k, v in doc.items() if k != "embedding"}
+    out = {k: v for k, v in doc.items() if k not in ("embedding", "hcm_embedding")}
     if "_id" in out:
         out["id"] = out.pop("_id")
     return out

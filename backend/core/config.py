@@ -11,6 +11,17 @@ BACKENDS = {
     "fallback":  os.environ.get("LLAMA_FALLBACK_URL", "http://localhost:8012"),
 }
 
+# Ollama sovereign agents (fine-tuned, always running)
+OLLAMA_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+SOVEREIGN_MODELS = {
+    "oracle":   os.environ.get("MODEL_ORACLE",   "oracle-sovereign"),
+    "forge":    os.environ.get("MODEL_FORGE",    "forge-sovereign"),
+    "codex":    os.environ.get("MODEL_CODEX",    "codex-sovereign"),
+    "sentinel": os.environ.get("MODEL_SENTINEL", "sentinel-sovereign"),
+    "nexus":    os.environ.get("MODEL_NEXUS",    "nexus-sovereign"),
+    "avery":    os.environ.get("MODEL_AVERY",    "avery-sovereign"),
+}
+
 GATEWAY_HOST  = os.environ.get("GATEWAY_HOST",  "0.0.0.0")
 GATEWAY_PORT  = int(os.environ.get("GATEWAY_PORT", "8002"))
 GITHUB_PAT    = os.environ.get("GITHUB_PAT",    "")

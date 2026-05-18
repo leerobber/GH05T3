@@ -30,7 +30,9 @@ from typing import Optional
 import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import (BACKENDS, GATEWAY_HOST, GATEWAY_PORT,
                           GITHUB_PAT, GITHUB_REPO, GITHUB_BRANCH)
@@ -43,24 +45,69 @@ from security.ghost_protocol import GhostProtocol, KillSwitchMode
 # v3 additions
 from swarm.bus import SwarmBus, SwarmMessage, MsgType
 from swarm.agents import GH05T3Swarm
+from swarm.peer_registry import PeerRegistry
 from integrations.claude_integration import ClaudeSwarmAgent
 from integrations.github_integration import GitHubAgent, create_github_webhook_router
+from mcp_server import get_mcp_asgi, wire_gateway, MCP_AVAILABLE
 
 log = logging.getLogger("gh0st3.gateway_v3")
+
+
+# ─────────────────────────────────────────────
+# BEARER AUTH MIDDLEWARE
+# ─────────────────────────────────────────────
+
+_PUBLIC_PATHS = {"/", "/health", "/setup/secrets", "/setup/secrets/status", "/metrics"}
+_PUBLIC_PREFIXES = ("/ws", "/mcp/sse", "/mcp/messages")
+
+
+class BearerAuthMiddleware(BaseHTTPMiddleware):
+    """Require Authorization: Bearer <GH05T3_API_TOKEN> on all non-public endpoints.
+
+    When GH05T3_API_TOKEN is empty the gateway runs in open/dev mode (no auth).
+    Set the token in backend/.env or via install.ps1 for remote-access security.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        # CORS preflight — always allow
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        path = request.url.path
+        # Public endpoints — no auth needed
+        if path in _PUBLIC_PATHS:
+            return await call_next(request)
+        if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+            return await call_next(request)
+
+        token = os.environ.get("GH05T3_API_TOKEN", "").strip()
+        if not token:
+            # Dev mode — no token configured, allow everything
+            return await call_next(request)
+
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer ") or auth[7:].strip() != token:
+            return JSONResponse(
+                {"error": "Unauthorized", "hint": "Set Authorization: Bearer <GH05T3_API_TOKEN>"},
+                status_code=401,
+            )
+
+        return await call_next(request)
 
 # ─────────────────────────────────────────────
 # SYSTEM INIT
 # ─────────────────────────────────────────────
 
-bus     = SwarmBus.instance()
-memory  = MemoryPalace()
-kairos  = KAIROS()
-sage    = SAGE()
-omega   = OmegaLoop(memory=memory, kairos=kairos, sage=sage)
-ghost   = GhostProtocol()
-swarm   = None   # initialized in lifespan
-github  = None
-claude  = None
+bus            = SwarmBus.instance()
+memory         = MemoryPalace()
+kairos         = KAIROS()
+sage           = SAGE()
+omega          = OmegaLoop(memory=memory, kairos=kairos, sage=sage)
+ghost          = GhostProtocol()
+peer_registry  = PeerRegistry()
+swarm          = None   # initialized in lifespan
+github         = None
+claude         = None
 
 
 @asynccontextmanager
@@ -74,16 +121,26 @@ async def lifespan(app: FastAPI):
 
     await swarm.boot_announcement()
 
+    # Start Tailscale peer discovery
+    await peer_registry.start()
+
+    # Wire gateway state into MCP server tools
+    wire_gateway(bus, memory, omega, swarm, ghost, peer_registry)
+
     await bus.emit(
         src="GATEWAY",
-        content="🖤 GH05T3 v3 GATEWAY ONLINE — Omega Loop + Swarm + Claude + GitHub ACTIVE",
+        content=(
+            "🖤 GH05T3 v3 GATEWAY ONLINE — "
+            f"Omega Loop + Swarm + Claude + GitHub + MCP({'✓' if MCP_AVAILABLE else '✗'}) ACTIVE"
+        ),
         channel="#broadcast",
         msg_type=MsgType.SYSTEM,
     )
 
-    log.info("GH05T3 v3 gateway online")
+    log.info("GH05T3 v3 gateway online (MCP=%s)", "enabled" if MCP_AVAILABLE else "disabled")
     yield
 
+    await peer_registry.stop()
     await swarm.shutdown()
     await github.close()
     await claude.close()
@@ -94,11 +151,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="GH05T3 v3",
-    description="Unified swarm gateway — Omega Loop · SAGE · KAIROS · Claude · GitHub",
+    description="Unified swarm gateway — Omega Loop · SAGE · KAIROS · Claude · GitHub · MCP",
     version="3.0.0",
     lifespan=lifespan,
 )
 
+# Middleware order: CORS first, then auth (FastAPI applies in reverse registration order)
+app.add_middleware(BearerAuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -108,6 +167,14 @@ app.add_middleware(
 
 # Mount GitHub webhook router
 app.include_router(create_github_webhook_router())
+
+# Mount MCP SSE server at /mcp (Claude Code connects to /mcp/sse)
+_mcp_asgi = get_mcp_asgi()
+if _mcp_asgi is not None:
+    app.mount("/mcp", _mcp_asgi)
+    log.info("MCP server mounted at /mcp/sse")
+else:
+    log.warning("MCP server not mounted (mcp package missing)")
 
 
 # ─────────────────────────────────────────────
@@ -483,6 +550,53 @@ async def github_mesh_peers():
         return {"peers": peers, "count": len(peers)}
     except Exception as e:
         return {"peers": [], "error": str(e)}
+
+
+@app.get("/peers")
+async def get_peers():
+    """List all live GH05T3 peers discovered via Tailscale."""
+    return {
+        "peers": peer_registry.peers,
+        "count": len(peer_registry.peers),
+        "tailscale_configured": bool(os.environ.get("TAILSCALE_API_KEY", "")),
+    }
+
+
+@app.post("/peers/refresh")
+async def refresh_peers():
+    """Trigger immediate Tailscale peer re-discovery."""
+    peers = await peer_registry.refresh()
+    return {"peers": peers, "count": len(peers)}
+
+
+@app.get("/mcp/info")
+async def mcp_info():
+    """Show MCP server availability, mount URL, and Claude Code config snippet."""
+    ts_ip  = os.environ.get("TAILSCALE_OWN_IP", "")
+    token  = os.environ.get("GH05T3_API_TOKEN", "")
+    host   = ts_ip or "localhost"
+    port   = GATEWAY_PORT
+    sse_url = f"http://{host}:{port}/mcp/sse"
+    return {
+        "available":  MCP_AVAILABLE,
+        "sse_url":    sse_url,
+        "auth_enabled": bool(token),
+        "claude_code_config": {
+            "mcpServers": {
+                "gh05t3": {
+                    "type": "sse",
+                    "url":  sse_url,
+                    **({"headers": {"Authorization": f"Bearer {token}"}} if token else {}),
+                }
+            }
+        },
+        "tools": [
+            "chat", "get_status", "memory_recall", "memory_store",
+            "swarm_delegate", "emit_to_bus", "get_conversations",
+            "github_push", "github_status", "ghostscript_run",
+            "list_peers", "refresh_peers", "peer_delegate", "peer_chat", "mesh_broadcast",
+        ] if MCP_AVAILABLE else [],
+    }
 
 
 @app.post("/github/commit")

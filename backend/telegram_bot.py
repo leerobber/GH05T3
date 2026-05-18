@@ -3,16 +3,22 @@
 - Token stored in Mongo (single-user personal). Start/stop via API.
 - First message from any chat auto-locks that chat_id unless allow_open=True.
 - Each message routes through GH05T3 chat pipeline.
+- Distributed lock: MongoDB heartbeat prevents two instances from polling simultaneously.
 """
 from __future__ import annotations
 import asyncio
 import logging
+import os
+import time
 import httpx
 from typing import Callable, Awaitable
 
 LOG = logging.getLogger("ghost.telegram")
 
 API = "https://api.telegram.org"
+_MY_PID = os.getpid()
+_LOCK_TTL = 35       # seconds — heartbeat must refresh within this window
+_HEARTBEAT = 15      # seconds between heartbeat refreshes
 
 
 class TelegramPoller:
@@ -31,8 +37,60 @@ class TelegramPoller:
             {"_id": "singleton"}, {"$set": cfg}, upsert=True
         )
 
+    # ── Distributed lock ─────────────────────────────────────────────────────
+
+    async def _try_claim_lock(self) -> bool:
+        """Atomically claim the poller lock. Returns True if we own it."""
+        now = time.time()
+        try:
+            result = await self.db.telegram_lock.find_one_and_update(
+                {
+                    "_id": "poll_lock",
+                    "$or": [
+                        {"expires_at": {"$lt": now}},   # expired — up for grabs
+                        {"pid": _MY_PID},               # we already own it
+                    ],
+                },
+                {"$set": {"pid": _MY_PID, "expires_at": now + _LOCK_TTL}},
+                upsert=False,
+                return_document=True,
+            )
+            if result:
+                return True
+            # No matching doc — try upsert if no lock exists at all
+            try:
+                await self.db.telegram_lock.insert_one(
+                    {"_id": "poll_lock", "pid": _MY_PID, "expires_at": now + _LOCK_TTL}
+                )
+                return True
+            except Exception:
+                return False
+        except Exception as e:
+            LOG.debug("lock claim error: %s", e)
+            return False
+
+    async def _refresh_lock(self):
+        """Extend our lock TTL. Call every _HEARTBEAT seconds."""
+        now = time.time()
+        try:
+            await self.db.telegram_lock.update_one(
+                {"_id": "poll_lock", "pid": _MY_PID},
+                {"$set": {"expires_at": now + _LOCK_TTL}},
+            )
+        except Exception:
+            pass
+
+    async def _release_lock(self):
+        try:
+            await self.db.telegram_lock.delete_one({"_id": "poll_lock", "pid": _MY_PID})
+        except Exception:
+            pass
+
+    # ── Status / lifecycle ───────────────────────────────────────────────────
+
     async def status(self) -> dict:
         cfg = await self._get_cfg() or {}
+        lock = await self.db.telegram_lock.find_one({"_id": "poll_lock"})
         return {
             "running": bool(self.task and not self.task.done()),
             "locked_chat_id": cfg.get("locked_chat_id"),
@@ -40,6 +98,8 @@ class TelegramPoller:
             "bot_username": cfg.get("bot_username"),
             "configured": bool(cfg.get("bot_token")),
             "last_error": cfg.get("last_error"),
+            "lock_holder_pid": lock.get("pid") if lock else None,
+            "lock_expires_in": round(lock["expires_at"] - time.time(), 1) if lock else None,
         }
 
     async def start(self) -> dict:
@@ -61,7 +121,10 @@ class TelegramPoller:
             except Exception:
                 pass
             self.task = None
+        await self._release_lock()
         return {"ok": True}
+
+    # ── Main poll loop ───────────────────────────────────────────────────────
 
     async def _run(self, token: str):
         offset = 0
@@ -80,8 +143,23 @@ class TelegramPoller:
             await self.save_cfg({"last_error": str(e)})
             return
 
-        LOG.info("telegram poller started @%s", uname)
+        LOG.info("telegram poller started @%s (pid=%d)", uname, _MY_PID)
+        last_heartbeat = 0.0
+
         while not self._stop:
+            # ── Acquire / refresh distributed lock ──────────────────────────
+            if not await self._try_claim_lock():
+                LOG.debug("telegram: another instance holds the lock — waiting 20s")
+                await asyncio.sleep(20)
+                continue
+
+            # Refresh heartbeat if needed
+            now = time.time()
+            if now - last_heartbeat >= _HEARTBEAT:
+                await self._refresh_lock()
+                last_heartbeat = now
+
+            # ── Long-poll ───────────────────────────────────────────────────
             try:
                 async with httpx.AsyncClient(timeout=35) as c:
                     r = await c.get(
@@ -90,8 +168,15 @@ class TelegramPoller:
                     )
                     j = r.json()
                     if not j.get("ok"):
-                        await self.save_cfg({"last_error": j.get("description")})
-                        await asyncio.sleep(5)
+                        desc = j.get("description", "")
+                        await self.save_cfg({"last_error": desc})
+                        if "409" in str(r.status_code) or "Conflict" in desc:
+                            # Release our lock — another poller won the race
+                            await self._release_lock()
+                            LOG.warning("telegram 409 — yielding lock, retry in 30s")
+                            await asyncio.sleep(30)
+                        else:
+                            await asyncio.sleep(5)
                         continue
                     for upd in j.get("result", []):
                         offset = upd["update_id"] + 1
@@ -100,7 +185,8 @@ class TelegramPoller:
                             continue
                         chat_id = msg["chat"]["id"]
                         text = msg.get("text", "")
-                        uname_from = msg.get("from", {}).get("username") or msg.get("from", {}).get("first_name") or "unknown"
+                        uname_from = (msg.get("from", {}).get("username")
+                                      or msg.get("from", {}).get("first_name") or "unknown")
 
                         cfg = await self._get_cfg() or {}
                         locked = cfg.get("locked_chat_id")
@@ -108,7 +194,7 @@ class TelegramPoller:
                             await self.save_cfg({"locked_chat_id": chat_id})
                             locked = chat_id
                         if locked and chat_id != locked:
-                            await self._send(base, chat_id, "\u26d4 this ghost is locked to another chat.")
+                            await self._send(base, chat_id, "⛔ this ghost is locked to another chat.")
                             continue
                         if not text.strip():
                             continue
@@ -123,12 +209,13 @@ class TelegramPoller:
                 LOG.exception("poll loop error")
                 await self.save_cfg({"last_error": str(e)})
                 await asyncio.sleep(4)
-        LOG.info("telegram poller stopped")
+
+        await self._release_lock()
+        LOG.info("telegram poller stopped (pid=%d)", _MY_PID)
 
     async def _send(self, base: str, chat_id: int, text: str):
         try:
             async with httpx.AsyncClient(timeout=15) as c:
-                # chunk if over 3500 chars
                 for i in range(0, len(text), 3500):
                     await c.post(
                         f"{base}/sendMessage",

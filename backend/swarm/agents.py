@@ -26,9 +26,47 @@ from typing import Optional
 import httpx
 
 from swarm.bus import SwarmAgent, SwarmMessage, MsgType, SwarmBus
-from core.config import BACKENDS
+from core.config import BACKENDS, OLLAMA_BASE, SOVEREIGN_MODELS
 
 log = logging.getLogger("gh0st3.swarm.agents")
+
+# ── Sovereign model manifest injected into NEXUS and ORACLE ──────────────────
+AGENT_MANIFEST = """Available sovereign agents:
+- Avery  : business strategy, KAIROS planning, growth frameworks
+- FORGE  : code generation — Python, JavaScript, TypeScript, FastAPI
+- ORACLE : memory retrieval, document synthesis, fact lookup
+- CODEX  : technical documentation, READMEs, API specs, markdown
+- SENTINEL: security review — OWASP Top 10, CWE, vulnerability fixes
+- NEXUS  : workflow orchestration, task routing, dependency planning
+"""
+
+
+async def _ollama_generate(client: httpx.AsyncClient, role: str, prompt: str,
+                            temperature: float = 0.7, max_tokens: int = 1000) -> str:
+    """Call the sovereign Ollama model for a given agent role."""
+    model = SOVEREIGN_MODELS.get(role, f"{role}-sovereign")
+    try:
+        resp = await client.post(
+            f"{OLLAMA_BASE}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": False,
+                  "options": {"temperature": temperature, "num_predict": max_tokens}},
+            timeout=60.0,
+        )
+        return resp.json().get("response", "").strip()
+    except Exception as e:
+        log.warning("Ollama %s failed (%s), trying primary backend", model, e)
+        # Fall back to vLLM primary if Ollama is unavailable
+        try:
+            r2 = await client.post(
+                f"{BACKENDS['primary']}/v1/chat/completions",
+                json={"model": "default",
+                      "messages": [{"role": "user", "content": prompt}],
+                      "max_tokens": max_tokens, "temperature": temperature},
+                timeout=30.0,
+            )
+            return r2.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e2:
+            return f"[{role.upper()}] inference unavailable: {e2}"
 
 
 # ─────────────────────────────────────────────
@@ -56,28 +94,19 @@ class OracleAgent(SwarmAgent):
 
     async def handle_research(self, task_msg: SwarmMessage):
         query = task_msg.content
-        await self.think(f"Researching: '{query[:80]}' — querying memory and inference...")
+        await self.think(f"Researching: '{query[:80]}' — querying sovereign model...")
 
-        # Build research prompt
+        # Inject any memory context attached to the message
+        memory_ctx = task_msg.metadata.get("memory_context", "")
+        context_block = f"Context [memory]:\n{memory_ctx}\n\n" if memory_ctx else ""
+
         prompt = (
-            f"You are ORACLE, GH05T3's research specialist. "
-            f"Provide a thorough, technically precise answer.\n\n"
-            f"Query: {query}\n\nResponse:"
+            f"{context_block}"
+            f"Question: {query}\n\n"
+            f"Cite your source type as [memory], [document], or [inference]."
         )
 
-        try:
-            resp = await self._client.post(
-                f"{BACKENDS['primary']}/v1/chat/completions",
-                json={
-                    "model": "default",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 800,
-                    "temperature": 0.4,
-                }
-            )
-            result = resp.json()["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            result = f"[ORACLE] Research failed: {e}"
+        result = await _ollama_generate(self._client, "oracle", prompt, temperature=0.3)
 
         await self.say(
             content=result,
@@ -123,26 +152,12 @@ class ForgeAgent(SwarmAgent):
         await self.think(f"FORGE: Generating code for: '{spec[:60]}'...")
 
         prompt = (
-            "You are FORGE, GH05T3's elite code generation specialist. "
-            "Write production-grade Python code. No TODOs. No placeholders. "
-            "Include type hints, docstrings, error handling.\n\n"
-            f"Specification:\n{spec}\n\n"
-            "```python"
+            f"Write production-ready code for the following specification.\n"
+            f"Include all imports, type hints, error handling, and docstrings.\n\n"
+            f"Specification:\n{spec}"
         )
 
-        try:
-            resp = await self._client.post(
-                f"{BACKENDS['primary']}/v1/chat/completions",
-                json={
-                    "model": "default",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 1200,
-                    "temperature": 0.25,
-                }
-            )
-            code = resp.json()["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            code = f"# FORGE generation failed: {e}"
+        code = await _ollama_generate(self._client, "forge", prompt, temperature=0.25, max_tokens=1200)
 
         # Emit result
         await self.say(
@@ -192,25 +207,12 @@ class CodexAgent(SwarmAgent):
         await self.think("CODEX: Analyzing code quality, bugs, optimization...")
 
         prompt = (
-            "You are CODEX, GH05T3's code review specialist. "
-            "Analyze the code and provide: bugs, security issues, "
-            "performance improvements, and a quality score 0-10.\n\n"
-            f"{code}\n\nAnalysis:"
+            f"Review the following code. Report: bugs, security issues, "
+            f"performance improvements, and a quality score 0-10.\n\n"
+            f"{code}"
         )
 
-        try:
-            resp = await self._client.post(
-                f"{BACKENDS['verifier']}/v1/chat/completions",
-                json={
-                    "model": "default",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 500,
-                    "temperature": 0.1,
-                }
-            )
-            review = resp.json()["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            review = f"CODEX review unavailable: {e}"
+        review = await _ollama_generate(self._client, "codex", prompt, temperature=0.1, max_tokens=500)
 
         await self.say(
             content=review,
@@ -351,13 +353,37 @@ class NexusAgent(SwarmAgent):
         content_low = msg.content.lower()
         if msg.msg_type == MsgType.TASK:
             if "github" in content_low or "push" in content_low or "commit" in content_low:
-                await self.say(f"NEXUS routing → GitHub: {msg.content[:60]}",
+                await self.say(f"NEXUS routing -> GitHub: {msg.content[:60]}",
                                 channel="#github", msg_type=MsgType.GITHUB)
                 self._github_ops += 1
             elif "claude" in content_low or "anthropic" in content_low:
-                await self.say(f"NEXUS routing → Claude API: {msg.content[:60]}",
+                await self.say(f"NEXUS routing -> Claude API: {msg.content[:60]}",
                                 channel="#claude", msg_type=MsgType.CLAUDE)
                 self._claude_ops += 1
+            elif msg.dst == self.agent_id or "workflow" in content_low or "orchestrat" in content_low or "plan" in content_low:
+                await self._plan_workflow(msg)
+
+    async def _plan_workflow(self, task_msg: SwarmMessage):
+        await self.think(f"NEXUS: Planning workflow for: '{task_msg.content[:60]}'...")
+
+        prompt = (
+            f"{AGENT_MANIFEST}\n"
+            f"Design a step-by-step workflow for this task. "
+            f"For each step specify: agent name, what they do, "
+            f"whether it runs in parallel or sequential, and dependencies.\n\n"
+            f"Task: {task_msg.content}"
+        )
+
+        plan = await _ollama_generate(self._client, "nexus", prompt, temperature=0.4, max_tokens=800)
+
+        await self.say(
+            content=plan,
+            channel=f"#swarm/{task_msg.src}",
+            msg_type=MsgType.RESULT,
+            dst=task_msg.src,
+            task_id=task_msg.metadata.get("task_id"),
+        )
+        await self.think(f"Workflow plan delivered: {len(plan)} chars")
 
     @property
     def stats(self) -> dict:

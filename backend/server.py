@@ -30,7 +30,9 @@ from ghost_llm import (
     bind_db as bind_llm_db,
     cassandra_premortem,
     chat_once,
+    chat_with_tools,
     get_nightly_config,
+    load_economy_context,
     nightly_chat,
     nightly_status,
     ollama_available,
@@ -131,6 +133,35 @@ def _now_iso() -> str:
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     message: str
+    use_kairos: bool = False  # kept for API compat, ignored — auto-classified now
+
+
+_SIMPLE_TRIGGERS = {
+    "hey", "hi", "hello", "sup", "yo", "morning", "night",
+    "thanks", "thank you", "ok", "okay", "got it", "cool", "nice",
+    "what's up", "wassup", "how are you", "you good", "status",
+}
+_COMPLEX_KEYWORDS = {
+    "refactor", "implement", "build", "create", "write", "fix", "debug",
+    "update", "change", "modify", "add", "remove", "delete", "install",
+    "deploy", "configure", "setup", "design", "architect", "optimize",
+    "analyze", "explain", "compare", "how do", "why does", "what if",
+    "improve", "rewrite", "restructure", "test", "migrate", "integrate",
+}
+
+
+def _needs_kairos(message: str) -> bool:
+    """Auto-classify whether this message warrants KAIROS deliberation."""
+    msg = message.strip().lower()
+    if msg in _SIMPLE_TRIGGERS:
+        return False
+    words = msg.split()
+    if len(words) <= 4:
+        return False
+    for kw in _COMPLEX_KEYWORDS:
+        if kw in msg:
+            return True
+    return len(words) > 12
 
 
 class ChatMessage(BaseModel):
@@ -143,6 +174,8 @@ class ChatMessage(BaseModel):
     latency_ms: Optional[int] = None
     source: Optional[str] = None  # web | telegram | scheduler
     timestamp: str = Field(default_factory=_now_iso)
+    kairos_score: Optional[float] = None
+    kairos_attempts: Optional[int] = None
 
 
 class ChatResponse(BaseModel):
@@ -195,7 +228,49 @@ def _pick_engine(text: str) -> str:
     return "EGO"
 
 
-async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> ChatResponse:
+_CASUAL_TRIGGERS = {
+    "hey", "hi", "hello", "yo", "sup", "ok", "okay", "k", "lol", "thanks",
+    "thank you", "ty", "np", "cool", "nice", "got it", "gotcha", "sure",
+    "yes", "no", "nope", "yep", "yup", "bye", "later", "hmm", "hm",
+    "continue", "go on", "and", "right", "good", "great", "awesome",
+}
+
+def _is_casual(message: str) -> bool:
+    """True for short greetings/filler that don't need the SAGE pipeline."""
+    stripped = message.strip().lower().rstrip("!?.,;")
+    if stripped in _CASUAL_TRIGGERS:
+        return True
+    words = stripped.split()
+    # Very short messages (≤4 words) with no question mark or task keywords
+    if len(words) <= 4 and "?" not in message:
+        task_words = {"explain", "what", "how", "why", "when", "build", "fix",
+                      "write", "create", "design", "analyze", "compare", "tell"}
+        if not any(w in task_words for w in words):
+            return True
+    return False
+
+
+async def _try_kairos(prompt: str, task_type: str = "reasoning_chain") -> dict | None:
+    """Route prompt through KAIROS SAGE loop (port 8006). Returns dict with reply, tag, score, attempts or None."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=90) as c:
+            r = await c.post("http://localhost:8006/run",
+                json={"prompt": prompt, "task_type": task_type, "source": "chat"})
+            if r.status_code == 200:
+                d = r.json()
+                draft = d.get("best_draft", "")
+                if draft and len(draft) > 20:
+                    score = d.get("final_score", 0)
+                    attempts = d.get("attempts", 1)
+                    return {"reply": draft, "tag": f"kairos:score={score:.0f}/attempts={attempts}",
+                            "score": score, "attempts": attempts}
+    except Exception:
+        pass
+    return None
+
+
+async def _chat_pipeline(message: str, session_id: str, source: str = "web", use_kairos: bool = False) -> ChatResponse:  # use_kairos ignored — auto-classified
     engine = _pick_engine(message)
     user_msg = ChatMessage(
         session_id=session_id, role="user", content=message, engine=engine, source=source
@@ -208,7 +283,7 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
     )
 
     # Memory retrieval — inject top relevant memories into system prompt
-    retrieval = await build_context_prefix(memory, message, k=3)
+    retrieval = await build_context_prefix(memory, message, k=12)
     # GhostEye context — if a recent frame has text, inject "what Robert is looking at"
     eye = await db.ghosteye.find_one({}, {"_id": 0, "png_b64": 0}, sort=[("timestamp", -1)])
     eye_prefix = ""
@@ -217,6 +292,9 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
                       f"{eye.get('timestamp')})\n{eye['text'][:1200]}\n\n")
     sys_prompt = GH05T3_SYSTEM_PROMPT
     extras = ""
+    eco_ctx = load_economy_context()
+    if eco_ctx:
+        extras += "\n\n" + eco_ctx
     if retrieval:
         extras += "\n\n" + retrieval
     if eye_prefix:
@@ -234,8 +312,17 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
     started = datetime.now(timezone.utc)
     reply = None
     engine_tag = LLM_PROVIDER
+    kairos_score = None
+    kairos_attempts = None
     try:
-        reply, engine_tag = await chat_once(session_id, sys_prompt, ctx + message)
+        kairos_result = await _try_kairos(ctx + message) if _needs_kairos(message) else None
+        if kairos_result:
+            reply = kairos_result["reply"]
+            engine_tag = kairos_result["tag"]
+            kairos_score = kairos_result["score"]
+            kairos_attempts = kairos_result["attempts"]
+        else:
+            reply, engine_tag = await chat_with_tools(session_id, sys_prompt, ctx + message)
     except NoLLMError as e:
         reply = str(e)
         engine_tag = "none:unconfigured"
@@ -246,12 +333,13 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web") -> 
     ghost_msg = ChatMessage(
         session_id=session_id, role="ghost", content=reply,
         engine=engine, latency_ms=latency_ms, source=source,
+        kairos_score=kairos_score, kairos_attempts=kairos_attempts,
     )
     await db.messages.insert_one(ghost_msg.model_dump())
 
     # Store reasoning trace so "why did you say that?" actually works
     try:
-        retrieval_hits = await memory.search(message, k=3)
+        retrieval_hits = await memory.search(message, k=12)
         await store_reasoning_trace(
             db, ghost_msg.id, session_id, retrieval_hits,
             (eye.get("text") if eye else "") or "", engine_tag,
@@ -299,7 +387,7 @@ async def chat(req: ChatRequest):
         raise HTTPException(400, "empty message")
     session_id = req.session_id or str(uuid.uuid4())
     try:
-        return await _chat_pipeline(req.message, session_id, "web")
+        return await _chat_pipeline(req.message, session_id, "web", use_kairos=req.use_kairos)
     except Exception as exc:  # noqa: BLE001
         logger.exception("chat failed")
         raise HTTPException(502, f"LLM error: {exc}")
@@ -651,6 +739,28 @@ async def memory_search(q: str, k: int = 5):
 @api.get("/memory/stats")
 async def memory_stats():
     return await memory.stats()
+
+
+@api.post("/memory/backfill-hcm")
+async def memory_backfill_hcm():
+    """Backfill HCM (10k-dim SHA) embeddings into all memories that lack them.
+    Safe to call multiple times — skips memories that already have hcm_embedding.
+    """
+    from memory_engine import embed as hcm_embed
+    total = await db.memories.count_documents({})
+    missing = await db.memories.count_documents({"hcm_embedding": {"$exists": False}})
+    updated = 0
+    async for doc in db.memories.find({"hcm_embedding": {"$exists": False}}, {"_id": 1, "content": 1}):
+        try:
+            v = hcm_embed(doc.get("content", ""))
+            await db.memories.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {"hcm_embedding": v.tobytes()}},
+            )
+            updated += 1
+        except Exception:
+            pass
+    return {"total": total, "missing_before": missing, "backfilled": updated}
 
 
 @api.get("/journal/recent")

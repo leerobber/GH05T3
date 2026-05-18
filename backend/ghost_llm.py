@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -46,6 +47,34 @@ _FALSE_VALUES = {"0", "false", "no", "off"}
 # ---------------------------------------------------------------------------
 class NoLLMError(RuntimeError):
     """No LLM provider is configured or all configured providers failed."""
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit circuit breaker
+# When a provider returns 429 / quota-exceeded it is skipped for _cooldown_
+# seconds.  No state survives a process restart — that's intentional.
+# ---------------------------------------------------------------------------
+_rl_until: dict[str, float] = {}   # provider_name -> epoch-seconds
+
+
+def _provider_ok(name: str) -> bool:
+    """True if the provider is NOT in a rate-limit cooldown."""
+    until = _rl_until.get(name, 0.0)
+    if time.time() < until:
+        LOG.debug("[cascade] %s cooling off (%.0fs left)", name, until - time.time())
+        return False
+    return True
+
+
+def _mark_rl(name: str, seconds: float = 60.0) -> None:
+    _rl_until[name] = time.time() + seconds
+    LOG.warning("[cascade] %s rate-limited — skipping for %.0fs", name, seconds)
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    s = str(exc).lower()
+    return any(t in s for t in ("429", "rate_limit", "rate limit", "quota", "too many",
+                                 "exceeded", "resource_exhausted"))
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +155,28 @@ async def _call_google(system: str, user: str,
             return j["candidates"][0]["content"]["parts"][0]["text"]
         except Exception:
             return json.dumps(j)[:500]
+
+
+async def _call_openrouter(system: str, user: str,
+                           model: str = "meta-llama/llama-3.2-3b-instruct:free",
+                           api_key: str | None = None) -> str:
+    """OpenRouter free-tier models — near-unlimited, no daily cap on :free models."""
+    key = api_key or _env_key("OPENROUTER_API_KEY")
+    if not key:
+        raise RuntimeError("OPENROUTER_API_KEY not set")
+    return await _openai_compat(
+        "https://openrouter.ai/api/v1", key, model, system, user,
+    )
+
+
+def _all_groq_keys() -> list[str]:
+    """Return all configured Groq keys (primary + rotation slots) in order."""
+    keys = []
+    for var in ("GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3"):
+        k = _env_key(var)
+        if k:
+            keys.append(k)
+    return keys
 
 
 async def _openai_compat(base: str, api_key: str | None,
@@ -262,79 +313,284 @@ async def _call_ollama_preferred(system: str, user: str, role: str = "proposer")
 # ---------------------------------------------------------------------------
 async def chat_once(session: str, system: str, user: str,
                     role: str = "proposer") -> tuple[str, str]:
-    """Main chat path.
+    """Zero-downtime cascade — GH05T3 NEVER stops due to provider limits.
 
-    Defaults to local Ollama only. Cloud providers require COST_FREE_ONLY=0,
-    and paid Anthropic additionally requires ALLOW_PAID_LLM=1.
+    Tier order (cheapest / most reliable first):
+      0. Ollama local   — free, unlimited, runs on RTX 5050  (always tried first)
+      1. Groq free tier — llama-3.3-70b, 14 400 req/day      (key rotation supported)
+      2. Google Gemini  — gemini-2.0-flash, 1 M tokens/day
+      3. OpenRouter     — :free models, near-unlimited
+      4. Anthropic      — paid, ALLOW_PAID_LLM=1 required    (last resort)
+
+    Rate-limit circuit breaker: any provider that returns 429 / quota-exceeded
+    is automatically skipped for 60 s then retried — no manual intervention needed.
     """
-    provider = _llm_provider()
-    if _cost_free_only() or provider in _LOCAL_ONLY_PROVIDERS:
+    _fail_reason = ""
+    cfg = await get_nightly_config()
+
+    # ── Fast-fail: forced to Ollama-only but Ollama is down ───────────────────
+    if _llm_provider() == "ollama" and _cost_free_only() and not await ollama_available():
+        raise NoLLMError(
+            "Ollama unavailable and COST_FREE_ONLY=1 with LLM_PROVIDER=ollama. "
+            "Start Ollama (ollama serve) or set COST_FREE_ONLY=0 to enable cloud fallbacks."
+        )
+
+    # ── Tier 0: Ollama (local, always free, no network needed) ───────────────
+    if _provider_ok("ollama") and await ollama_available():
         try:
+            await ollama_ensure_model("qwen2.5:0.5b")
             return await _call_ollama_preferred(system, user, role)
         except Exception as e:
-            LOG.warning("ollama local-only chat failed: %s", e)
-            raise NoLLMError(
-                "Local free LLM unavailable. Start Ollama and verify "
-                "OLLAMA_GATEWAY_URL, or explicitly disable COST_FREE_ONLY to use cloud providers."
-            ) from e
+            if _is_rate_limit(e):
+                _mark_rl("ollama", 30)
+            LOG.warning("[cascade] ollama failed: %s", e)
+            if _cost_free_only():
+                raise NoLLMError(
+                    "Ollama unavailable and COST_FREE_ONLY=1. "
+                    "Start Ollama (ollama serve) or set COST_FREE_ONLY=0 to enable "
+                    "free cloud fallbacks (Groq, Gemini)."
+                ) from e
 
-    # 1. Anthropic, paid and explicit opt-in only
-    _fail_reason = ""
-    if provider == "anthropic" and _paid_llm_allowed() and _anthropic_key():
+    # ── Tier 1: Groq free tier (key rotation — tries all configured keys) ────
+    if _provider_ok("groq"):
+        groq_model = cfg.get("groq_model", "llama-3.3-70b-versatile")
+        groq_keys  = _all_groq_keys() or ([cfg.get("groq_api_key")] if cfg.get("groq_api_key") else [])
+        for idx, gk in enumerate(groq_keys):
+            slot = "groq" if idx == 0 else f"groq_{idx+1}"
+            if not _provider_ok(slot):
+                continue
+            try:
+                text = await _call_groq(system, user, groq_model, api_key=gk)
+                return text, f"groq:{groq_model}"
+            except Exception as e:
+                if _is_rate_limit(e):
+                    _mark_rl(slot, 3600)   # Groq daily limit → cool off 1 h
+                    LOG.warning("[cascade] groq key #%d daily limit hit", idx + 1)
+                else:
+                    LOG.warning("[cascade] groq key #%d failed: %s", idx + 1, e)
+        _mark_rl("groq", 60)
+
+    # ── Tier 2: Google Gemini free tier ──────────────────────────────────────
+    if _provider_ok("google"):
+        google_key   = _google_key() or cfg.get("google_api_key", "")
+        google_model = cfg.get("google_model", "gemini-2.0-flash")
+        if google_key:
+            try:
+                text = await _call_google(system, user, google_model, api_key=google_key)
+                return text, f"google:{google_model}"
+            except Exception as e:
+                if _is_rate_limit(e):
+                    _mark_rl("google", 3600)
+                else:
+                    LOG.warning("[cascade] google failed: %s", e)
+
+    # ── Tier 3: OpenRouter free models ───────────────────────────────────────
+    if _provider_ok("openrouter"):
+        or_key = _env_key("OPENROUTER_API_KEY") or cfg.get("openrouter_api_key", "")
+        if or_key:
+            or_model = cfg.get("openrouter_model", "meta-llama/llama-3.3-70b-instruct:free")
+            try:
+                text = await _call_openrouter(system, user, or_model, api_key=or_key)
+                return text, f"openrouter:{or_model}"
+            except Exception as e:
+                if _is_rate_limit(e):
+                    _mark_rl("openrouter", 300)
+                else:
+                    LOG.warning("[cascade] openrouter failed: %s", e)
+
+    # ── Tier 4: Anthropic — paid, explicit opt-in only ────────────────────────
+    if _paid_llm_allowed() and _anthropic_key() and _provider_ok("anthropic"):
         try:
             text = await _call_anthropic(system, user)
-            tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
+            tag  = LLM_MODEL.split("-2025")[0].split("-2026")[0]
             return text, f"anthropic:{tag}"
         except Exception as e:
             _fail_reason = _classify_anthropic_error(e)
-            LOG.warning("anthropic failed (%s): %s", _fail_reason, e)
+            if _is_rate_limit(e):
+                _mark_rl("anthropic", 60)
+            LOG.warning("[cascade] anthropic failed (%s): %s", _fail_reason, e)
 
-    # 2. Groq (free tier) — env/file first, then MongoDB config as fallback
-    cfg = await get_nightly_config()
-    groq_key = _groq_key() or cfg.get("groq_api_key", "")
-    if provider in {"auto", "groq"} and groq_key:
-        model = cfg.get("groq_model", "llama-3.3-70b-versatile")
-        try:
-            text = await _call_groq(system, user, model, api_key=groq_key)
-            return text, f"groq:{model}"
-        except Exception as e:
-            LOG.warning("groq failed: %s", e)
-
-    # 3. Google Gemini (free tier) — env/file first, then MongoDB config as fallback
-    google_key = _google_key() or cfg.get("google_api_key", "")
-    if provider in {"auto", "google"} and google_key:
-        model = cfg.get("google_model", "gemini-2.0-flash")
-        try:
-            text = await _call_google(system, user, model, api_key=google_key)
-            return text, f"google:{model}"
-        except Exception as e:
-            LOG.warning("google failed: %s", e)
-
-    # 4. Ollama (local free) — silent fallback; auto-pull tiny model if needed
-    try:
-        return await _call_ollama_preferred(system, user, role)
-    except Exception as e:
-        LOG.warning("ollama failed: %s", e)
-
-    # All providers exhausted — only NOW tell the user
+    # ── All tiers exhausted ───────────────────────────────────────────────────
     reason = f" ({_fail_reason})" if _fail_reason else ""
     raise NoLLMError(
-        f"No LLM provider available{reason}. "
-        "Add a free Groq key (console.groq.com) or Google AI key (aistudio.google.com) "
-        "in the LLM Config panel as fallback."
+        f"All LLM providers exhausted{reason}. "
+        "Ensure Ollama is running (ollama serve) — it is the always-on local backbone. "
+        "Free cloud fallbacks: Groq (console.groq.com) · Gemini (aistudio.google.com) · "
+        "OpenRouter (openrouter.ai). Set keys in LLM Config panel or backend/.env."
     )
 
 
+async def _openai_tools_loop(
+    base_url: str, api_key: str | None, model: str,
+    system: str, user: str, tag: str, max_rounds: int = 8,
+) -> tuple[str, str]:
+    """Shared OpenAI-compat tool-use loop. Works for Ollama, Groq, OpenRouter."""
+    import json as _json
+    from ghost_tools import OPENAI_TOOLS, execute_tool
+
+    headers: dict = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    messages: list[dict] = [
+        {"role": "system", "content": system},
+        {"role": "user",   "content": user},
+    ]
+    for _ in range(max_rounds):
+        body = {
+            "model": model, "messages": messages,
+            "tools": OPENAI_TOOLS, "tool_choice": "auto",
+            "temperature": 0.6,
+        }
+        async with httpx.AsyncClient(timeout=120) as c:
+            r = await c.post(f"{base_url.rstrip('/')}/chat/completions",
+                             headers=headers, json=body)
+            r.raise_for_status()
+        choice = r.json()["choices"][0]["message"]
+        tool_calls = choice.get("tool_calls") or []
+        if not tool_calls:
+            return choice.get("content") or "(no response)", tag
+        messages.append({
+            "role": "assistant",
+            "content": choice.get("content") or "",
+            "tool_calls": tool_calls,
+        })
+        for tc in tool_calls:
+            fn = tc["function"]
+            try:
+                args = _json.loads(fn["arguments"])
+            except Exception:
+                args = {}
+            result = await execute_tool(fn["name"], args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": result,
+            })
+    return "(tool loop limit reached)", tag
+
+
+async def chat_with_tools(session: str, system: str, user: str,
+                          role: str = "proposer") -> tuple[str, str]:
+    """Agentic chat with real tools. 100% cost-free cascade:
+      0. Ollama local  (qwen2.5:7b-instruct / mistral — tool-capable, runs on TatorTot)
+      1. Groq free     (llama-3.3-70b-versatile, 14 400 req/day — tool-capable)
+      2. OpenRouter    (:free models — tool-capable)
+      3. Anthropic     (paid — only if ALLOW_PAID_LLM=1, skipped by default)
+      4. Plain chat    (no tools but always responds)
+    """
+    from ghost_tools import execute_tool  # noqa: ensure importable
+
+    # ── Tier 0: Ollama local (free, offline, TatorTot RTX 5050) ─────────────
+    if await ollama_available():
+        ollama_url = ollama_resolved_url()
+        # Prefer tool-capable instruct models
+        tool_models = [
+            OLLAMA_PREFERRED.get("proposer", ""),
+            "qwen2.5:7b-instruct", "qwen2.5:7b", "mistral:latest",
+            "llama3.2:3b", "llama3:latest",
+        ]
+        for model in tool_models:
+            if not model:
+                continue
+            try:
+                text, tag = await _openai_tools_loop(
+                    f"{ollama_url}/v1", None, model, system, user,
+                    f"ollama:{model}",
+                )
+                return text, tag
+            except Exception as e:
+                if "does not support" in str(e).lower() or "404" in str(e):
+                    continue  # model doesn't support tools, try next
+                LOG.warning("[tools] ollama %s failed: %s", model, e)
+                break  # ollama is up but errored — don't retry all models
+
+    # ── Tier 1: Groq free tier (14 400 req/day, tool-capable) ───────────────
+    groq_keys = _all_groq_keys()
+    if groq_keys and _provider_ok("groq"):
+        for idx, gk in enumerate(groq_keys):
+            slot = "groq" if idx == 0 else f"groq_{idx+1}"
+            if not _provider_ok(slot):
+                continue
+            try:
+                text, tag = await _openai_tools_loop(
+                    "https://api.groq.com/openai/v1", gk,
+                    "llama-3.3-70b-versatile", system, user,
+                    "groq:llama-3.3-70b-versatile",
+                )
+                return text, tag
+            except Exception as e:
+                if _is_rate_limit(e):
+                    _mark_rl(slot, 3600)
+                    LOG.warning("[tools] groq key #%d quota hit", idx + 1)
+                else:
+                    LOG.warning("[tools] groq key #%d failed: %s", idx + 1, e)
+
+    # ── Tier 2: OpenRouter free models (near-unlimited :free tier) ───────────
+    or_key = _env_key("OPENROUTER_API_KEY")
+    if or_key and _provider_ok("openrouter"):
+        or_models = [
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "meta-llama/llama-3.1-8b-instruct:free",
+            "mistralai/mistral-7b-instruct:free",
+        ]
+        for model in or_models:
+            try:
+                text, tag = await _openai_tools_loop(
+                    "https://openrouter.ai/api/v1", or_key,
+                    model, system, user, f"openrouter:{model}",
+                )
+                return text, tag
+            except Exception as e:
+                if _is_rate_limit(e):
+                    _mark_rl("openrouter", 300)
+                    break
+                LOG.warning("[tools] openrouter %s failed: %s", model, e)
+
+    # ── Tier 3: Anthropic — paid, explicit opt-in only ───────────────────────
+    if _paid_llm_allowed() and _anthropic_key() and _provider_ok("anthropic"):
+        try:
+            from ghost_tools import ANTHROPIC_TOOLS, execute_tool as _et
+            import anthropic
+            client = anthropic.AsyncAnthropic(api_key=_anthropic_key())
+            messages: list[dict] = [{"role": "user", "content": user}]
+            tag = f"anthropic:{ANTHROPIC_MODEL}"
+            for _ in range(8):
+                resp = await client.messages.create(
+                    model=ANTHROPIC_MODEL, max_tokens=4096, system=system,
+                    tools=ANTHROPIC_TOOLS, messages=messages,
+                )
+                tool_uses = [b for b in resp.content if b.type == "tool_use"]
+                if not tool_uses:
+                    text_blocks = [b for b in resp.content if b.type == "text"]
+                    return (text_blocks[0].text if text_blocks else "(no response)"), tag
+                messages.append({"role": "assistant", "content": resp.content})
+                results = []
+                for tu in tool_uses:
+                    res = await _et(tu.name, tu.input)
+                    results.append({"type": "tool_result", "tool_use_id": tu.id, "content": res})
+                messages.append({"role": "user", "content": results})
+        except Exception as e:
+            if _is_rate_limit(e):
+                _mark_rl("anthropic", 60)
+            LOG.warning("[tools] anthropic tool loop failed: %s", e)
+
+    # ── Tier 4: Plain chat fallback — no tools but always responds ───────────
+    LOG.info("[tools] falling back to plain chat_once (no tools)")
+    return await chat_once(session, system, user, role)
+
+
 async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
-    """Cost-free path: checks Mongo config first, then auto-picks cheapest available."""
+    """Cost-free path for nightly/background work — same zero-downtime cascade as chat_once
+    but never touches paid Anthropic unless ALLOW_PAID_LLM=1."""
     if _cost_free_only():
         try:
             return await _call_ollama_preferred(system, user, "proposer")
         except Exception as e:
             LOG.warning("ollama local-only nightly failed: %s", e)
             raise NoLLMError(
-                "Local free LLM unavailable for nightly/background work. Start Ollama "
-                "and verify OLLAMA_GATEWAY_URL."
+                "Ollama unavailable for nightly work and COST_FREE_ONLY=1. "
+                "Start Ollama or set COST_FREE_ONLY=0 to enable free cloud fallbacks."
             ) from e
 
     cfg = await get_nightly_config()
@@ -522,3 +778,25 @@ apply before launch. Max 140 words. No fluff."""
 async def cassandra_premortem(scenario: str) -> str:
     text, _ = await nightly_chat("cassandra", CASSANDRA_SYS, scenario)
     return text.strip()
+
+
+def load_economy_context() -> str:
+    """Load SovereignNation economy state for system prompt injection."""
+    import json
+    from pathlib import Path
+    try:
+        root = Path(__file__).parent.parent
+        parts = []
+        spin_file = root / "data" / "spin_dataset.jsonl"
+        if spin_file.exists():
+            count = sum(1 for l in spin_file.open(encoding="utf-8") if l.strip())
+            parts.append(f"SPIN training pairs: {count}")
+        state_file = root / "data" / "continuous_state.json"
+        if state_file.exists():
+            s = json.loads(state_file.read_text(encoding="utf-8"))
+            parts.append(f"Flywheel cycles: {s.get('total_cycles', 0)}")
+        if parts:
+            return "[SovereignNation Economy]\n" + "\n".join(parts)
+    except Exception:
+        pass
+    return ""

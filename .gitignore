@@ -99,3 +99,32 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
+
+# Large model binaries
+*.gguf
+avery-merged/
+ollama_models/
+
+# Runtime log files
+*.err.log
+*.out.log
+backend/ghost.log
+backend/uvicorn*.log
+sovereign-agent-training.log
+
+# Kaggle build outputs
+kaggle_output*/
+kaggle_push/
+kaggle_secrets_dataset/
+
+# Local runtime data
+data/
+course/
+.claude/
+"Tor Browser/"
+
+# Disabled/backup files
+*.disabled
+
+# npm lock (using yarn)
+frontend/package-lock.json
