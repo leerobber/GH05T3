@@ -73,6 +73,53 @@ if ($TAILSCALE_IP) {
     $TAILSCALE_IP | Out-File "$APP\tailscale_ip.txt" -Encoding ascii -NoNewline
 }
 
+# ---- Prevent Windows sleep while GH05T3 is running (critical for remote access) ----
+Write-Host "Disabling sleep/hibernate (required for remote access)..." -ForegroundColor Cyan
+powercfg /change standby-timeout-ac 0   | Out-Null
+powercfg /change standby-timeout-dc 0   | Out-Null
+powercfg /change hibernate-timeout-ac 0 | Out-Null
+powercfg /change hibernate-timeout-dc 0 | Out-Null
+powercfg /change monitor-timeout-ac 0   | Out-Null
+powercfg /setactive SCHEME_MIN           | Out-Null   # High Performance power plan
+Write-Host "  Sleep disabled. Monitor/screen can still turn off for energy saving." -ForegroundColor Gray
+
+# ---- Generate API token (random 32-byte base64) ----
+$GH05T3_API_TOKEN = $null
+function Update-EnvKey($path, $key, $value) {
+    if (-not (Test-Path $path)) { return }
+    $lines = Get-Content $path
+    $found = $false
+    $newLines = $lines | ForEach-Object {
+        if ($_ -match "^${key}=") { "${key}=${value}"; $found = $true }
+        else { $_ }
+    }
+    if (-not $found) { $newLines += "${key}=${value}" }
+    $newLines | Set-Content $path -Encoding utf8
+}
+
+$envPath = "$APP\backend\.env"
+if (Test-Path $envPath) {
+    # Read existing token if already set
+    $existing = Get-Content $envPath | Where-Object { $_ -match "^GH05T3_API_TOKEN=.+" }
+    if ($existing) {
+        $GH05T3_API_TOKEN = ($existing -split "=", 2)[1]
+        Write-Host "Existing GH05T3_API_TOKEN kept." -ForegroundColor Gray
+    }
+}
+if (-not $GH05T3_API_TOKEN) {
+    $bytes = [System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
+    $GH05T3_API_TOKEN = [System.Convert]::ToBase64String($bytes) -replace "[/+=]", ""
+    Write-Host "Generated new GH05T3_API_TOKEN." -ForegroundColor Green
+}
+
+# ---- Read Tailscale API key from tailscale api.txt if present ----
+$TS_API_KEY = ""
+$tsKeyFile = "$APP\tailscale api.txt"
+if (Test-Path $tsKeyFile) {
+    $TS_API_KEY = (Get-Content $tsKeyFile -Raw).Trim()
+    Write-Host "Read Tailscale API key from 'tailscale api.txt'." -ForegroundColor Green
+}
+
 # ---- Python 3.11 ----
 if (-not (Have python) -or -not ((python --version 2>&1) -match "3\.1[1-9]")) {
     Write-Host "Installing Python 3.11..." -ForegroundColor Cyan
@@ -127,7 +174,6 @@ foreach ($d in @("$APP\mongo-data","$APP\backend\memory","$APP\backend\evolution
 }
 
 # ---- Backend .env (only create if missing  -  preserves existing keys) ----
-$envPath = "$APP\backend\.env"
 if (-not (Test-Path $envPath)) {
     Set-Content $envPath @"
 # GH05T3 backend
@@ -234,6 +280,15 @@ MEMORY_MAX_SHARDS=5000
 KILLSWITCH_KEY_HASH=
 GH05T3_SECRET=sovereign-ghost-mesh-key-2025
 
+# API token for MCP remote access and peer mesh auth
+GH05T3_API_TOKEN=$GH05T3_API_TOKEN
+
+# Tailscale peer mesh
+TAILSCALE_API_KEY=$TS_API_KEY
+TAILSCALE_TAILNET=-
+TAILSCALE_OWN_IP=$TAILSCALE_IP
+PEER_REFRESH_INTERVAL=300
+
 MEMORY_DB_PATH=$APP\backend\memory\palace.db
 SAGE_ELITE_THRESHOLD=0.90
 
@@ -248,6 +303,12 @@ SYNC_INTERVAL=300
 } else {
     Write-Host "Existing $envPath kept (your keys are safe)." -ForegroundColor Gray
 }
+
+# ---- Upsert dynamic keys into .env (always refresh these, even on existing .env) ----
+Update-EnvKey $envPath "GH05T3_API_TOKEN"  $GH05T3_API_TOKEN
+Update-EnvKey $envPath "TAILSCALE_OWN_IP"  $(if ($TAILSCALE_IP) { $TAILSCALE_IP } else { "" })
+if ($TS_API_KEY) { Update-EnvKey $envPath "TAILSCALE_API_KEY" $TS_API_KEY }
+Write-Host "Security keys written to $envPath" -ForegroundColor Gray
 
 # ---- Frontend .env.local  -  bakes remote IP so Android can always reach backend ----
 # Uses Tailscale IP when available (works from anywhere), falls back to LAN IP.
@@ -287,6 +348,7 @@ if (Test-Path ".venv") {
 python -m venv .venv
 .\.venv\Scripts\python -m pip install --upgrade pip --quiet
 .\.venv\Scripts\pip install -r requirements.txt --quiet
+.\.venv\Scripts\pip install mcp --quiet   # MCP server for Claude Code remote access
 .\.venv\Scripts\pip install pystray pillow pyttsx3 sounddevice numpy `
     faster-whisper openwakeword edge-tts --quiet
 
@@ -344,10 +406,27 @@ Write-Host "  Dashboard (this PC):       http://localhost:3210" -ForegroundColor
 Write-Host "  Dashboard (LAN):           http://${LAN_IP}:3210" -ForegroundColor Cyan
 if ($TAILSCALE_IP) {
     Write-Host "  Dashboard (Tailscale):     http://${TAILSCALE_IP}:3210" -ForegroundColor Green
-    Write-Host "  --> Android works from ANYWHERE via Tailscale (not just home WiFi)" -ForegroundColor Green
+    Write-Host "  Gateway v3  (Tailscale):   http://${TAILSCALE_IP}:8002" -ForegroundColor Green
+    Write-Host "  --> Android + Claude Code reach GH05T3 from ANYWHERE via Tailscale" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "  ── Claude Code MCP (paste into settings.json) ──" -ForegroundColor Magenta
+    Write-Host '  {' -ForegroundColor White
+    Write-Host '    "mcpServers": {' -ForegroundColor White
+    Write-Host '      "gh05t3": {' -ForegroundColor White
+    Write-Host '        "type": "sse",' -ForegroundColor White
+    Write-Host "        `"url`": `"http://${TAILSCALE_IP}:8002/mcp/sse`"," -ForegroundColor White
+    Write-Host "        `"headers`": { `"Authorization`": `"Bearer ${GH05T3_API_TOKEN}`" }" -ForegroundColor White
+    Write-Host '      }' -ForegroundColor White
+    Write-Host '    }' -ForegroundColor White
+    Write-Host '  }' -ForegroundColor White
 } else {
     Write-Host "  No Tailscale detected. Install for remote access: https://tailscale.com/download" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  ── Claude Code MCP (local only) ──" -ForegroundColor Magenta
+    Write-Host "  url: http://localhost:8002/mcp/sse" -ForegroundColor White
+    Write-Host "  token: $GH05T3_API_TOKEN" -ForegroundColor White
 }
 Write-Host ""
+Write-Host "  Sleep is DISABLED — laptop stays awake for remote access." -ForegroundColor Green
 Write-Host "  Keys: open LLM Config panel in dashboard after first boot." -ForegroundColor Yellow
 Write-Host "  Free keys:  https://console.groq.com  |  https://aistudio.google.com/app/apikey" -ForegroundColor Yellow

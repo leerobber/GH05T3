@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+<head>
+  <title>GH05T3 Widget</title>
+  <hta:application
+    id="gh05t3Widget"
+    applicationname="GH05T3 Widget"
+    border="thin"
+    caption="yes"
+    maximizebutton="no"
+    minimizebutton="yes"
+    scroll="no"
+    showintaskbar="yes"
+    singleinstance="yes"
+    sysmenu="yes"
+    windowstate="normal"
+  />
+  <meta http-equiv="x-ua-compatible" content="IE=edge" />
+  <style>
+    html, body {
+      width: 360px; height: 680px; margin: 0;
+      overflow: hidden; background: #090909;
+      color: #e8e0ce; font-family: Consolas, "Courier New", monospace;
+    }
+    body { border: 1px solid #2f2517; box-sizing: border-box; }
+    .top {
+      padding: 12px 16px 8px;
+      background: linear-gradient(180deg, #17110b, #0b0907);
+      border-bottom: 1px solid #3d2a12;
+    }
+    .brand { color: #d89a2b; font-size: 26px; letter-spacing: 7px; line-height: 1; font-weight: 700; }
+    .sub   { color: #8e8067; font-size: 10px; letter-spacing: 2px; margin-top: 5px; text-transform: uppercase; }
+    .sup-status {
+      margin-top: 5px; font-size: 10px;
+      color: #5a4f3c; letter-spacing: 1px;
+    }
+    .sup-ok  { color: #75c46b; }
+    .sup-bad { color: #d44d42; }
+    .section-label {
+      padding: 5px 14px 3px; color: #5a4f3c;
+      font-size: 9px; letter-spacing: 2px;
+      text-transform: uppercase; border-bottom: 1px solid #1b140d;
+    }
+    .panel  { padding: 6px 14px; border-bottom: 1px solid #241a10; }
+    .row {
+      display: flex; align-items: center; gap: 9px;
+      padding: 5px 0; border-bottom: 1px solid #1b140d; font-size: 12px;
+    }
+    .row:last-child { border-bottom: 0; }
+    .dot   { width: 9px; height: 9px; border-radius: 50%; background: #7a6c53; flex: 0 0 auto; }
+    .ok    { background: #75c46b; box-shadow: 0 0 9px #75c46b; }
+    .bad   { background: #d44d42; box-shadow: 0 0 7px #d44d42; }
+    .warn  { background: #d89a2b; box-shadow: 0 0 7px #d89a2b; }
+    .name  { flex: 1; }
+    .tag   { color: #8e8067; font-size: 10px; }
+    .status { min-width: 72px; text-align: right; font-size: 10px; color: #8e8067; text-transform: uppercase; }
+    .actions {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 14px;
+    }
+    button {
+      border: 1px solid #3d2a12; background: #111; color: #d89a2b;
+      padding: 9px 8px; font-family: inherit; font-size: 11px;
+      cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
+    }
+    button.primary { border-color: #e26f22; color: #ff8938; background: #1c0e08; }
+    button.danger  { border-color: #8b2020; color: #d44d42; background: #130808; }
+    button:hover   { background: #1d1710; }
+    .wide { grid-column: 1 / 3; }
+    .foot { padding: 8px 14px; color: #5a4f3c; font-size: 10px; line-height: 1.6; }
+    .mono { color: #bfa56d; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand">GH05T3</div>
+    <div class="sub">Sovereign economy · local mode</div>
+    <div class="sup-status" id="supLine">Supervisor: checking...</div>
+  </div>
+
+  <div class="section-label">GH05T3 Core</div>
+  <div class="panel">
+    <div class="row">
+      <span class="dot warn" id="dotBackend"></span>
+      <span class="name">Backend API</span><span class="tag">:8001</span>
+      <span class="status" id="stBackend">—</span>
+    </div>
+    <div class="row">
+      <span class="dot warn" id="dotGateway"></span>
+      <span class="name">Gateway + Swarm</span><span class="tag">:8002</span>
+      <span class="status" id="stGateway">—</span>
+    </div>
+    <div class="row">
+      <span class="dot warn" id="dotFrontend"></span>
+      <span class="name">Webapp</span><span class="tag">:3210</span>
+      <span class="status" id="stFrontend">—</span>
+    </div>
+    <div class="row">
+      <span class="dot warn" id="dotMongo"></span>
+      <span class="name">MongoDB</span><span class="tag">:27017</span>
+      <span class="status" id="stMongo">—</span>
+    </div>
+  </div>
+
+  <div class="section-label">Sovereign Economy</div>
+  <div class="panel">
+    <div class="row">
+      <span class="dot warn" id="dotEconomy-api"></span>
+      <span class="name">Economy API</span><span class="tag">:8081</span>
+      <span class="status" id="stEconomy-api">—</span>
+    </div>
+    <div class="row">
+      <span class="dot warn" id="dotAuto-runner"></span>
+      <span class="name">Auto-Runner</span><span class="tag">ticks</span>
+      <span class="status" id="stAuto-runner">—</span>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="primary wide" onclick="openUrl('http://localhost:3210')">Open GH05T3</button>
+    <button class="primary" onclick="startAll()">Start All</button>
+    <button class="danger"  onclick="stopAll()">Stop All</button>
+    <button onclick="openUrl('http://localhost:8001/docs')">API Docs</button>
+    <button onclick="openUrl('http://localhost:8081/docs')">Economy</button>
+    <button onclick="openUrl('http://localhost:8090/status')">Supervisor</button>
+    <button onclick="refresh()">Refresh</button>
+  </div>
+
+  <div class="foot">
+    Logs: <span class="mono">C:\Users\leer4\GH05T3\logs\</span><br />
+    Status API: <span class="mono">localhost:8090/status</span>
+  </div>
+
+  <script language="javascript">
+    var shell = new ActiveXObject("WScript.Shell");
+    var root  = "C:\\Users\\leer4\\GH05T3";
+
+    var STATUS_COLORS = {
+      "running":    "ok",
+      "starting":   "warn",
+      "restarting": "warn",
+      "degraded":   "warn",
+      "stopped":    "bad"
+    };
+
+    function setRow(name, status, restarts) {
+      var dot  = document.getElementById("dot" + name);
+      var st   = document.getElementById("st"  + name);
+      if (!dot || !st) return;
+      var cls  = STATUS_COLORS[status] || "warn";
+      dot.className = "dot " + cls;
+      var label = status.toUpperCase();
+      if (restarts > 0) label += " (" + restarts + "x)";
+      st.innerText = label;
+    }
+
+    function fetchOk(url, cb) {
+      try {
+        var xhr = new ActiveXObject("MSXML2.XMLHTTP");
+        xhr.open("GET", url, true);
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4) cb(xhr.status, xhr.responseText);
+        };
+        xhr.send();
+      } catch (e) { cb(0, ""); }
+    }
+
+    function refresh() {
+      fetchOk("http://localhost:8090/status", function(code, text) {
+        var line = document.getElementById("supLine");
+        if (code !== 200) {
+          line.className = "sup-status sup-bad";
+          line.innerText = "Supervisor: OFFLINE  (run START.bat)";
+          // grey out all rows
+          var rows = ["backend","gateway","frontend","mongo","economy-api","auto-runner"];
+          for (var i=0; i<rows.length; i++) {
+            var d = document.getElementById("dot"+rows[i]);
+            var s = document.getElementById("st" +rows[i]);
+            if (d) d.className = "dot";
+            if (s) s.innerText = "—";
+          }
+          return;
+        }
+
+        try {
+          var data = JSON.parse(text);
+          var svcs = data.services;
+
+          line.className = "sup-status " + (data.all_ok ? "sup-ok" : "sup-bad");
+          line.innerText = "Supervisor: " + (data.all_ok ? "ALL OK" : "DEGRADED");
+
+          for (var name in svcs) {
+            var info = svcs[name];
+            setRow(name, info.status, info.restarts);
+          }
+        } catch(e) {
+          line.innerText = "Supervisor: parse error";
+        }
+      });
+    }
+
+    function startAll() {
+      shell.Run('cmd /c start /min "" "' + root + '\\START.bat"', 0, false);
+      window.setTimeout(refresh, 8000);
+    }
+
+    function stopAll() {
+      shell.Run('cmd /c "' + root + '\\STOP.bat"', 0, false);
+      window.setTimeout(refresh, 3000);
+    }
+
+    function openUrl(url) {
+      shell.Run('"' + url + '"', 1, false);
+    }
+
+    window.resizeTo(380, 720);
+    refresh();
+    window.setInterval(refresh, 10000);
+  </script>
+</body>
+</html>

@@ -34,8 +34,12 @@ pause
 exit /b 1
 
 :mongod_ok
-REM ---- Tuning #5: High Performance power plan (prevents CPU throttle on battery) ----
+REM ---- Prevent sleep / screen-off while GH05T3 is running (critical for remote access) ----
 powercfg /setactive SCHEME_MIN >nul 2>&1
+powercfg /change standby-timeout-ac 0 >nul 2>&1
+powercfg /change standby-timeout-dc 0 >nul 2>&1
+powercfg /change hibernate-timeout-ac 0 >nul 2>&1
+powercfg /change hibernate-timeout-dc 0 >nul 2>&1
 
 REM ---- MongoDB :27017  -  cache capped at 512 MB (default is 50%% RAM) ----
 start "gh05t3-mongo" /min mongod --dbpath "%APP%mongo-data" --bind_ip 127.0.0.1 --port 27017 --quiet --wiredTigerCacheSizeGB 0.5
@@ -55,7 +59,7 @@ REM ---- Tuning #5: ABOVENORMAL priority keeps GH05T3 responsive under load ----
 REM ---- server.py :8001 ----
 start "gh05t3-backend" /min /ABOVENORMAL /d "%APP%backend" "%PY%" -m uvicorn server:app --host 0.0.0.0 --port 8001
 
-REM ---- gateway_v3 :8002 ----
+REM ---- gateway_v3 :8002 (includes MCP server at /mcp/sse) ----
 start "gh05t3-gateway-v3" /min /ABOVENORMAL /d "%APP%backend" "%PY%" -m uvicorn gateway_v3:app --host 0.0.0.0 --port 8002
 
 REM ---- Frontend static bundle :3210 ----
@@ -67,18 +71,24 @@ start "gh05t3-whisper" /min "%PY%" "%APP%whisper_listener.py"
 echo.
 echo  GH05T3 is starting...
 echo.
-echo   Dashboard (this PC):   http://localhost:3210
-echo   Dashboard (Android):   http://%REMOTE_IP%:3210
+echo   Dashboard  (this PC):   http://localhost:3210
+echo   Dashboard  (remote):    http://%REMOTE_IP%:3210
 echo.
-echo   Backend API:           http://%REMOTE_IP%:8001
-echo   Gateway v3:            http://%REMOTE_IP%:8002
+echo   Backend API:            http://%REMOTE_IP%:8001
+echo   Gateway v3 + MCP:       http://%REMOTE_IP%:8002
+echo   MCP SSE endpoint:       http://%REMOTE_IP%:8002/mcp/sse
+echo   MCP info + config:      http://%REMOTE_IP%:8002/mcp/info
+echo   Peer mesh:              http://%REMOTE_IP%:8002/peers
 echo.
 if exist "%APP%tailscale_ip.txt" (
-    echo   Tailscale active  -  Android can connect from ANYWHERE (not just home WiFi)
+    echo   Tailscale ACTIVE  -  Claude Code + Android reach GH05T3 from ANYWHERE
+    echo   Sleep is DISABLED  -  laptop stays awake for remote access
 ) else (
-    echo   LAN only  -  Android must be on same WiFi.  Install Tailscale for remote access.
+    echo   LAN only  -  Install Tailscale for remote Claude Code access.
+    echo   https://tailscale.com/download
 )
 echo.
+echo   Claude Code MCP config:  http://%REMOTE_IP%:8002/mcp/info
 echo   Paste your keys in the LLM Config panel on first open.
 echo   Free Groq key:  https://console.groq.com
 echo.

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GH05T3 — Home Base</title>
+<style>
+  :root {
+    --bg: #0e0b08; --panel: #1a120a; --deep: #0a0704;
+    --brass: #d4941c; --brassDim: #7a5010; --copper: #c47a35;
+    --ember: #ff7820; --steam: #e8d8b8; --steamDim: #a09070;
+    --ok: #8bc668; --err: #d44040; --warn: #e0a040;
+    --purple: #9966ff; --cyan: #40c8d4; --border: #2a1a0a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--steam);
+    font-family: 'Courier New', monospace;
+    min-height: 100vh; padding: 20px;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap');
+
+  h1 {
+    font-family: 'Cinzel', 'Trajan Pro', serif;
+    font-size: 32px; color: var(--brass);
+    letter-spacing: 0.4em;
+    text-shadow: 0 0 30px #7a501055;
+  }
+  .header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 24px;
+    background: linear-gradient(180deg, var(--panel) 0%, var(--deep) 100%);
+    border-bottom: 2px solid var(--brassDim);
+    margin: -20px -20px 20px -20px;
+  }
+  .ghost-icon { font-size: 36px; filter: drop-shadow(0 0 16px #ff7820); }
+  .subtitle { font-size: 11px; color: var(--steamDim); letter-spacing: 0.15em; margin-top: 4px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+
+  .card {
+    background: linear-gradient(180deg, var(--panel) 0%, var(--deep) 100%);
+    border: 1px solid var(--border);
+    border-radius: 3px; overflow: hidden;
+  }
+  .card-header {
+    padding: 8px 14px;
+    background: rgba(0,0,0,0.5);
+    border-bottom: 1px solid var(--border);
+    font-size: 10px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--brass);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-body { padding: 14px; }
+
+  .service-row {
+    display: flex; align-items: center; gap: 10;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+  .service-row:last-child { border-bottom: none; }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    flex-shrink: 0; transition: background 0.4s;
+  }
+  .dot.ok   { background: var(--ok);   box-shadow: 0 0 6px var(--ok); }
+  .dot.err  { background: var(--err);  box-shadow: 0 0 4px var(--err); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 4px var(--warn); }
+  .svc-name { flex: 1; font-size: 12px; color: var(--steam); }
+  .svc-port { font-size: 10px; color: var(--brassDim); }
+  .svc-status { font-size: 10px; font-weight: 700; min-width: 52px; text-align: right; }
+
+  .btn {
+    display: inline-block; text-decoration: none;
+    padding: 9px 18px; border-radius: 2px; cursor: pointer;
+    font-family: 'Courier New', monospace; font-size: 12px;
+    font-weight: 700; letter-spacing: 0.08em;
+    border: none; transition: all 0.15s;
+  }
+  .btn-primary {
+    background: rgba(255,120,32,0.18); border: 1px solid var(--ember);
+    color: var(--ember);
+  }
+  .btn-primary:hover { background: rgba(255,120,32,0.3); }
+  .btn-secondary {
+    background: rgba(212,148,28,0.12); border: 1px solid var(--brassDim);
+    color: var(--brass);
+  }
+  .btn-secondary:hover { background: rgba(212,148,28,0.22); }
+  .btn-cyan {
+    background: rgba(64,200,212,0.12); border: 1px solid var(--cyan);
+    color: var(--cyan);
+  }
+  .btn-cyan:hover { background: rgba(64,200,212,0.22); }
+  .btn-purple {
+    background: rgba(153,102,255,0.12); border: 1px solid var(--purple);
+    color: var(--purple);
+  }
+  .btn-purple:hover { background: rgba(153,102,255,0.22); }
+  .btn:disabled, .btn.disabled {
+    opacity: 0.35; cursor: not-allowed; pointer-events: none;
+  }
+
+  .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+  .step {
+    background: var(--deep); border: 1px solid var(--border);
+    border-radius: 2px; padding: 10px 12px; margin-bottom: 8px;
+  }
+  .step-num {
+    display: inline-block; background: var(--brass); color: var(--deep);
+    font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 2px;
+    margin-bottom: 6px;
+  }
+  .step-title { font-size: 12px; color: var(--brass); margin-bottom: 4px; }
+  .step-cmd {
+    font-family: 'Courier New', monospace; font-size: 11px; color: var(--ember);
+    background: rgba(0,0,0,0.5); padding: 5px 8px; border-radius: 2px;
+    display: block; word-break: break-all; margin: 4px 0;
+  }
+  .step-note { font-size: 10px; color: var(--steamDim); }
+
+  .llm-row {
+    display: flex; align-items: center; gap: 10;
+    padding: 8px 0; border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .llm-row:last-child { border-bottom: none; }
+  .llm-num { color: var(--brassDim); width: 18px; font-size: 11px; }
+  .llm-name { flex: 1; color: var(--steam); }
+  .tag {
+    font-size: 9px; padding: 2px 7px; border-radius: 2px; font-weight: 700;
+  }
+  .tag-free { background: rgba(139,198,104,0.15); color: var(--ok); border: 1px solid rgba(139,198,104,0.4); }
+  .tag-paid { background: rgba(212,64,64,0.15); color: var(--err); border: 1px solid rgba(212,64,64,0.4); }
+
+  #repair-result {
+    margin-top: 10px; padding: 10px; border-radius: 2px;
+    font-size: 11px; white-space: pre-wrap; display: none;
+    background: var(--deep); border: 1px solid var(--border);
+  }
+
+  footer {
+    text-align: center; margin-top: 24px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 10px; color: var(--brassDim); letter-spacing: 0.1em;
+  }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .dot.ok { animation: pulse 2.5s infinite; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="ghost-icon">👻</span>
+  <div>
+    <h1>GH05T3</h1>
+    <div class="subtitle">SOVEREIGN AI · TATORTOT · TRI-GPU MESH · HOME BASE</div>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- Service Status -->
+  <div class="card">
+    <div class="card-header">⚙ Service Status</div>
+    <div class="card-body">
+      <div class="service-row">
+        <div class="dot warn" id="dot-backend"></div>
+        <span class="svc-name">Backend API</span>
+        <span class="svc-port">:8001</span>
+        <span class="svc-status" id="st-backend" style="color:var(--warn)">CHECKING</span>
+      </div>
+      <div class="service-row">
+        <div class="dot warn" id="dot-frontend"></div>
+        <span class="svc-name">Dashboard Frontend</span>
+        <span class="svc-port">:3210</span>
+        <span class="svc-status" id="st-frontend" style="color:var(--warn)">CHECKING</span>
+      </div>
+      <div class="service-row">
+        <div class="dot warn" id="dot-ollama"></div>
+        <span class="svc-name">Ollama (local LLM)</span>
+        <span class="svc-port">:11434</span>
+        <span class="svc-status" id="st-ollama" style="color:var(--warn)">CHECKING</span>
+      </div>
+      <div class="btn-row">
+        <a href="http://localhost:3210" class="btn btn-primary" id="btn-dashboard">Open Dashboard →</a>
+        <a href="http://localhost:8001/docs" class="btn btn-secondary" id="btn-api">API Docs</a>
+        <button class="btn btn-cyan" onclick="checkAll()">↻ Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LLM Chain -->
+  <div class="card">
+    <div class="card-header">🧠 LLM Provider Chain</div>
+    <div class="card-body">
+      <div class="llm-row">
+        <span class="llm-num">1.</span>
+        <span class="dot ok" id="dot-llm-ollama" style="background:var(--warn);box-shadow:none;"></span>
+        <span class="llm-name">Ollama — gemma3:12b (local)</span>
+        <span class="tag tag-free">FREE</span>
+      </div>
+      <div class="llm-row">
+        <span class="llm-num">2.</span>
+        <span class="dot" style="background:var(--ok);box-shadow:0 0 6px var(--ok)"></span>
+        <span class="llm-name">Groq — llama-3.3-70b</span>
+        <span class="tag tag-free">FREE TIER</span>
+      </div>
+      <div class="llm-row">
+        <span class="llm-num">3.</span>
+        <span class="dot" style="background:var(--ok);box-shadow:0 0 6px var(--ok)"></span>
+        <span class="llm-name">Google Gemini Flash</span>
+        <span class="tag tag-free">FREE TIER</span>
+      </div>
+      <div class="llm-row">
+        <span class="llm-num">4.</span>
+        <span class="dot" style="background:var(--brassDim)"></span>
+        <span class="llm-name">Anthropic Claude</span>
+        <span class="tag tag-paid">PAID — LAST RESORT</span>
+      </div>
+      <div style="margin-top:10px;font-size:10px;color:var(--steamDim)">
+        LLM_PROVIDER=auto in backend/.env — Ollama tried first, Anthropic only if all free options fail.
+      </div>
+    </div>
+  </div>
+
+  <!-- How to Start -->
+  <div class="card">
+    <div class="card-header">🚀 Start GH05T3</div>
+    <div class="card-body">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-title">Launch Everything</div>
+        <code class="step-cmd">C:\Users\leer4\GH05T3\run.bat</code>
+        <div class="step-note">Double-click or run from terminal. Starts MongoDB → Backend (:8001) → Frontend (:3210) → Whisper</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-title">Open Dashboard</div>
+        <code class="step-cmd">http://localhost:3210</code>
+        <div class="step-note">Full GH05T3 command dashboard — chat, swarm, terminal, stats, control panel</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3 (optional)</div>
+        <div class="step-title">ABYSS Secondary Instance</div>
+        <code class="step-cmd">C:\Users\leer4\Documents\GH05T3\launch_ghost.bat</code>
+        <div class="step-note">Second GH05T3 instance on port :8003</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Self-Repair -->
+  <div class="card">
+    <div class="card-header">🔧 Self-Repair Engine</div>
+    <div class="card-body">
+      <div style="font-size:11px;color:var(--steamDim);margin-bottom:12px;line-height:1.6">
+        Auto-runs every 5 min. Purges litellm/Emergent, kills rogue ports,
+        verifies LLM chain, clears bad DB refs. Click to run immediately.
+      </div>
+      <button class="btn btn-purple" onclick="runRepair()" id="btn-repair">⚡ Run Self-Repair Now</button>
+      <div id="repair-result"></div>
+    </div>
+  </div>
+
+  <!-- Quick Links -->
+  <div class="card">
+    <div class="card-header">🔗 Quick Links</div>
+    <div class="card-body">
+      <div class="btn-row" style="flex-direction:column;gap:6px;">
+        <a href="http://localhost:3210" class="btn btn-primary">👻 GH05T3 Dashboard  :3210</a>
+        <a href="http://localhost:8001/docs" class="btn btn-secondary">📖 Backend API Docs  :8001/docs</a>
+        <a href="http://localhost:8001/status" class="btn btn-secondary">📊 System Status JSON  :8001/status</a>
+        <a href="http://localhost:8001/ollama/ping" class="btn btn-cyan">🤖 Ollama Ping  :8001/ollama/ping</a>
+        <a href="http://localhost:8001/nightly/status" class="btn btn-cyan">🧠 LLM Chain Status</a>
+        <a href="http://localhost:8003" class="btn btn-purple">👻 ABYSS Instance  :8003</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ports Reference -->
+  <div class="card">
+    <div class="card-header">📡 Ports & Services</div>
+    <div class="card-body" style="font-size:11px;color:var(--steamDim);line-height:2">
+      <div><span style="color:var(--brass)">:3210</span> — Frontend dashboard (React build, python http.server)</div>
+      <div><span style="color:var(--brass)">:8001</span> — Primary backend (FastAPI, TatorTot, RTX 5050)</div>
+      <div><span style="color:var(--brass)">:8003</span> — ABYSS secondary backend (Radeon 780M)</div>
+      <div><span style="color:var(--brass)">:11434</span> — Ollama local LLM gateway</div>
+      <div><span style="color:var(--brass)">:27017</span> — MongoDB (Memory Palace, chat history)</div>
+      <div style="margin-top:8px;color:var(--brassDim)">Tailscale: 100.94.227.81 — leer4030@</div>
+      <div style="color:var(--brassDim)">Repo: C:\Users\leer4\GH05T3</div>
+    </div>
+  </div>
+
+</div>
+
+<footer>GH05T3 v3 · TatorTot · Lenovo LOQ 15AHP10 · Tri-GPU Mesh · Sovereign AI</footer>
+
+<script>
+const HOST = window.location.hostname || "localhost";
+const API  = `http://${HOST}:8001`;
+
+async function checkService(url, timeoutMs = 2500) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const r = await fetch(url, { signal: ctrl.signal, mode: "no-cors" });
+    clearTimeout(t);
+    return true;
+  } catch { return false; }
+}
+
+async function checkBackend() {
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 2500);
+    const r = await fetch(`${API}/health`, { signal: ctrl.signal });
+    return r.ok || r.status < 500;
+  } catch { return false; }
+}
+
+function setStatus(id, ok, label) {
+  const dot = document.getElementById("dot-" + id);
+  const st  = document.getElementById("st-" + id);
+  if (!dot || !st) return;
+  dot.className = "dot " + (ok ? "ok" : "err");
+  st.textContent = ok ? "ONLINE" : "OFFLINE";
+  st.style.color = ok ? "var(--ok)" : "var(--err)";
+}
+
+async function checkAll() {
+  const [backend, frontend, ollama] = await Promise.all([
+    checkBackend(),
+    checkService(`http://${HOST}:3210`, 2000),
+    checkService(`http://${HOST}:11434`, 2000),
+  ]);
+  setStatus("backend",  backend,  "Backend");
+  setStatus("frontend", frontend, "Frontend");
+  setStatus("ollama",   ollama,   "Ollama");
+
+  const ollamaDot = document.getElementById("dot-llm-ollama");
+  if (ollamaDot) {
+    ollamaDot.style.background  = ollama ? "var(--ok)"  : "var(--err)";
+    ollamaDot.style.boxShadow   = ollama ? "0 0 6px var(--ok)" : "0 0 4px var(--err)";
+    ollamaDot.style.animation   = ollama ? "pulse 2.5s infinite" : "none";
+  }
+}
+
+async function runRepair() {
+  const btn = document.getElementById("btn-repair");
+  const res = document.getElementById("repair-result");
+  btn.disabled = true;
+  btn.textContent = "⚙ Running…";
+  res.style.display = "block";
+  res.style.color = "var(--steamDim)";
+  res.textContent = "Contacting backend…";
+  try {
+    const r = await fetch(`${API}/self-repair`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    });
+    const j = await r.json();
+    res.style.color = j.healthy ? "var(--ok)" : "var(--warn)";
+    res.textContent = `healthy: ${j.healthy}
+actions: ${(j.actions_taken||[]).join(", ")||"none"}
+issues:  ${(j.issues_found||[]).join(", ")||"none"}`;
+  } catch(e) {
+    res.style.color = "var(--err)";
+    res.textContent = `❌ Backend not reachable: ${e.message}\nRun run.bat first.`;
+  }
+  btn.disabled = false;
+  btn.textContent = "⚡ Run Self-Repair Now";
+  checkAll();
+}
+
+// Auto-check on load, then every 20s
+checkAll();
+setInterval(checkAll, 20000);
+</script>
+</body>
+</html>
