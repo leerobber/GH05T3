@@ -6,8 +6,8 @@ export const API = `${BACKEND_URL}/api`;
 export const api = axios.create({ baseURL: API, timeout: 180000 });
 
 export const fetchState = () => api.get("/state").then((r) => r.data);
-export const postChat = (message, session_id) =>
-  api.post("/chat", { message, session_id }).then((r) => r.data);
+export const postChat = (message, session_id, use_kairos = false) =>
+  api.post("/chat", { message, session_id, use_kairos }).then((r) => r.data);
 export const getHistory = (session_id) =>
   api.get("/chat/history", { params: { session_id } }).then((r) => r.data);
 export const runKairosCycle = () => api.post("/kairos/cycle").then((r) => r.data);
