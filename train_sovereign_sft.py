@@ -142,8 +142,7 @@ if not HF_TOKEN:
 # ── Install deps ──────────────────────────────────────────────────────────────
 print("[1/7] Installing dependencies...")
 ret = os.system(
-    "pip install -q 'unsloth[colab-new]' trl datasets peft "
-    "bitsandbytes accelerate transformers"
+    "pip install -q trl datasets peft bitsandbytes accelerate transformers"
 )
 if ret != 0:
     print("WARNING: pip had non-zero exit. Continuing...")
@@ -185,7 +184,7 @@ if AGENT != "avery":
         # Filter to this agent's rows
         ds = ds.filter(lambda row: row.get("agent", "") == AGENT)
         print(f"      Filtered to agent='{AGENT}': {len(ds)} rows")
-        if len(ds) < 10:
+        if len(ds) < 5:
             print(f"      WARNING: Only {len(ds)} rows for agent '{AGENT}'. Run agents_bootstrap.py first.")
             ds = None
 
@@ -235,28 +234,40 @@ if MODE == "grpo" and final_mode != "grpo":
 print(f"\n      Mode={MODE}  Agent={AGENT}  Rows={len(ds)}")
 
 # ── Load model ────────────────────────────────────────────────────────────────
-print(f"\n[3/7] Loading {BASE_MODEL} with QLoRA (4-bit)...")
-from unsloth import FastLanguageModel
+print(f"\n[3/7] Loading {BASE_MODEL} with QLoRA (4-bit, standard PEFT)...")
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import get_peft_model, LoraConfig, TaskType, prepare_model_for_kbit_training
 
-model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name     = BASE_MODEL,
-    max_seq_length = MAX_SEQ_LEN,
-    dtype          = None,
-    load_in_4bit   = True,
-    token          = HF_TOKEN,
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit               = True,
+    bnb_4bit_quant_type        = "nf4",
+    bnb_4bit_compute_dtype     = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
+    bnb_4bit_use_double_quant  = True,
 )
 
-model = FastLanguageModel.get_peft_model(
-    model,
+tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, token=HF_TOKEN)
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+model = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL,
+    quantization_config = bnb_config,
+    device_map          = "auto",
+    token               = HF_TOKEN,
+)
+model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+
+lora_config = LoraConfig(
     r              = 16,
+    lora_alpha     = 32,
     target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
                       "gate_proj", "up_proj", "down_proj"],
-    lora_alpha     = 32,
     lora_dropout   = 0.05,
     bias           = "none",
-    use_gradient_checkpointing = "unsloth",
+    task_type      = TaskType.CAUSAL_LM,
 )
+model = get_peft_model(model, lora_config)
 print("      Model ready.")
 model.print_trainable_parameters()
 
