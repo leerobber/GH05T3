@@ -230,7 +230,7 @@ def _kill_orphan_pods():
     print(f"  [LEAK] {len(running)} orphan pod(s) found — stopping before launch:")
     for p in running:
         uptime = (p.get("runtime") or {}).get("uptimeInSeconds", "?")
-        print(f"    Pod {p['id']} (uptime {uptime}s) → stopping")
+        print(f"    Pod {p['id']} (uptime {uptime}s) -> stopping")
         try:
             stop_pod(p["id"])
         except Exception as e:
@@ -328,7 +328,8 @@ def launch(train_mode: str = None, train_split: str = None):
     print("  Uploaded.")
     _save_state({"pod_id": pod_id, "ip": ip, "port": port,
                  "started_at": time.time(), "train_mode": train_mode,
-                 "train_split": train_split})
+                 "train_split": train_split,
+                 "train_agent": os.environ.get("TRAIN_AGENT", "avery")})
 
     # ── Launch ────────────────────────────────────────────────────────────────
     print(f"\n[5/6] Launching training on pod...")
@@ -343,7 +344,7 @@ def launch(train_mode: str = None, train_split: str = None):
         + (f"--split {train_split} " if train_split else "")
         + f"> /workspace/train.log 2>&1 & echo LAUNCHED"
     )
-    _ssh_run(ip, port, train_cmd, timeout=30)
+    _ssh_run(ip, port, train_cmd, timeout=90)
 
     print(f"""
   Training is running on the pod (nohup — survives terminal close).
