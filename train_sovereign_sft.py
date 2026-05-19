@@ -142,12 +142,16 @@ if not HF_TOKEN:
 # ── Install deps ──────────────────────────────────────────────────────────────
 print("[1/7] Installing dependencies...")
 ret = os.system(
-    "pip install -q --upgrade "
+    "pip install -q --force-reinstall --no-deps "
     "'transformers==4.47.1' "
+    "'tokenizers>=0.20,<0.22' "
+    "safetensors && "
+    "pip install -q "
     "'trl==0.12.2' "
     "'peft==0.14.0' "
     "'bitsandbytes>=0.43.0' "
-    "accelerate datasets"
+    "'accelerate==1.2.1' "
+    "datasets"
 )
 if ret != 0:
     print("WARNING: pip had non-zero exit. Continuing...")
