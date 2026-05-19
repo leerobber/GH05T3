@@ -186,6 +186,7 @@ def upload_sft_combined(dry_run: bool) -> int:
         TRAINING_DATA_DIR / "mentor_training.jsonl",
         TRAINING_DATA_DIR / "avery_mentor_training.jsonl",
         TRAINING_DATA_DIR / "web_research.jsonl",
+        TRAINING_DATA_DIR / "iron_mesa_training.jsonl",
         TRAINING_DATA_DIR / "domain_research" / "sovereign_nation.jsonl",
     ]
     agent_training_dir = TRAINING_DATA_DIR / "agent_training"
@@ -307,13 +308,15 @@ def main(dry_run: bool):
         _count_jsonl(ROOT / "training_data" / "domain_research" / "sovereign_nation.jsonl")
     )
     web_count       = _count_jsonl(ROOT / "training_data" / "web_research.jsonl")
-    total_local     = spin_count + bootstrap_count + agents_count + mentor_count + web_count
+    iron_mesa_count = _count_jsonl(ROOT / "training_data" / "iron_mesa_training.jsonl")
+    total_local     = spin_count + bootstrap_count + agents_count + mentor_count + web_count + iron_mesa_count
     print(f"[LOCAL DATA]")
     print(f"  spin_dataset.jsonl       : {spin_count:,} pairs")
     print(f"  bootstrap_dataset.jsonl  : {bootstrap_count:,} pairs")
     print(f"  agents_bootstrap.jsonl   : {agents_count:,} pairs")
     print(f"  mentor_training (real)   : {mentor_count:,} pairs")
     print(f"  web_research.jsonl       : {web_count:,} pairs")
+    print(f"  iron_mesa_training.jsonl : {iron_mesa_count:,} pairs")
     print(f"  Total                    : {total_local:,} pairs")
     print()
 
