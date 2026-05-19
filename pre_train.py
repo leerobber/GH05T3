@@ -159,12 +159,42 @@ def upload_bootstrap_dpo(dry_run: bool) -> int:
     return len(dpo_rows)
 
 
+def _extract_messages_pair(r: dict):
+    """Extract (instruction, response) from OpenAI-style messages format."""
+    msgs = r.get("messages", [])
+    if not msgs:
+        return None, None
+    user_msgs = [m["content"] for m in msgs if m.get("role") == "user"]
+    asst_msgs = [m["content"] for m in msgs if m.get("role") == "assistant"]
+    if not user_msgs or not asst_msgs:
+        return None, None
+    return _to_str(user_msgs[0]), _to_str(asst_msgs[-1])
+
+
+TRAINING_DATA_DIR = ROOT / "training_data"
+
+
 def upload_sft_combined(dry_run: bool) -> int:
-    """Merge bootstrap + SPIN into a single SFT split (instruction/response pairs)."""
+    """Merge bootstrap + SPIN + mentor data into a single SFT split."""
     rows = []
     for path in [DATA / "bootstrap_dataset.jsonl", DATA / "spin_dataset.jsonl"]:
         if path.exists():
             rows += [json.loads(l) for l in path.open(encoding="utf-8") if l.strip()]
+
+    # Mentor training files (messages format)
+    mentor_files = [
+        TRAINING_DATA_DIR / "mentor_training.jsonl",
+        TRAINING_DATA_DIR / "avery_mentor_training.jsonl",
+        TRAINING_DATA_DIR / "domain_research" / "sovereign_nation.jsonl",
+    ]
+    agent_training_dir = TRAINING_DATA_DIR / "agent_training"
+    if agent_training_dir.exists():
+        mentor_files += list(agent_training_dir.glob("*.jsonl"))
+
+    mentor_rows = []
+    for path in mentor_files:
+        if path.exists():
+            mentor_rows += [json.loads(l) for l in path.open(encoding="utf-8") if l.strip()]
 
     sft_rows, skipped = [], 0
     for r in rows:
@@ -175,10 +205,25 @@ def upload_sft_combined(dry_run: bool) -> int:
             continue
         sft_rows.append({"instruction": instruction, "response": response,
                           "domain": str(r.get("domain", ""))})
+
+    for r in mentor_rows:
+        if "messages" in r:
+            instruction, response = _extract_messages_pair(r)
+        else:
+            instruction = _to_str(r.get("instruction") or r.get("prompt") or "")
+            response    = _to_str(r.get("response") or r.get("chosen") or "")
+        if not instruction or len(instruction) < 20 or not _is_good(response):
+            skipped += 1
+            continue
+        sft_rows.append({"instruction": instruction, "response": response,
+                          "domain": str(r.get("domain", "mentor"))})
+
     if skipped:
         print(f"  Skipped {skipped} low-quality rows")
 
-    print(f"  SFT combined: {len(rows)} raw -> {len(sft_rows)} clean pairs")
+    base_count = len(rows)
+    mentor_count = len(mentor_rows)
+    print(f"  SFT combined: {base_count} base + {mentor_count} mentor -> {len(sft_rows)} clean pairs")
     if not sft_rows:
         return 0
 
@@ -253,11 +298,19 @@ def main(dry_run: bool):
     spin_count      = _count_jsonl(DATA / "spin_dataset.jsonl")
     bootstrap_count = _count_jsonl(DATA / "bootstrap_dataset.jsonl")
     agents_count    = _count_jsonl(DATA / "agents_bootstrap.jsonl")
-    total_local     = spin_count + bootstrap_count + agents_count
+    mentor_count    = (
+        _count_jsonl(ROOT / "training_data" / "mentor_training.jsonl") +
+        _count_jsonl(ROOT / "training_data" / "avery_mentor_training.jsonl") +
+        sum(_count_jsonl(p) for p in (ROOT / "training_data" / "agent_training").glob("*.jsonl")
+            if (ROOT / "training_data" / "agent_training").exists()) +
+        _count_jsonl(ROOT / "training_data" / "domain_research" / "sovereign_nation.jsonl")
+    )
+    total_local     = spin_count + bootstrap_count + agents_count + mentor_count
     print(f"[LOCAL DATA]")
     print(f"  spin_dataset.jsonl       : {spin_count:,} pairs")
     print(f"  bootstrap_dataset.jsonl  : {bootstrap_count:,} pairs")
     print(f"  agents_bootstrap.jsonl   : {agents_count:,} pairs")
+    print(f"  mentor_training (real)   : {mentor_count:,} pairs")
     print(f"  Total                    : {total_local:,} pairs")
     print()
 
