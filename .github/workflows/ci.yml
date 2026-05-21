@@ -29,7 +29,7 @@ jobs:
       - name: Install test dependencies
         run: |
           pip install \
-            fastapi httpx python-dotenv loguru requests \
+            fastapi httpx python-dotenv loguru requests websockets \
             pytest pytest-asyncio
 
       - name: Syntax check — backend gateway
@@ -46,6 +46,8 @@ jobs:
 
       - name: Run backend tests
         working-directory: backend
+        env:
+          REACT_APP_BACKEND_URL: https://tatorot-dashboard.preview.emergentagent.com
         run: pytest tests/ -q
 
   # ── Frontend build check ──────────────────────────────────────────────────
