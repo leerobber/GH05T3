@@ -38,6 +38,7 @@ from ghost_llm import (
     ollama_available,
     run_sage_cycle,
     set_nightly_config,
+    sovereign_available,
 )
 from ollama_gateway import (
     ping as ollama_ping,
@@ -292,7 +293,7 @@ async def _chat_pipeline(message: str, session_id: str, source: str = "web", use
                       f"{eye.get('timestamp')})\n{eye['text'][:1200]}\n\n")
     sys_prompt = GH05T3_SYSTEM_PROMPT
     extras = ""
-    eco_ctx = load_economy_context()
+    eco_ctx = await load_economy_context()
     if eco_ctx:
         extras += "\n\n" + eco_ctx
     if retrieval:
@@ -522,6 +523,24 @@ async def kairos_cycle():
     cycle_num = state["kairos"]["simulated_cycles"] + 1
     try:
         cycle = await run_sage_cycle(cycle_num)
+    except NoLLMError:
+        # Graceful stub when no LLM is configured — cycle still increments
+        cycle = {
+            "cycle_num": cycle_num,
+            "proposer": "none:unconfigured",
+            "critic": "none:unconfigured",
+            "verifier": "none:unconfigured",
+            "proposal": "No LLM configured — stub KAIROS cycle.",
+            "critic_decision": "REVISE",
+            "critic_reason": "No LLM available.",
+            "verdict": "PARTIAL",
+            "verifier_rationale": "No LLM available.",
+            "base_score": 0.0,
+            "multiplier": 0.75,
+            "final_score": 0.0,
+            "archived": False,
+            "elite": False,
+        }
     except Exception as exc:  # noqa: BLE001
         logger.exception("sage cycle failed")
         raise HTTPException(502, f"SAGE error: {exc}")
@@ -561,6 +580,12 @@ async def kairos_cycle():
         })
     await ws_mgr.broadcast("kairos_cycle", record)
     await ws_mgr.broadcast("state_delta", await _state_snapshot())
+    # Register with SovereignCore economy ledger (fire-and-forget)
+    try:
+        from sovereign_economy import register_kairos_cycle
+        asyncio.create_task(register_kairos_cycle(cycle))
+    except Exception:
+        pass
     return record
 
 
@@ -688,7 +713,14 @@ class CassandraReq(BaseModel):
 async def cassandra(req: CassandraReq):
     if not req.scenario.strip():
         raise HTTPException(400, "empty scenario")
-    autopsy = await cassandra_premortem(req.scenario)
+    try:
+        autopsy = await cassandra_premortem(req.scenario)
+    except NoLLMError:
+        autopsy = (
+            "No LLM configured — Cassandra pre-mortem unavailable. "
+            "Configure an LLM key (Groq, Gemini, Anthropic, Ollama, or SovereignCore) "
+            "in the LLM Config panel or backend/.env to enable pre-mortem analysis."
+        )
     doc = {"id": str(uuid.uuid4()), "scenario": req.scenario[:500],
            "autopsy": autopsy, "timestamp": _now_iso()}
     await db.cassandra.insert_one(doc)
@@ -876,7 +908,15 @@ async def journal_reflect():
 
 @api.post("/strangeloop/probe")
 async def strangeloop_endpoint():
-    result = await strangeloop_probe(memory, nightly_chat)
+    try:
+        result = await strangeloop_probe(memory, nightly_chat)
+    except NoLLMError:
+        result = {
+            "verdict": "UNKNOWN",
+            "alignment": 0.0,
+            "evidence": [],
+            "note": "No LLM configured — StrangeLoop probe unavailable.",
+        }
     # persist verdict on state
     await db.system_state.update_one(
         {"_id": "singleton"},
@@ -1331,7 +1371,15 @@ async def _seed_identity():
     peers.start_auto_sync(interval=SYNC_INTERVAL)
     asyncio.create_task(peers.ping_all())
 
-    logger.info("GH05T3 gateway online — ollama=%s db=%s peers=%d label=%s role=%s",
+    # Announce to SovereignCore economy (fire-and-forget, never blocks startup)
+    try:
+        from sovereign_economy import announce_startup
+        asyncio.create_task(announce_startup(INSTANCE_URL, INSTANCE_LABEL))
+    except Exception:
+        pass
+
+    logger.info("GH05T3 gateway online — sovereign=%s ollama=%s db=%s peers=%d label=%s role=%s",
+                "yes" if await sovereign_available() else "no",
                 "yes" if await ollama_available() else "no",
                 "ok" if await _db_ping() else "OFFLINE",
                 len(peers.peers), INSTANCE_LABEL, INSTANCE_ROLE)
@@ -1392,12 +1440,15 @@ async def api_setup_status():
     ns = await nightly_status()
     has_user_key = ns.get("has_google_key") or ns.get("has_groq_key")
     ollama = await ollama_ping()
+    sov_available = await sovereign_available()
     return {
-        "needs_setup": not has_user_key and not ns.get("has_anthropic_key") and not ollama.get("reachable"),
+        "needs_setup": not has_user_key and not ns.get("has_anthropic_key") and not ollama.get("reachable") and not sov_available,
         "has_anthropic_key": ns.get("has_anthropic_key"),
         "has_google_key": ns.get("has_google_key"),
         "has_groq_key": ns.get("has_groq_key"),
         "ollama_reachable": ollama.get("reachable"),
+        "sovereign_available": sov_available,
+        "emergent_available": False,  # deprecated — was emergentagent.com preview deployment
     }
 
 
