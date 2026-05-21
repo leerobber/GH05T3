@@ -175,19 +175,27 @@ TRAINING_DATA_DIR = ROOT / "training_data"
 
 
 def upload_sft_combined(dry_run: bool) -> int:
-    """Merge bootstrap + SPIN + mentor data into a single SFT split."""
+    """Merge bootstrap + SPIN + KAIROS + mentor data into a single SFT split."""
     rows = []
-    for path in [DATA / "bootstrap_dataset.jsonl", DATA / "spin_dataset.jsonl"]:
+    for path in [DATA / "bootstrap_dataset.jsonl", DATA / "spin_dataset.jsonl",
+                 DATA / "kairos_dataset.jsonl"]:
         if path.exists():
             rows += [json.loads(l) for l in path.open(encoding="utf-8") if l.strip()]
 
     # Mentor training files (messages format)
+    SECURITY_DATA_DIR = ROOT / "backend" / "training" / "datasets"
     mentor_files = [
         TRAINING_DATA_DIR / "mentor_training.jsonl",
         TRAINING_DATA_DIR / "avery_mentor_training.jsonl",
         TRAINING_DATA_DIR / "web_research.jsonl",
         TRAINING_DATA_DIR / "iron_mesa_training.jsonl",
+        TRAINING_DATA_DIR / "business_mesa_training.jsonl",
+        TRAINING_DATA_DIR / "business_docs_training.jsonl",
         TRAINING_DATA_DIR / "domain_research" / "sovereign_nation.jsonl",
+        SECURITY_DATA_DIR / "reasoning_chains.jsonl",
+        SECURITY_DATA_DIR / "bug_bounty.jsonl",
+        SECURITY_DATA_DIR / "adversarial_defense.jsonl",
+        SECURITY_DATA_DIR / "cve_patterns.jsonl",
     ]
     agent_training_dir = TRAINING_DATA_DIR / "agent_training"
     if agent_training_dir.exists():
@@ -299,6 +307,7 @@ def main(dry_run: bool):
     # ── Local data inventory ──────────────────────────────────────────────────
     spin_count      = _count_jsonl(DATA / "spin_dataset.jsonl")
     bootstrap_count = _count_jsonl(DATA / "bootstrap_dataset.jsonl")
+    kairos_count    = _count_jsonl(DATA / "kairos_dataset.jsonl")
     agents_count    = _count_jsonl(DATA / "agents_bootstrap.jsonl")
     mentor_count    = (
         _count_jsonl(ROOT / "training_data" / "mentor_training.jsonl") +
@@ -307,17 +316,22 @@ def main(dry_run: bool):
             if (ROOT / "training_data" / "agent_training").exists()) +
         _count_jsonl(ROOT / "training_data" / "domain_research" / "sovereign_nation.jsonl")
     )
-    web_count       = _count_jsonl(ROOT / "training_data" / "web_research.jsonl")
-    iron_mesa_count = _count_jsonl(ROOT / "training_data" / "iron_mesa_training.jsonl")
-    total_local     = spin_count + bootstrap_count + agents_count + mentor_count + web_count + iron_mesa_count
+    web_count          = _count_jsonl(ROOT / "training_data" / "web_research.jsonl")
+    iron_mesa_count    = _count_jsonl(ROOT / "training_data" / "iron_mesa_training.jsonl")
+    business_mesa_count = _count_jsonl(ROOT / "training_data" / "business_mesa_training.jsonl")
+    business_docs_count = _count_jsonl(ROOT / "training_data" / "business_docs_training.jsonl")
+    total_local     = spin_count + bootstrap_count + kairos_count + agents_count + mentor_count + web_count + iron_mesa_count + business_mesa_count + business_docs_count
     print(f"[LOCAL DATA]")
-    print(f"  spin_dataset.jsonl       : {spin_count:,} pairs")
-    print(f"  bootstrap_dataset.jsonl  : {bootstrap_count:,} pairs")
-    print(f"  agents_bootstrap.jsonl   : {agents_count:,} pairs")
-    print(f"  mentor_training (real)   : {mentor_count:,} pairs")
-    print(f"  web_research.jsonl       : {web_count:,} pairs")
-    print(f"  iron_mesa_training.jsonl : {iron_mesa_count:,} pairs")
-    print(f"  Total                    : {total_local:,} pairs")
+    print(f"  spin_dataset.jsonl         : {spin_count:,} pairs")
+    print(f"  bootstrap_dataset.jsonl    : {bootstrap_count:,} pairs")
+    print(f"  kairos_dataset.jsonl       : {kairos_count:,} pairs")
+    print(f"  agents_bootstrap.jsonl     : {agents_count:,} pairs")
+    print(f"  mentor_training (real)     : {mentor_count:,} pairs")
+    print(f"  web_research.jsonl         : {web_count:,} pairs")
+    print(f"  iron_mesa_training.jsonl   : {iron_mesa_count:,} pairs")
+    print(f"  business_mesa_training.jsonl : {business_mesa_count:,} pairs")
+    print(f"  business_docs_training.jsonl : {business_docs_count:,} pairs")
+    print(f"  Total                        : {total_local:,} pairs")
     print()
 
     if total_local < 50:
