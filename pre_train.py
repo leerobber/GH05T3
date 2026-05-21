@@ -25,6 +25,9 @@ def _load_env():
                 os.environ.setdefault(k.strip(), v.strip().strip("'\""))
 
 _load_env()
+# Disable HuggingFace XET transfer — large uploads fail mid-stream with DNS blips
+os.environ["HF_HUB_DISABLE_XET"] = "1"
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
 HF_TOKEN  = os.environ.get("HF_TOKEN", "")
 HF_REPO   = "tastytator/sovereign-economy"
 
@@ -196,6 +199,8 @@ def upload_sft_combined(dry_run: bool) -> int:
         SECURITY_DATA_DIR / "bug_bounty.jsonl",
         SECURITY_DATA_DIR / "adversarial_defense.jsonl",
         SECURITY_DATA_DIR / "cve_patterns.jsonl",
+        DATA / "multiturn_dataset.jsonl",        # multi-turn conversations
+        DATA / "mentor_pairs.jsonl",             # agent mentor pairs (from mentor_trainer.py)
     ]
     agent_training_dir = TRAINING_DATA_DIR / "agent_training"
     if agent_training_dir.exists():
@@ -205,6 +210,44 @@ def upload_sft_combined(dry_run: bool) -> int:
     for path in mentor_files:
         if path.exists():
             mentor_rows += [json.loads(l) for l in path.open(encoding="utf-8") if l.strip()]
+
+    def _normalize_row(r: dict) -> tuple[str, str, str]:
+        """Return (instruction, response, domain) from any row schema."""
+        # Standard fields first
+        if "messages" in r:
+            inst, resp = _extract_messages_pair(r)
+            return inst or "", resp or "", "mentor"
+
+        # reasoning_chains schema
+        if "question" in r and "final_answer" in r:
+            inst = _to_str(r["question"])
+            parts = []
+            if r.get("synthesis"): parts.append(_to_str(r["synthesis"]))
+            parts.append(_to_str(r["final_answer"]))
+            return inst, "\n\n".join(parts), "security_reasoning"
+
+        # bug_bounty schema
+        if "vulnerability_found" in r and "remediation" in r:
+            inst = f"Security assessment — {_to_str(r.get('target_system',''))}\n\n{_to_str(r['vulnerability_found'])}"
+            resp = f"Impact Assessment:\n{_to_str(r.get('impact_assessment',''))}\n\nRemediation:\n{_to_str(r['remediation'])}"
+            return inst, resp, "bug_bounty"
+
+        # adversarial_defense schema
+        if "threat_vector" in r and "mitigation_strategy" in r:
+            inst = f"Threat: {_to_str(r['threat_vector'])}\n\nExploitation: {_to_str(r.get('exploitation_method',''))}"
+            resp = f"Detection:\n{_to_str(r.get('detection_pattern',''))}\n\nMitigation:\n{_to_str(r['mitigation_strategy'])}"
+            return inst, resp, "adversarial_defense"
+
+        # cve_patterns schema
+        if "vulnerability_pattern" in r and "defensive_lessons" in r:
+            cve = r.get("source_cve", "")
+            inst = f"Analyze vulnerability: {_to_str(r['vulnerability_pattern'])}" + (f" ({cve})" if cve else "")
+            return inst, _to_str(r["defensive_lessons"]), "cve_patterns"
+
+        # Generic fallback
+        inst = _to_str(r.get("instruction") or r.get("prompt") or r.get("goal") or "")
+        resp = _to_str(r.get("response") or r.get("chosen") or "")
+        return inst, resp, str(r.get("domain", "mentor"))
 
     sft_rows, skipped = [], 0
     for r in rows:
@@ -217,16 +260,12 @@ def upload_sft_combined(dry_run: bool) -> int:
                           "domain": str(r.get("domain", ""))})
 
     for r in mentor_rows:
-        if "messages" in r:
-            instruction, response = _extract_messages_pair(r)
-        else:
-            instruction = _to_str(r.get("instruction") or r.get("prompt") or "")
-            response    = _to_str(r.get("response") or r.get("chosen") or "")
+        instruction, response, domain = _normalize_row(r)
         if not instruction or len(instruction) < 20 or not _is_good(response):
             skipped += 1
             continue
         sft_rows.append({"instruction": instruction, "response": response,
-                          "domain": str(r.get("domain", "mentor"))})
+                          "domain": domain})
 
     if skipped:
         print(f"  Skipped {skipped} low-quality rows")

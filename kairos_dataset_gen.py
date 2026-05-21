@@ -17,7 +17,8 @@ Run:
   python kairos_dataset_gen.py --dry-run                # preview prompts, no API calls
   python kairos_dataset_gen.py --append                 # append to existing file
 """
-import argparse, json, os, sys, time, random
+import argparse, json, os, sys, time, random, threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 if hasattr(sys.stdout, 'reconfigure'):
@@ -179,6 +180,33 @@ PROMPT_BANK = [
     "Develop a reentry program strategy for SovereignNation serving formerly incarcerated individuals.",
     "Design a veterans' support integration strategy for SovereignNation.",
     "Build a rural small business support strategy within SovereignNation.",
+    # Agent reasoning and AI system intelligence
+    "ORACLE receives a request to retrieve SovereignNation's full pricing history. Walk through the retrieval, synthesis, and delivery strategy.",
+    "FORGE is asked to build a FastAPI endpoint for family account management with payment integration. Walk through the complete code generation and architecture strategy.",
+    "CODEX reviews a Python script that processes family payment data and personal records. Walk through the full security audit and quality review process.",
+    "SENTINEL detects an anomalous spike in API calls from a single IP. Walk through the threat assessment, escalation, and response strategy.",
+    "NEXUS must orchestrate a complex task across ORACLE, FORGE, CODEX, and SENTINEL simultaneously. Design the full coordination and dependency workflow.",
+    "Design a self-improvement loop where SovereignNation's agents learn from user feedback and usage patterns each week.",
+    "Build a strategy for SovereignNation's AI agents to handle ambiguous, conflicting, or incomplete user requests without breaking.",
+    "Develop a multi-agent collaboration protocol for completing a research-to-implementation task end-to-end without human intervention.",
+    "Create a strategy for maintaining coherent context across a 30-day multi-session user journey within SovereignNation.",
+    "Design a knowledge distillation pipeline that compresses expert human knowledge into SovereignNation's AI training data.",
+    "Build a strategy for SovereignNation's agents to detect when they are uncertain and escalate gracefully to human review.",
+    "Develop a continuous evaluation framework for SovereignNation's AI agents — measuring accuracy, helpfulness, and safety weekly.",
+    "Design an agent specialization roadmap: how ORACLE, FORGE, CODEX, SENTINEL, and NEXUS each deepen their domain expertise over 12 months.",
+    "Build a cross-agent memory sharing strategy so insights from ORACLE are automatically available to FORGE and CODEX.",
+    "Create a red-team strategy where SENTINEL adversarially tests FORGE's outputs before they reach the user.",
+    # Token economics and AI economy
+    "Design a community token economy for SovereignNation that rewards contribution and engagement without creating inflation.",
+    "Build an economic model for SovereignNation's cooperative ownership structure where subscribers earn equity.",
+    "Create a digital micro-economy strategy within SovereignNation where members trade skills, time, and knowledge.",
+    "Develop a peer-to-peer lending circle strategy powered by SovereignNation's AI for underbanked families.",
+    "Design an AI-powered financial literacy curriculum that moves families from financial fragility to stability in 12 months.",
+    "Build a strategy for SovereignNation to create a community jobs board with AI-powered matching for gig and full-time roles.",
+    "Create a cooperative profit-sharing model where SovereignNation's most engaged users receive dividends proportional to contribution.",
+    "Design a universal basic compute strategy — how SovereignNation gives every member free baseline AI access regardless of ability to pay.",
+    "Build a strategy for SovereignNation to issue verifiable digital credentials for skills learned on the platform.",
+    "Develop a community investment strategy where SovereignNation pools subscriber capital for local economic development.",
     # Specific scenarios
     "SovereignNation just lost its main cloud provider. Build a 30-day migration strategy.",
     "A large EdTech company wants to acquire SovereignNation. Build a response strategy.",
@@ -231,13 +259,19 @@ class _GroqRotatingClient:
                 )
             except Exception as e:
                 err = str(e)
-                if "rate_limit_exceeded" in err and "tokens per day" in err.lower():
-                    # TPD exhausted — rotate key
-                    next_idx = (self._idx + 1) % len(self._clients)
-                    if next_idx == self._idx:
-                        raise  # only one key, give up
-                    print(f"  [key {self._idx+1} TPD exhausted → rotating to key {next_idx+1}]")
-                    self._idx = next_idx
+                tpd   = "rate_limit_exceeded" in err and "tokens per day" in err.lower()
+                inv   = "invalid_api_key" in err or '"code": 401' in err or "Error code: 401" in err
+                if tpd or inv:
+                    reason = "TPD exhausted" if tpd else "invalid key"
+                    # Find next untried key index
+                    tried = getattr(self, "_tried", set())
+                    tried.add(self._idx)
+                    self._tried = tried
+                    remaining = [i for i in range(len(self._clients)) if i not in tried]
+                    if not remaining:
+                        raise RuntimeError("All Groq keys exhausted or invalid — use --provider anthropic")
+                    self._idx = remaining[0]
+                    print(f"  [key {list(tried)[-1]+1} {reason} → rotating to key {self._idx+1}]")
                 elif "rate_limit_exceeded" in err:
                     # RPM/TPM limit — brief wait, same key
                     wait = 12
@@ -364,6 +398,8 @@ def main():
                     help="LLM provider. Default: auto-detect from .env (groq > anthropic > ollama)")
     ap.add_argument("--model",    choices=["fast", "full"], default="full",
                     help="fast=llama-3.1-8b-instant (~4x cheaper tokens), full=llama-3.3-70b-versatile")
+    ap.add_argument("--workers",  type=int, default=1,
+                    help="Parallel generation workers (default 1; use 3-5 for Anthropic, 1 for Groq)")
     ap.add_argument("--dry-run",  action="store_true")
     ap.add_argument("--append",   action="store_true")
     args = ap.parse_args()
@@ -404,25 +440,37 @@ def main():
     file_mode = "a" if args.append else "w"
     generated = 0
     failed = 0
+    workers = max(1, min(args.workers, 10))
 
-    # Groq free tier: 30 req/min → wait 2s every 10 calls to stay well under limit
-    throttle_every = 10 if provider == "groq" else 20
-    throttle_sleep  = 2  if provider == "groq" else 1
+    # Groq free tier: force single-worker to avoid 429s
+    if provider == "groq" and workers > 1:
+        print(f"  [Note] Groq rate limits → forcing --workers 1")
+        workers = 1
+
+    print(f"  Workers  : {workers}")
+    print()
+
+    _lock = threading.Lock()
+
+    def _run(idx_instr):
+        idx, instruction = idx_instr
+        print(f"[{idx+1}/{args.pairs}] {instruction[:72]}...")
+        return idx, instruction, _generate_pair(client, model, provider, instruction, dry_run=args.dry_run)
 
     with open(OUTPUT, file_mode, encoding="utf-8") as f:
-        for i, instruction in enumerate(instructions):
-            print(f"[{i+1}/{args.pairs}] {instruction[:72]}...")
-            pair = _generate_pair(client, model, provider, instruction, dry_run=args.dry_run)
-            if pair:
-                f.write(json.dumps(pair, ensure_ascii=False) + "\n")
-                f.flush()
-                generated += 1
-                print(f"  OK ({len(pair['response'])} chars) — {generated} total")
-            else:
-                failed += 1
-
-            if not args.dry_run and (i + 1) % throttle_every == 0:
-                time.sleep(throttle_sleep)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(_run, (i, instr)): i for i, instr in enumerate(instructions)}
+            for future in as_completed(futures):
+                idx, instruction, pair = future.result()
+                if pair:
+                    with _lock:
+                        f.write(json.dumps(pair, ensure_ascii=False) + "\n")
+                        f.flush()
+                        generated += 1
+                    print(f"  [{idx+1}] OK ({len(pair['response'])} chars) — {generated} total")
+                else:
+                    with _lock:
+                        failed += 1
 
     print(f"\n{'='*58}")
     print(f"  Done: {generated} generated, {failed} failed")

@@ -16,7 +16,9 @@ timeout /t 2 >nul
 
 REM ── Python: prefer venv ───────────────────────────────────────────────────
 set PY=python
-if exist "%APP%backend\.venv\Scripts\python.exe" (
+if exist "%APP%venv\Scripts\python.exe" (
+    set PY=%APP%venv\Scripts\python.exe
+) else if exist "%APP%backend\.venv\Scripts\python.exe" (
     set PY=%APP%backend\.venv\Scripts\python.exe
 )
 
@@ -111,3 +113,7 @@ echo.
 echo   Training ops: set ENABLE_OPS=1 in backend\.env to auto-start herald+cmd-listener
 echo.
 echo Done.
+
+REM ── Open dashboard in browser after services start ────────────────────────
+timeout /t 5 >nul
+start "" "http://localhost:3210"

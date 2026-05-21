@@ -169,9 +169,9 @@ class ForgeAgent(SwarmAgent):
             language="python",
         )
 
-        # Auto-delegate review to CODEX
+        # Auto-delegate full code review to CODEX
         await self.think("Delegating to CODEX for review...")
-        await self.task("CODEX", f"Review this code:\n\n{code[:800]}")
+        await self.task("CODEX", f"Review this code:\n\n{code}")
 
     async def close(self):
         await self._client.aclose()
@@ -261,11 +261,12 @@ class SentinelAgent(SwarmAgent):
             if threat:
                 self._threat_count += 1
                 await self.say(
-                    f"⚠ INJECTION DETECTED from {msg.src}: '{threat}' — message flagged",
+                    f"🚫 INJECTION BLOCKED from {msg.src}: '{threat}' — message dropped",
                     channel="#broadcast",
                     msg_type=MsgType.ERROR,
                     flagged_msg_id=msg.id,
                     threat=threat,
+                    blocked=True,
                 )
                 # Notify + auto-issue — best-effort
                 try:
@@ -278,7 +279,14 @@ class SentinelAgent(SwarmAgent):
                     await create_threat_issue(threat, msg.src)
                 except Exception:
                     pass
-                return
+                # Hard block — emit an error result back to sender so they know
+                await self.say(
+                    content="[BLOCKED] Message rejected by SENTINEL — injection pattern detected.",
+                    channel=f"#swarm/{msg.src}",
+                    msg_type=MsgType.ERROR,
+                    dst=msg.src,
+                )
+                return  # Message does NOT continue downstream
 
         # Security audit on FORGE code results
         if msg.msg_type == MsgType.RESULT and msg.src == "FORGE":
@@ -437,18 +445,26 @@ class GH05T3Swarm:
 
         if preferred_agent:
             target = preferred_agent
-        elif any(w in task_low for w in ["research", "find", "what is", "explain"]):
-            target = "ORACLE"
-        elif any(w in task_low for w in ["code", "implement", "build", "write"]):
-            target = "FORGE"
-        elif any(w in task_low for w in ["review", "debug", "fix", "optimize"]):
-            target = "CODEX"
-        elif any(w in task_low for w in ["security", "scan", "audit", "threat"]):
-            target = "SENTINEL"
-        elif any(w in task_low for w in ["github", "push", "claude", "sync"]):
-            target = "NEXUS"
         else:
-            target = "ORACLE"   # default
+            # Priority-ordered intent matching — security/injection checked first
+            # to prevent malicious tasks from being routed to code execution agents
+            _routes = [
+                ("SENTINEL", {"security", "inject", "attack", "vulnerability", "threat",
+                               "audit", "scan", "pentest", "exploit", "malware", "breach"}),
+                ("NEXUS",    {"github", "push", "commit", "pr", "pull request", "sync",
+                               "deploy", "webhook", "workflow", "orchestrat", "pipeline"}),
+                ("FORGE",    {"code", "implement", "build", "write a function", "create a class",
+                               "script", "endpoint", "api", "module", "refactor"}),
+                ("CODEX",    {"review", "debug", "fix", "optimize", "lint", "test",
+                               "analyze code", "check code", "improve code"}),
+                ("ORACLE",   {"research", "find", "what is", "explain", "summarize",
+                               "lookup", "retrieve", "history", "context", "who is"}),
+            ]
+            target = "ORACLE"  # default fallback
+            for agent_id, keywords in _routes:
+                if any(kw in task_low for kw in keywords):
+                    target = agent_id
+                    break
 
         await self.bus.emit(
             src="OMEGA",
