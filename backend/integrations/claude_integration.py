@@ -165,8 +165,8 @@ For each scenario, produce:
 
 Output as JSON array. Be creative and technically rigorous."""
 
-    def __init__(self, client: ClaudeClient):
-        self._client = client
+    def __init__(self, client: ClaudeClient = None, api_key: str = None):
+        self._client = client or ClaudeClient(api_key=api_key)
         self._bus    = SwarmBus.instance()
 
     async def generate_training_batch(self, domain: str = "agent_systems",
@@ -254,8 +254,8 @@ Your job is to identify architectural improvements, performance bottlenecks,
 and advanced features to implement. Be specific, technical, and actionable.
 Prioritize zero-API-cost local improvements."""
 
-    def __init__(self, client: ClaudeClient):
-        self._client = client
+    def __init__(self, client: ClaudeClient = None, api_key: str = None):
+        self._client = client or ClaudeClient(api_key=api_key)
         self._bus    = SwarmBus.instance()
 
     async def review_module(self, module_name: str, source_code: str) -> str:
@@ -313,8 +313,8 @@ class ClaudeEval:
 Evaluate the proposal rigorously. Return JSON only:
 {"verdict": "PASS"|"REVISE", "score": 0.0-1.0, "critique": "...", "improvements": [...]}"""
 
-    def __init__(self, client: ClaudeClient):
-        self._client = client
+    def __init__(self, client: ClaudeClient = None, api_key: str = None):
+        self._client = client or ClaudeClient(api_key=api_key)
 
     async def evaluate(self, proposal: str, query: str,
                         local_score: float = None) -> dict:

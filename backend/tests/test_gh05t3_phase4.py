@@ -20,11 +20,18 @@ import uuid
 
 import pytest
 import requests
-import websockets
+websockets = pytest.importorskip("websockets", reason="websockets not installed")
 
-BASE_URL = (os.environ.get("REACT_APP_BACKEND_URL")
-            or open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].split("\n")[0].strip()
-           ).rstrip("/")
+_env_url = os.environ.get("REACT_APP_BACKEND_URL", "")
+if not _env_url:
+    try:
+        _env_url = (
+            open("/app/frontend/.env").read()
+            .split("REACT_APP_BACKEND_URL=")[1].split("\n")[0].strip()
+        )
+    except (FileNotFoundError, IndexError):
+        _env_url = "http://localhost:8001"
+BASE_URL = _env_url.rstrip("/")
 API = f"{BASE_URL}/api"
 WS_URL = BASE_URL.replace("https://", "wss://").replace("http://", "ws://") + "/api/ws"
 

@@ -1,6 +1,6 @@
 """
 push_hf_cards.py — Push updated model cards to HuggingFace.
-Run with system Python: C:\Users\leer4\AppData\Local\Programs\Python\Python312\python.exe push_hf_cards.py
+Run with system Python: python push_hf_cards.py
 """
 import os, sys
 from pathlib import Path
