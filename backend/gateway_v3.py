@@ -109,6 +109,10 @@ swarm          = None   # initialized in lifespan
 github         = None
 claude         = None
 
+# Cached backend health — updated by background task, never blocks /health
+_backend_cache: dict = {name: "unknown" for name in BACKENDS}
+_boot_time: float = time.time()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -136,6 +140,25 @@ async def lifespan(app: FastAPI):
         channel="#broadcast",
         msg_type=MsgType.SYSTEM,
     )
+
+    # Background backend health probe (non-blocking, updates cache every 30s)
+    async def _probe_backends():
+        import asyncio as _asyncio
+        while True:
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    async def _check(name, url):
+                        try:
+                            r = await client.get(f"{url}/health", timeout=1.5)
+                            _backend_cache[name] = "online" if r.status_code == 200 else "degraded"
+                        except Exception:
+                            _backend_cache[name] = "offline"
+                    await _asyncio.gather(*[_check(n, u) for n, u in BACKENDS.items()])
+            except Exception:
+                pass
+            await _asyncio.sleep(30)
+
+    asyncio.create_task(_probe_backends(), name="backend-probe")
 
     log.info("GH05T3 v3 gateway online (MCP=%s)", "enabled" if MCP_AVAILABLE else "disabled")
     yield
@@ -243,6 +266,41 @@ class SecretsRequest(BaseModel):
     google_ai_key: Optional[str] = None
 
 
+def _peer_self_info() -> dict:
+    """Return a stable identity block for the mesh dashboard."""
+    label = os.environ.get("TAILSCALE_OWN_LABEL") or os.environ.get("INSTANCE_LABEL") or "GH05T3"
+    role = os.environ.get("INSTANCE_ROLE", "peer")
+    ip = os.environ.get("TAILSCALE_OWN_IP", "").strip()
+    host = ip or "localhost"
+    return {
+        "label": label,
+        "role": role,
+        "url": f"http://{host}:{GATEWAY_PORT}",
+        "ip": ip or None,
+        "discovery": "tailscale",
+    }
+
+
+def _mesh_contract() -> dict:
+    return {
+        "self": _peer_self_info(),
+        "peers": peer_registry.peers,
+        "mesh": {
+            "discovery": {
+                "mode": "tailscale",
+                "refresh": "/peers/refresh",
+                "ping": "/peers/ping",
+            },
+            "github_relay": {
+                "push": "/github/mesh/push",
+                "pull": "/github/mesh/pull",
+                "sync": "/github/mesh/sync",
+                "peers": "/github/mesh/peers",
+            },
+        },
+    }
+
+
 # ─────────────────────────────────────────────
 # ORIGINAL ROUTES (preserved from v2)
 # ─────────────────────────────────────────────
@@ -268,19 +326,16 @@ async def identity():
 
 @app.get("/health")
 async def health():
-    backend_status = {}
-    async with httpx.AsyncClient(timeout=2.0) as client:
-        for name, url in BACKENDS.items():
-            try:
-                resp = await client.get(f"{url}/health", timeout=1.5)
-                backend_status[name] = "online" if resp.status_code == 200 else "degraded"
-            except Exception:
-                backend_status[name] = "offline"
+    # Returns instantly — backend probes run in background and are cached
+    any_online = any(v == "online" for v in _backend_cache.values())
+    all_unknown = all(v == "unknown" for v in _backend_cache.values())
+    status = "starting" if all_unknown else ("operational" if any_online else "degraded")
     return {
-        "status": "operational" if all(v == "online" for v in backend_status.values()) else "degraded",
-        "backends": backend_status,
+        "status": status,
+        "backends": _backend_cache,
         "swarm_agents": len(bus.agents),
         "ws_clients": bus.stats["ws_clients"],
+        "uptime_s": round(time.time() - _boot_time, 1),
         "timestamp": int(time.time()),
     }
 
@@ -554,19 +609,38 @@ async def github_mesh_peers():
 
 @app.get("/peers")
 async def get_peers():
-    """List all live GH05T3 peers discovered via Tailscale."""
-    return {
-        "peers": peer_registry.peers,
-        "count": len(peer_registry.peers),
-        "tailscale_configured": bool(os.environ.get("TAILSCALE_API_KEY", "")),
-    }
+    """Return the canonical mesh contract for the dashboard."""
+    data = _mesh_contract()
+    data["count"] = len(data["peers"])
+    data["tailscale_configured"] = bool(os.environ.get("TAILSCALE_API_KEY", ""))
+    return data
+
+
+@app.get("/peers/me")
+async def get_peer_me():
+    return _peer_self_info()
 
 
 @app.post("/peers/refresh")
 async def refresh_peers():
     """Trigger immediate Tailscale peer re-discovery."""
     peers = await peer_registry.refresh()
-    return {"peers": peers, "count": len(peers)}
+    data = _mesh_contract()
+    data["peers"] = peers
+    data["count"] = len(peers)
+    return data
+
+
+@app.post("/peers/ping")
+async def ping_peers():
+    """Compatibility alias for the dashboard's live refresh button."""
+    return await refresh_peers()
+
+
+@app.post("/peers/sync/push")
+async def push_mesh_sync():
+    """Compatibility alias for pushing the GitHub-backed mesh relay."""
+    return await github_mesh_sync()
 
 
 @app.get("/mcp/info")

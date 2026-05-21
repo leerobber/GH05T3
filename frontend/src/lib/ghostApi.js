@@ -91,6 +91,9 @@ export const gw3 = axios.create({ baseURL: GW3_URL, timeout: 60000 });
 export const gw3WsUrl = () => GW3_URL.replace(/^http/, "ws") + "/ws";
 
 export const gw3Health      = () => gw3.get("/health").then((r) => r.data);
+export const gw3Peers       = () => gw3.get("/peers").then((r) => r.data);
+export const gw3PeersRefresh = () => gw3.post("/peers/refresh").then((r) => r.data);
+export const gw3PeersPing    = () => gw3.post("/peers/ping").then((r) => r.data);
 export const gw3Agents      = () => gw3.get("/swarm/agents").then((r) => r.data);
 export const gw3Delegate    = (task, agent = null) =>
   gw3.post("/swarm/delegate", { task, agent }).then((r) => r.data);
@@ -115,3 +118,4 @@ export const gw3MeshPush  = () => gw3.post("/github/mesh/push").then((r) => r.da
 export const gw3MeshPull  = () => gw3.post("/github/mesh/pull").then((r) => r.data);
 export const gw3MeshSync  = () => gw3.post("/github/mesh/sync").then((r) => r.data);
 export const gw3MeshPeers = () => gw3.get("/github/mesh/peers").then((r) => r.data);
+export const gw3MeshRefresh = () => gw3.post("/peers/refresh").then((r) => r.data);
