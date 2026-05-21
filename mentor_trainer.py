@@ -1,18 +1,21 @@
 """
-mentor_trainer.py — Claude-as-Mentor synthetic data generator.
+mentor_trainer.py — Mentor synthetic data generator for SovereignNation agents.
 
-Claude Sonnet acts as the expert teacher for each SovereignNation agent.
-Each session:
-  1. Claude generates N fresh, varied prompts for the agent's domain
-  2. Claude answers each prompt as the agent (using the agent's system prompt)
-  3. Pairs are saved to data/mentor_pairs.jsonl
-  4. Pairs are also appended to data/agents_bootstrap.jsonl for training
+Generates N fresh, varied prompts per agent domain, then answers each as the
+agent (using its system prompt). Saves pairs to data/mentor_pairs.jsonl and
+data/agents_bootstrap.jsonl.
+
+Providers (auto-detected from .env, or pass --provider):
+  groq      — FREE, llama-3.3-70b-versatile (console.groq.com)
+  cerebras  — FREE, llama-3.3-70b (cloud.cerebras.ai)
+  anthropic — Claude (credits required)
 
 Run standalone:
-  python mentor_trainer.py                      # all agents, 5 pairs each
-  python mentor_trainer.py --agent avery        # single agent
-  python mentor_trainer.py --pairs 10           # more pairs
-  python mentor_trainer.py --dry-run            # preview, no API calls
+  python mentor_trainer.py                        # all agents, 5 pairs each
+  python mentor_trainer.py --agent avery          # single agent
+  python mentor_trainer.py --pairs 10             # more pairs
+  python mentor_trainer.py --provider groq        # force Groq
+  python mentor_trainer.py --dry-run              # preview, no API calls
 
 Called from flywheel:
   from mentor_trainer import run_mentor_session
@@ -31,6 +34,102 @@ DATA = ROOT / "data"
 
 MENTOR_FILE    = DATA / "mentor_pairs.jsonl"
 BOOTSTRAP_FILE = DATA / "agents_bootstrap.jsonl"
+
+# ── Provider constants ────────────────────────────────────────────────────────
+GROQ_BASE_URL     = "https://api.groq.com/openai/v1"
+GROQ_MODEL        = "llama-3.3-70b-versatile"
+CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
+CEREBRAS_MODEL    = "llama-3.3-70b"
+ANTHROPIC_FAST    = "claude-haiku-4-5-20251001"
+ANTHROPIC_SMART   = "claude-sonnet-4-6"
+
+
+def _load_env():
+    env_path = ROOT / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+
+_load_env()
+
+
+class _RotatingClient:
+    """OpenAI-compat client that rotates over multiple API keys on 429/401."""
+
+    def __init__(self, keys: list, base_url: str, model: str, OpenAI):
+        self._clients = [OpenAI(api_key=k, base_url=base_url) for k in keys]
+        self._model   = model
+        self._idx     = 0
+        self._tried: set = set()
+
+    def chat(self, messages: list, max_tokens: int = 1200, temperature: float = 0.8) -> str:
+        for _attempt in range(len(self._clients) * 2 + 1):
+            try:
+                resp = self._clients[self._idx].chat.completions.create(
+                    model=self._model,
+                    max_tokens=max_tokens,
+                    messages=messages,
+                    temperature=temperature,
+                )
+                return resp.choices[0].message.content.strip()
+            except Exception as e:
+                err = str(e)
+                tpd = "rate_limit_exceeded" in err and "tokens per day" in err.lower()
+                inv = "invalid_api_key" in err or "401" in err
+                rpm = "rate_limit_exceeded" in err and not tpd
+                if tpd or inv:
+                    self._tried.add(self._idx)
+                    remaining = [i for i in range(len(self._clients)) if i not in self._tried]
+                    if not remaining:
+                        raise RuntimeError("All API keys exhausted")
+                    self._idx = remaining[0]
+                    print(f"  [key {list(self._tried)[-1]+1} {'TPD' if tpd else 'invalid'} → key {self._idx+1}]")
+                elif rpm:
+                    time.sleep(12)
+                else:
+                    raise
+        raise RuntimeError("All keys exhausted")
+
+
+def _make_client(provider: str):
+    """Return (client, is_anthropic) tuple."""
+    if provider in ("groq", "cerebras"):
+        try:
+            from openai import OpenAI
+        except ImportError:
+            print("ERROR: pip install openai"); sys.exit(1)
+        if provider == "groq":
+            keys = [v for k, v in sorted(os.environ.items()) if k.startswith("GROQ_API_KEY") and v]
+            if not keys:
+                print("ERROR: GROQ_API_KEY not set"); sys.exit(1)
+            print(f"  Groq keys: {len(keys)}")
+            return _RotatingClient(keys, GROQ_BASE_URL, GROQ_MODEL, OpenAI), False
+        else:
+            key = os.environ.get("CEREBRAS_API_KEY", "")
+            if not key:
+                print("ERROR: CEREBRAS_API_KEY not set"); sys.exit(1)
+            return _RotatingClient([key], CEREBRAS_BASE_URL, CEREBRAS_MODEL, OpenAI), False
+
+    elif provider == "anthropic":
+        try:
+            import anthropic
+        except ImportError:
+            print("ERROR: pip install anthropic"); sys.exit(1)
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            print("ERROR: ANTHROPIC_API_KEY not set"); sys.exit(1)
+        return anthropic.Anthropic(api_key=key), True
+
+    print(f"ERROR: Unknown provider '{provider}'"); sys.exit(1)
+
+
+def _auto_provider() -> str:
+    if os.environ.get("GROQ_API_KEY"):       return "groq"
+    if os.environ.get("CEREBRAS_API_KEY"):   return "cerebras"
+    if os.environ.get("ANTHROPIC_API_KEY"):  return "anthropic"
+    return "groq"
 
 # ── Agent definitions (system prompts + topic seeds) ──────────────────────────
 
@@ -158,7 +257,7 @@ AGENTS = {
     },
 }
 
-# ── Prompt generator (Claude generates fresh questions) ───────────────────────
+# ── Prompt + answer generators ────────────────────────────────────────────────
 
 _PROMPT_GEN_SYSTEM = (
     "You are a training data curator for AI agents. "
@@ -168,7 +267,7 @@ _PROMPT_GEN_SYSTEM = (
 )
 
 
-def _generate_prompts(client, agent_name: str, seed: str, n: int) -> list[str]:
+def _generate_prompts(client, is_anthropic: bool, agent_name: str, seed: str, n: int) -> list[str]:
     msg = (
         f"Generate {n} distinct questions a user would ask the {agent_name.upper()} agent "
         f"about this topic: '{seed}'.\n"
@@ -176,14 +275,23 @@ def _generate_prompts(client, agent_name: str, seed: str, n: int) -> list[str]:
         f"Output ONLY a JSON array of {n} question strings."
     )
     try:
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=800,
-            system=_PROMPT_GEN_SYSTEM,
-            messages=[{"role": "user", "content": msg}],
-        )
-        text = resp.content[0].text.strip()
-        # Extract JSON array
+        if is_anthropic:
+            resp = client.messages.create(
+                model=ANTHROPIC_FAST,
+                max_tokens=800,
+                system=_PROMPT_GEN_SYSTEM,
+                messages=[{"role": "user", "content": msg}],
+            )
+            text = resp.content[0].text.strip()
+        else:
+            text = client.chat(
+                messages=[
+                    {"role": "system", "content": _PROMPT_GEN_SYSTEM},
+                    {"role": "user",   "content": msg},
+                ],
+                max_tokens=800,
+                temperature=0.9,
+            )
         start = text.find("[")
         end   = text.rfind("]") + 1
         if start >= 0 and end > start:
@@ -193,16 +301,25 @@ def _generate_prompts(client, agent_name: str, seed: str, n: int) -> list[str]:
     return []
 
 
-def _generate_answer(client, agent_name: str, system: str, prompt: str) -> str | None:
-    """Claude Sonnet answers as the agent — this is the mentor response."""
+def _generate_answer(client, is_anthropic: bool, agent_name: str, system: str, prompt: str) -> str | None:
     try:
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1500,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return resp.content[0].text.strip()
+        if is_anthropic:
+            resp = client.messages.create(
+                model=ANTHROPIC_SMART,
+                max_tokens=1500,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return resp.content[0].text.strip()
+        else:
+            return client.chat(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": prompt},
+                ],
+                max_tokens=1500,
+                temperature=0.8,
+            )
     except Exception as e:
         print(f"    [answer error: {e}]")
         return None
@@ -214,20 +331,10 @@ def run_mentor_session(
     target_agents: list[str] | None = None,
     pairs_per_agent: int = 5,
     dry_run: bool = False,
+    provider: str | None = None,
 ) -> int:
-    """
-    Generate mentor pairs for each agent. Returns total pairs generated.
-    Appends to both mentor_pairs.jsonl and agents_bootstrap.jsonl.
-    """
+    """Generate mentor pairs for each agent. Returns total pairs generated."""
     DATA.mkdir(exist_ok=True)
-
-    # Load env
-    env_path = ROOT / ".env"
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            if "=" in line and not line.startswith("#"):
-                k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip().strip("'\""))
 
     agents_to_run = target_agents or list(AGENTS.keys())
 
@@ -238,16 +345,9 @@ def run_mentor_session(
             print(f"  {agent.upper()}: {len(seeds)} topic seeds, {pairs_per_agent} pairs target")
         return 0
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        print("[MENTOR] ERROR: ANTHROPIC_API_KEY not set"); return 0
-
-    try:
-        import anthropic
-    except ImportError:
-        print("[MENTOR] ERROR: pip install anthropic"); return 0
-
-    client = anthropic.Anthropic(api_key=api_key)
+    chosen = provider or _auto_provider()
+    print(f"\n[MENTOR] Provider: {chosen}")
+    client, is_anthropic = _make_client(chosen)
 
     # Load existing mentor pairs to avoid duplicates
     existing_prompts: set[tuple[str, str]] = set()
@@ -256,30 +356,30 @@ def run_mentor_session(
             if line.strip():
                 try:
                     r = json.loads(line)
-                    existing_prompts.add((r["agent"], r["prompt"]))
+                    existing_prompts.add((r.get("agent", ""), r.get("prompt", "")))
                 except Exception:
                     pass
 
     total_new = 0
 
     for agent_name in agents_to_run:
-        defn    = AGENTS[agent_name]
-        system  = defn["system"]
-        seeds   = defn["topic_seeds"]
-        pairs   = 0
-        seed_i  = 0
+        defn   = AGENTS[agent_name]
+        system = defn["system"]
+        seeds  = defn["topic_seeds"]
+        pairs  = 0
+        seed_i = 0
 
         print(f"\n[MENTOR] {agent_name.upper()} — target {pairs_per_agent} pairs")
 
-        while pairs < pairs_per_agent and seed_i < len(seeds) * 3:
-            seed = seeds[seed_i % len(seeds)]
+        while pairs < pairs_per_agent and seed_i < len(seeds) * 4:
+            seed  = seeds[seed_i % len(seeds)]
             seed_i += 1
+            need  = pairs_per_agent - pairs
+            batch = min(need, 3)
 
-            # Generate 2-3 question variants per seed, stop when we hit target
-            need   = pairs_per_agent - pairs
-            batch  = min(need, 2)
-            prompts = _generate_prompts(client, agent_name, seed, batch)
-            time.sleep(0.3)
+            prompts = _generate_prompts(client, is_anthropic, agent_name, seed, batch)
+            if not is_anthropic:
+                time.sleep(1)  # Groq RPM guard
 
             for prompt in prompts:
                 if pairs >= pairs_per_agent:
@@ -287,32 +387,30 @@ def run_mentor_session(
                 if (agent_name, prompt) in existing_prompts:
                     continue
 
-                answer = _generate_answer(client, agent_name, system, prompt)
-                time.sleep(0.4)
-                if not answer:
+                answer = _generate_answer(client, is_anthropic, agent_name, system, prompt)
+                if not is_anthropic:
+                    time.sleep(1)
+                if not answer or len(answer) < 80:
                     continue
 
                 record = {
-                    "agent":     agent_name,
-                    "prompt":    prompt,
+                    "agent":       agent_name,
+                    "prompt":      prompt,
                     "instruction": prompt,
-                    "response":  answer,
-                    "source":    "mentor",
-                    "domain":    agent_name,
+                    "response":    answer,
+                    "source":      "mentor",
+                    "domain":      agent_name,
                 }
 
-                # Write to mentor file
                 with MENTOR_FILE.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-                # Also write to agents_bootstrap so training picks it up
                 with BOOTSTRAP_FILE.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
                 existing_prompts.add((agent_name, prompt))
-                pairs      += 1
-                total_new  += 1
-                print(f"  [{pairs}/{pairs_per_agent}] {prompt[:70]}...")
+                pairs     += 1
+                total_new += 1
+                print(f"  [{pairs}/{pairs_per_agent}] {prompt[:72]}...")
 
         print(f"  Done: {pairs} new mentor pairs for {agent_name}")
 
@@ -323,14 +421,20 @@ def run_mentor_session(
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="Claude-as-Mentor training data generator")
-    ap.add_argument("--agent",   choices=list(AGENTS.keys()) + ["all"], default="all")
-    ap.add_argument("--pairs",   type=int, default=5, help="Target pairs per agent")
-    ap.add_argument("--dry-run", action="store_true")
+    ap = argparse.ArgumentParser(description="Mentor training data generator")
+    ap.add_argument("--agent",    choices=list(AGENTS.keys()) + ["all"], default="all")
+    ap.add_argument("--pairs",    type=int, default=5, help="Target pairs per agent")
+    ap.add_argument("--provider", choices=["groq", "cerebras", "anthropic"], default=None)
+    ap.add_argument("--dry-run",  action="store_true")
     args = ap.parse_args()
 
     target = None if args.agent == "all" else [args.agent]
-    run_mentor_session(target_agents=target, pairs_per_agent=args.pairs, dry_run=args.dry_run)
+    run_mentor_session(
+        target_agents=target,
+        pairs_per_agent=args.pairs,
+        dry_run=args.dry_run,
+        provider=args.provider,
+    )
 
 
 if __name__ == "__main__":
