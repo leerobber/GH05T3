@@ -65,7 +65,7 @@ def _save_state(s: dict):
 def _slack(msg: str):
     try:
         import slack_notify as sn
-        sn.send(msg)
+        sn.post("learner", msg)
     except Exception:
         pass
 
@@ -105,6 +105,15 @@ def phase_data(spin_threshold: int):
     """Run continuous_learner in BATCH_CYCLES chunks until one HF upload fires."""
     print("\n+--- FLYWHEEL: DATA PHASE ---+")
     print(f"  Target: {spin_threshold} new SPIN pairs -> upload to HF")
+
+    # ── Mentor step: Claude teaches all agents before SPIN loop ──────────────
+    try:
+        from mentor_trainer import run_mentor_session
+        _slack("[Flywheel] Mentor session starting — Claude teaching all agents...")
+        new_pairs = run_mentor_session(pairs_per_agent=5)
+        _slack(f"[Flywheel] Mentor done. {new_pairs} new teaching pairs added.")
+    except Exception as e:
+        print(f"  [MENTOR WARNING] {e}")
 
     # Import learner internals directly so we can check upload state
     sys.path.insert(0, str(ROOT))
@@ -192,9 +201,10 @@ def phase_train(run_number: int = 1, train_all_agents: bool = False):
     print("  [1] Training AVERY (business strategist)...")
     _slack("[Flywheel] Launching RunPod training — Avery...")
     os.environ["TRAIN_AGENT"] = "avery"
-    os.environ["TRAIN_MODE"]  = "orpo"
-    os.environ["TRAIN_SPLIT"] = "bootstrap_dpo"
-    launch(train_mode="orpo", train_split="bootstrap_dpo")
+    os.environ["TRAIN_MODE"]  = "sft"
+    if "TRAIN_SPLIT" in os.environ:
+        del os.environ["TRAIN_SPLIT"]
+    launch(train_mode="sft", train_split=None)
     print("  Avery LoRA pushed to HuggingFace.")
     _slack(f"[Flywheel] Avery done. LoRA at {LORA_REPO}.")
 
@@ -211,10 +221,11 @@ def phase_train(run_number: int = 1, train_all_agents: bool = False):
             print(f"\n  --- {agent.upper()} ---")
             _slack(f"[Flywheel] Training {agent}...")
             os.environ["TRAIN_AGENT"] = agent
-            os.environ["TRAIN_MODE"]  = "orpo"
-            os.environ["TRAIN_SPLIT"] = ""
+            os.environ["TRAIN_MODE"]  = "sft"
+            if "TRAIN_SPLIT" in os.environ:
+                del os.environ["TRAIN_SPLIT"]
             try:
-                launch(train_mode="orpo", train_split="")
+                launch(train_mode="sft", train_split=None)
                 print(f"  {agent} LoRA pushed to HuggingFace.")
                 _slack(f"[Flywheel] {agent} done.")
             except Exception as e:

@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  SOVEREIGN TRAINING PIPELINE — Single entry point
+REM  SOVEREIGN TRAINING PIPELINE ? Single entry point
 REM
 REM  USAGE:
 REM    train.bat                      preflight + RunPod ORPO (Avery)
@@ -20,28 +20,26 @@ REM    train.bat check                preflight dry-run (no upload)
 REM ============================================================
 
 REM -- Find Python with datasets installed ----------------------------------
-set PYTHON=%~dp0.venv\Scripts\python.exe
-if not exist "%PYTHON%" set PYTHON=C:\Users\leer4\AppData\Local\Programs\Python\Python312\python.exe
-if not exist "%PYTHON%" set PYTHON=python
+REM  datasets lives in system Python, not the project venv.
+REM  Always prefer system Python for HF/datasets operations.
+set SYS_PYTHON=C:\Users\leer4\AppData\Local\Programs\Python\Python312\python.exe
+set VENV_PYTHON=%~dp0.venv\Scripts\python.exe
 
-REM -- Verify datasets is available -----------------------------------------
-"%PYTHON%" -c "import datasets" 2>nul
+REM -- Verify datasets is available in system Python (canonical location) ---
+"%SYS_PYTHON%" -c "import datasets" 2>nul
 if errorlevel 1 (
-    echo WARNING: datasets not in .venv -- trying system Python...
-    set PYTHON=C:\Users\leer4\AppData\Local\Programs\Python\Python312\python.exe
-    "%PYTHON%" -c "import datasets" 2>nul
-    if errorlevel 1 (
-        echo ERROR: datasets not installed. Run: pip install datasets huggingface_hub
-        exit /b 1
-    )
+    echo ERROR: datasets not in system Python. Run:
+    echo   "%SYS_PYTHON%" -m pip install datasets huggingface_hub
+    exit /b 1
 )
+set PYTHON=%SYS_PYTHON%
 
 REM -- Parse arguments ------------------------------------------------------
 set ARG1=%~1
 set ARG2=%~2
 if "%ARG1%"=="" set ARG1=orpo
 
-REM ── Commands that don't need preflight ──
+REM ?? Commands that don't need preflight ??
 if "%ARG1%"=="status"    goto :status
 if "%ARG1%"=="stop"      goto :stop
 if "%ARG1%"=="cleanup"   goto :cleanup
@@ -50,7 +48,7 @@ if "%ARG1%"=="deploy"    goto :deploy
 if "%ARG1%"=="check"     goto :check
 if "%ARG1%"=="bootstrap" goto :bootstrap
 
-REM ── Determine AGENT and MODE ──
+REM ?? Determine AGENT and MODE ??
 REM  Agent names
 set IS_AGENT=0
 if "%ARG1%"=="avery"    set IS_AGENT=1
@@ -74,7 +72,7 @@ if "%IS_AGENT%"=="1" (
     set TRAIN_MODE=%ARG1%
 )
 
-REM ── Determine split based on agent ──
+REM ?? Determine split based on agent ??
 if "%TRAIN_AGENT%"=="avery" (
     set TRAIN_SPLIT=bootstrap_dpo
 ) else (
@@ -103,7 +101,7 @@ echo.
 
 REM -- STEP 2: Launch RunPod training ----------------------------------------
 echo [STEP 2/3] Launching RunPod training (agent=%TRAIN_AGENT%  mode=%TRAIN_MODE%)...
-echo   (Ctrl+C is safe — pod keeps running. Resume with: train.bat tail)
+echo   (Ctrl+C is safe ? pod keeps running. Resume with: train.bat tail)
 echo.
 if "%TRAIN_SPLIT%"=="" (
     "%PYTHON%" runpod_launcher.py --mode %TRAIN_MODE%

@@ -32,7 +32,9 @@ ap.add_argument("--mode",   default=os.environ.get("TRAIN_MODE",  "orpo"),
                 choices=["sft", "dpo", "orpo", "grpo"])
 ap.add_argument("--agent",  default=os.environ.get("TRAIN_AGENT", "avery"),
                 choices=["avery","forge","oracle","codex","sentinel","nexus","all"])
-ap.add_argument("--epochs", type=int, default=int(os.environ.get("TRAIN_EPOCHS", "3")))
+ap.add_argument("--epochs",    type=int, default=int(os.environ.get("TRAIN_EPOCHS", "3")))
+ap.add_argument("--max-steps", type=int, default=int(os.environ.get("TRAIN_MAX_STEPS", "-1")),
+                help="Hard cap on training steps per agent (-1 = unlimited)")
 ap.add_argument("--split",  default=os.environ.get("TRAIN_SPLIT", ""))
 args, _ = ap.parse_known_args()
 
@@ -42,6 +44,7 @@ HF_DATASET  = "tastytator/sovereign-economy"
 OUTPUT_DIR  = "/workspace/avery-lora"
 CKPT_DIR    = "/workspace/checkpoints"
 EPOCHS      = args.epochs
+MAX_STEPS   = args.max_steps
 MAX_SEQ_LEN = 2048
 MODE        = args.mode
 AGENT       = args.agent
@@ -332,6 +335,7 @@ if MODE == "sft":
             per_device_train_batch_size = 2,
             gradient_accumulation_steps = 4,
             num_train_epochs            = EPOCHS,
+            max_steps                   = MAX_STEPS,
             learning_rate               = 2e-4,
             fp16                        = not torch.cuda.is_bf16_supported(),
             bf16                        = torch.cuda.is_bf16_supported(),
@@ -370,6 +374,7 @@ elif MODE == "orpo":
             per_device_train_batch_size = 1,
             gradient_accumulation_steps = 8,
             num_train_epochs            = EPOCHS,
+            max_steps                   = MAX_STEPS,
             learning_rate               = 8e-6,
             fp16                        = not torch.cuda.is_bf16_supported(),
             bf16                        = torch.cuda.is_bf16_supported(),
@@ -410,6 +415,7 @@ elif MODE == "dpo":
             per_device_train_batch_size = 1,
             gradient_accumulation_steps = 8,
             num_train_epochs            = EPOCHS,
+            max_steps                   = MAX_STEPS,
             learning_rate               = 5e-6,
             fp16                        = not torch.cuda.is_bf16_supported(),
             bf16                        = torch.cuda.is_bf16_supported(),
