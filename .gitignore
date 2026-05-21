@@ -108,9 +108,17 @@ ollama_models/
 # Runtime log files
 *.err.log
 *.out.log
+*.log
 backend/ghost.log
 backend/uvicorn*.log
+backend/gateway.log
+backend/server.log
+backend/uvicorn*.log*
 sovereign-agent-training.log
+training_data/*.log
+
+# Process ID files
+*.pid
 
 # Kaggle build outputs
 kaggle_output*/
@@ -121,7 +129,11 @@ kaggle_secrets_dataset/
 data/
 course/
 .claude/
-"Tor Browser/"
+Tor Browser/
+memory/conversations.jsonl
+
+# VS Code workspace (local only)
+*.code-workspace
 
 # Disabled/backup files
 *.disabled
