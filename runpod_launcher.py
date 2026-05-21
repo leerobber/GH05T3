@@ -13,10 +13,18 @@ from pathlib import Path
 
 import requests
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+SERVERLESS_API = "https://api.runpod.io/v2"
+
 # ── Config ────────────────────────────────────────────────────────────────────
-API_KEY       = os.environ.get("RUNPOD_API_KEY", "")
-HF_TOKEN      = os.environ.get("HF_TOKEN", "")
-SSH_KEY_PUB   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIARR9yuDQlP7BJ8VKXq3o/bZlPLov71iDTRb2HBtfMQl claude-avery-training"
+API_KEY           = os.environ.get("RUNPOD_API_KEY", "")
+HF_TOKEN          = os.environ.get("HF_TOKEN", "")
+NETWORK_VOLUME_ID = os.environ.get("RUNPOD_VOLUME_ID", "")
+SSH_KEY_PUB       = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIARR9yuDQlP7BJ8VKXq3o/bZlPLov71iDTRb2HBtfMQl claude-avery-training"
 TRAIN_SCRIPT  = Path(__file__).parent / "train_sovereign_sft.py"
 STATE_FILE    = Path(__file__).parent / "data" / "runpod_state.json"
 LOG_FILE      = Path(__file__).parent / "data" / "train_run.log"
@@ -38,7 +46,7 @@ GQL_URL = ""  # set by _load_env
 
 # ── Env loader ────────────────────────────────────────────────────────────────
 def _load_env():
-    global API_KEY, HF_TOKEN, GQL_URL
+    global API_KEY, HF_TOKEN, GQL_URL, NETWORK_VOLUME_ID
     env_path = Path(__file__).parent / ".env"
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
@@ -50,7 +58,25 @@ def _load_env():
                     API_KEY = v
                 if k.strip() == "HF_TOKEN" and not HF_TOKEN:
                     HF_TOKEN = v
+                if k.strip() == "RUNPOD_VOLUME_ID" and not NETWORK_VOLUME_ID:
+                    NETWORK_VOLUME_ID = v
     GQL_URL = f"https://api.runpod.io/graphql?api_key={API_KEY}"
+
+
+def _write_env_key(key: str, value: str):
+    """Append or update a key in the .env file."""
+    env_path = Path(__file__).parent / ".env"
+    text = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
+    lines = text.splitlines()
+    updated = False
+    for i, line in enumerate(lines):
+        if line.startswith(f"{key}="):
+            lines[i] = f"{key}={value}"
+            updated = True
+            break
+    if not updated:
+        lines.append(f"{key}={value}")
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _gql(query: str, variables: dict = None) -> dict:
@@ -95,7 +121,8 @@ def find_all_gpus_sorted() -> list:
     return eligible
 
 
-def start_pod(gpu_type_id: str, cloud_type: str = "COMMUNITY") -> dict:
+def start_pod(gpu_type_id: str, cloud_type: str = "COMMUNITY",
+              network_volume_id: str = "") -> dict:
     mutation = """
     mutation CreatePod($input: PodFindAndDeployOnDemandInput!) {
       podFindAndDeployOnDemand(input: $input) {
@@ -104,7 +131,8 @@ def start_pod(gpu_type_id: str, cloud_type: str = "COMMUNITY") -> dict:
       }
     }
     """
-    variables = {"input": {
+    vol_id = network_volume_id or NETWORK_VOLUME_ID
+    inp = {
         "cloudType":         cloud_type,
         "gpuCount":          1,
         "volumeInGb":        30,
@@ -116,15 +144,18 @@ def start_pod(gpu_type_id: str, cloud_type: str = "COMMUNITY") -> dict:
         "imageName":         POD_IMAGE,
         "ports":             "22/tcp",
         "volumeMountPath":   "/workspace",
-        "env": [
+        "env": [e for e in [
             {"key": "PUBLIC_KEY",   "value": SSH_KEY_PUB},
             {"key": "HF_TOKEN",     "value": HF_TOKEN},
             {"key": "TRAIN_MODE",   "value": os.environ.get("TRAIN_MODE",  "orpo")},
-            {"key": "TRAIN_SPLIT",  "value": os.environ.get("TRAIN_SPLIT", "bootstrap_dpo")},
             {"key": "TRAIN_AGENT",  "value": os.environ.get("TRAIN_AGENT", "avery")},
-        ],
-    }}
-    data = _gql(mutation, variables)
+            ({"key": "TRAIN_SPLIT", "value": os.environ["TRAIN_SPLIT"]}
+             if os.environ.get("TRAIN_SPLIT") else None),
+        ] if e],
+    }
+    if vol_id:
+        inp["networkVolumeId"] = vol_id
+    data = _gql(mutation, {"input": inp})
     return data["podFindAndDeployOnDemand"]
 
 
@@ -152,6 +183,106 @@ def stop_pod(pod_id: str):
     }
     """
     return _gql(mutation, {"podId": pod_id})
+
+
+# ── Network Volume ─────────────────────────────────────────────────────────────
+def list_volumes() -> list:
+    q = "{ myself { networkVolumes { id name size dataCenterId } } }"
+    return _gql(q)["myself"]["networkVolumes"]
+
+
+def create_volume(name: str, size_gb: int = 50, datacenter_id: str = "US-TX-3") -> dict:
+    mutation = """
+    mutation CreateVolume($input: CreateNetworkVolumeInput!) {
+      createNetworkVolume(input: $input) { id name size dataCenterId }
+    }
+    """
+    return _gql(mutation, {"input": {
+        "name":         name,
+        "size":         size_gb,
+        "dataCenterId": datacenter_id,
+    }})["createNetworkVolume"]
+
+
+def delete_volume(volume_id: str) -> dict:
+    mutation = """
+    mutation DeleteVolume($id: String!) {
+      deleteNetworkVolume(input: { id: $id })
+    }
+    """
+    return _gql(mutation, {"id": volume_id})
+
+
+# ── Serverless Endpoints ───────────────────────────────────────────────────────
+def list_endpoints() -> list:
+    q = "{ myself { endpoints { id name workersMin workersMax gpuIds templateId networkVolumeId } } }"
+    try:
+        return _gql(q)["myself"]["endpoints"]
+    except Exception:
+        return []
+
+
+def create_endpoint(
+    name: str,
+    image_name: str,
+    gpu_ids: str = "AMPERE_24,AMPERE_16",
+    workers_min: int = 0,
+    workers_max: int = 3,
+    idle_timeout: int = 5,
+    volume_id: str = "",
+    env_vars: list = None,
+) -> dict:
+    """Create a RunPod serverless endpoint from a Docker image."""
+    mutation = """
+    mutation CreateTemplate($input: SaveTemplateInput!) {
+      saveTemplate(input: $input) { id name imageName }
+    }
+    """
+    template = _gql(mutation, {"input": {
+        "name":        f"{name}-template",
+        "imageName":   image_name,
+        "isServerless": True,
+        "env": env_vars or [],
+        "containerDiskInGb": 20,
+    }})["saveTemplate"]
+
+    ep_mutation = """
+    mutation CreateEndpoint($input: EndpointInput!) {
+      saveEndpoint(input: $input) { id name workersMin workersMax }
+    }
+    """
+    ep_input = {
+        "name":            name,
+        "templateId":      template["id"],
+        "gpuIds":          gpu_ids,
+        "workersMin":      workers_min,
+        "workersMax":      workers_max,
+        "idleTimeout":     idle_timeout,
+        "scalerType":      "QUEUE_DELAY",
+        "scalerValue":     4,
+    }
+    if volume_id:
+        ep_input["networkVolumeId"] = volume_id
+    return _gql(ep_mutation, {"input": ep_input})["saveEndpoint"]
+
+
+def run_serverless_job(endpoint_id: str, payload: dict, timeout: int = 300) -> dict:
+    """Submit a job to a serverless endpoint and poll until done."""
+    headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+    r = requests.post(f"{SERVERLESS_API}/{endpoint_id}/run", json=payload,
+                      headers=headers, timeout=30)
+    r.raise_for_status()
+    job = r.json()
+    job_id = job["id"]
+    for _ in range(timeout // 2):
+        time.sleep(2)
+        r2 = requests.get(f"{SERVERLESS_API}/{endpoint_id}/status/{job_id}",
+                          headers=headers, timeout=10)
+        r2.raise_for_status()
+        s = r2.json()
+        if s["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
+            return s
+    return {"status": "TIMEOUT", "id": job_id}
 
 
 def get_ssh_info(pod: dict):
@@ -195,7 +326,8 @@ def _ssh_run(ip: str, port: int, command: str, capture: bool = False, timeout: i
            "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
            f"root@{ip}", command]
     if capture:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=timeout)
     return subprocess.run(cmd, timeout=timeout)
 
 
@@ -248,7 +380,11 @@ def launch(train_mode: str = None, train_split: str = None):
         print("ERROR: HF_TOKEN not set in .env"); sys.exit(1)
 
     train_mode  = train_mode  or os.environ.get("TRAIN_MODE",  "orpo")
-    train_split = train_split or os.environ.get("TRAIN_SPLIT", "bootstrap_dpo")
+    # SFT mode trains on the full sft/train split — no split arg needed
+    if train_mode == "sft":
+        train_split = train_split or os.environ.get("TRAIN_SPLIT", None)
+    else:
+        train_split = train_split or os.environ.get("TRAIN_SPLIT", "bootstrap_dpo")
 
     print("\n+==========================================+")
     print("|  SOVEREIGN RUNPOD TRAINING LAUNCHER      |")
@@ -279,7 +415,10 @@ def launch(train_mode: str = None, train_split: str = None):
             try:
                 # Inject mode into env before start
                 os.environ["TRAIN_MODE"]  = train_mode
-                os.environ["TRAIN_SPLIT"] = train_split
+                if train_split:
+                    os.environ["TRAIN_SPLIT"] = train_split
+                else:
+                    os.environ.pop("TRAIN_SPLIT", None)
                 pod = start_pod(g["id"], cloud_type=cloud_type)
                 print(f"  SUCCESS: {g['displayName']} @ ${price:.3f}/hr")
                 break
@@ -319,13 +458,23 @@ def launch(train_mode: str = None, train_split: str = None):
         print("  ERROR: Pod never got SSH. Run: python runpod_launcher.py --cleanup")
         sys.exit(1)
 
-    print("  Waiting 25s for sshd to initialize...")
-    time.sleep(25)
+    print("  Waiting 60s for sshd + authorized_keys to initialize...")
+    time.sleep(60)
 
-    # ── Upload ────────────────────────────────────────────────────────────────
+    # ── Upload (with retry) ───────────────────────────────────────────────────
     print(f"\n[4/6] Uploading training script to {ip}:{port}...")
-    _scp_upload(ip, port, str(TRAIN_SCRIPT), "/workspace/train_sovereign_sft.py")
-    print("  Uploaded.")
+    for scp_attempt in range(1, 6):
+        try:
+            _scp_upload(ip, port, str(TRAIN_SCRIPT), "/workspace/train_sovereign_sft.py")
+            print("  Uploaded.")
+            break
+        except RuntimeError as e:
+            if scp_attempt < 5:
+                print(f"  SCP attempt {scp_attempt}/5 failed — waiting 20s: {e}")
+                time.sleep(20)
+            else:
+                print(f"  SCP failed after 5 attempts. Pod may need longer to boot.")
+                raise
     _save_state({"pod_id": pod_id, "ip": ip, "port": port,
                  "started_at": time.time(), "train_mode": train_mode,
                  "train_split": train_split,
@@ -337,14 +486,14 @@ def launch(train_mode: str = None, train_split: str = None):
     train_cmd = (
         f"export HF_TOKEN={HF_TOKEN}; "
         f"export TRAIN_MODE={train_mode}; "
-        f"export TRAIN_SPLIT={train_split}; "
-        f"export TRAIN_AGENT={train_agent}; "
+        + (f"export TRAIN_SPLIT={train_split}; " if train_split else "")
+        + f"export TRAIN_AGENT={train_agent}; "
         f"nohup python /workspace/train_sovereign_sft.py "
         f"--mode {train_mode} --agent {train_agent} "
         + (f"--split {train_split} " if train_split else "")
         + f"> /workspace/train.log 2>&1 & echo LAUNCHED"
     )
-    _ssh_run(ip, port, train_cmd, timeout=90)
+    _ssh_run(ip, port, train_cmd, timeout=300)
 
     print(f"""
   Training is running on the pod (nohup — survives terminal close).
@@ -533,15 +682,161 @@ def cleanup():
     print("Done.")
 
 
+# ── Setup: Network Volume ──────────────────────────────────────────────────────
+def setup_volume(size_gb: int = 50, datacenter_id: str = "US-TX-3"):
+    """Create a network volume for model caching and write ID to .env."""
+    _load_env()
+    global NETWORK_VOLUME_ID
+
+    print("+==========================================+")
+    print("|  SOVEREIGN NETWORK VOLUME SETUP          |")
+    print("+==========================================+\n")
+
+    # Check if volume already exists
+    try:
+        existing = list_volumes()
+        sovereign_vols = [v for v in existing if "sovereign" in v["name"].lower()]
+        if sovereign_vols:
+            v = sovereign_vols[0]
+            print(f"  Found existing volume: {v['name']} ({v['size']}GB) — ID: {v['id']}")
+            NETWORK_VOLUME_ID = v["id"]
+            _write_env_key("RUNPOD_VOLUME_ID", v["id"])
+            print(f"  Saved to .env: RUNPOD_VOLUME_ID={v['id']}")
+            print(f"\n  Mount path on pods: /runpod-volume")
+            print(f"  HF cache will auto-populate on first training run.")
+            return v
+    except Exception as e:
+        print(f"  (Could not list existing volumes: {e})")
+
+    print(f"  Creating {size_gb}GB network volume in {datacenter_id}...")
+    try:
+        vol = create_volume("sovereign-model-cache", size_gb=size_gb,
+                            datacenter_id=datacenter_id)
+        NETWORK_VOLUME_ID = vol["id"]
+        _write_env_key("RUNPOD_VOLUME_ID", vol["id"])
+        print(f"\n  Volume created:  {vol['name']}")
+        print(f"  ID:              {vol['id']}")
+        print(f"  Size:            {vol['size']}GB")
+        print(f"  Datacenter:      {vol['dataCenterId']}")
+        print(f"\n  Saved to .env: RUNPOD_VOLUME_ID={vol['id']}")
+        print(f"\n  Next training run will mount this volume and cache the base model.")
+        print(f"  After first run: model downloads never happen again.")
+        return vol
+    except Exception as e:
+        print(f"\n  ERROR: {e}")
+        print("  Tip: Make sure your RunPod account has network volumes available.")
+        print("  Fallback: Training still works without a volume (just re-downloads each time).")
+
+
+# ── Setup: Serverless Endpoint ─────────────────────────────────────────────────
+def setup_serverless(image: str = "", gpu_ids: str = "AMPERE_24,AMPERE_16"):
+    """Create an Avery serverless inference endpoint."""
+    _load_env()
+
+    # Default image — the pre-built sovereign handler (GHCR or Docker Hub)
+    if not image:
+        image = os.environ.get("SERVERLESS_IMAGE",
+                               "tastytator/avery-serverless:latest")
+
+    print("+==========================================+")
+    print("|  SOVEREIGN SERVERLESS ENDPOINT SETUP     |")
+    print("+==========================================+\n")
+
+    # Check for existing endpoint
+    try:
+        existing = list_endpoints()
+        avery_eps = [e for e in existing if "avery" in e["name"].lower()]
+        if avery_eps:
+            ep = avery_eps[0]
+            print(f"  Found existing endpoint: {ep['name']} — ID: {ep['id']}")
+            _write_env_key("RUNPOD_ENDPOINT_ID", ep["id"])
+            print(f"  URL: https://api.runpod.io/v2/{ep['id']}/run")
+            return ep
+    except Exception as e:
+        print(f"  (Could not list endpoints: {e})")
+
+    print(f"  Image:   {image}")
+    print(f"  GPUs:    {gpu_ids}")
+    print(f"  Workers: 0 min / 3 max (scale-to-zero)\n")
+
+    env_vars = [
+        {"key": "HF_TOKEN",       "value": HF_TOKEN},
+        {"key": "LORA_REPO",      "value": "tastytator/avery-sovereign-lora"},
+        {"key": "BASE_MODEL",     "value": "Qwen/Qwen2-7B-Instruct"},
+    ]
+    if NETWORK_VOLUME_ID:
+        env_vars.append({"key": "HF_HOME", "value": "/runpod-volume/hf-cache"})
+
+    try:
+        ep = create_endpoint(
+            name="avery-sovereign-inference",
+            image_name=image,
+            gpu_ids=gpu_ids,
+            workers_min=0,
+            workers_max=3,
+            idle_timeout=5,
+            volume_id=NETWORK_VOLUME_ID,
+            env_vars=env_vars,
+        )
+        _write_env_key("RUNPOD_ENDPOINT_ID", ep["id"])
+        print(f"  Endpoint created: {ep['name']}")
+        print(f"  ID:               {ep['id']}")
+        print(f"\n  API endpoint: https://api.runpod.io/v2/{ep['id']}/run")
+        print(f"  Saved to .env: RUNPOD_ENDPOINT_ID={ep['id']}")
+        print(f"\n  Usage:")
+        print(f"    python serverless_deploy.py --ask 'Build a SaaS pricing strategy'")
+        return ep
+    except Exception as e:
+        print(f"\n  ERROR creating endpoint: {e}")
+        print("  You can create it manually at: https://www.runpod.io/serverless")
+        print(f"  Use image: {image}")
+
+
+# ── Volume info ────────────────────────────────────────────────────────────────
+def volume_info():
+    _load_env()
+    print("+==========================================+")
+    print("|  RUNPOD STORAGE STATUS                   |")
+    print("+==========================================+\n")
+    try:
+        vols = list_volumes()
+        if not vols:
+            print("  No network volumes. Run: python runpod_launcher.py --setup-volume")
+            return
+        print(f"  {'ID':<20} {'Name':<30} {'Size':>6}  {'DC'}")
+        print(f"  {'-'*20} {'-'*30} {'------':>6}  {'--'}")
+        for v in vols:
+            marker = " ← active" if v["id"] == NETWORK_VOLUME_ID else ""
+            print(f"  {v['id']:<20} {v['name']:<30} {v['size']:>5}GB  {v['dataCenterId']}{marker}")
+    except Exception as e:
+        print(f"  Error: {e}")
+
+    try:
+        eps = list_endpoints()
+        if eps:
+            print(f"\n  Serverless Endpoints:")
+            for ep in eps:
+                print(f"    {ep['id']:<20} {ep['name']}")
+    except Exception:
+        pass
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Sovereign RunPod Launcher")
-    p.add_argument("--status",  action="store_true", help="Check running pod status + log")
-    p.add_argument("--stop",    action="store_true", help="Stop the tracked pod")
-    p.add_argument("--tail",    action="store_true", help="Attach to live training log")
-    p.add_argument("--cleanup", action="store_true", help="Stop ALL sovereign pods")
-    p.add_argument("--mode",    default="",  help="Training mode: sft / orpo / dpo")
-    p.add_argument("--split",   default="",  help="HF split to train on")
+    p.add_argument("--status",         action="store_true", help="Check running pod status + log")
+    p.add_argument("--stop",           action="store_true", help="Stop the tracked pod")
+    p.add_argument("--tail",           action="store_true", help="Attach to live training log")
+    p.add_argument("--cleanup",        action="store_true", help="Stop ALL sovereign pods")
+    p.add_argument("--setup-volume",   action="store_true", help="Create/find network volume for model caching")
+    p.add_argument("--volume-info",    action="store_true", help="Show volume and endpoint status")
+    p.add_argument("--setup-serverless", action="store_true", help="Create Avery serverless inference endpoint")
+    p.add_argument("--image",          default="", help="Docker image for serverless endpoint")
+    p.add_argument("--gpu-ids",        default="AMPERE_24,AMPERE_16", help="GPU types for serverless")
+    p.add_argument("--volume-size",    type=int, default=50, help="Volume size in GB (default: 50)")
+    p.add_argument("--datacenter",     default="US-TX-3", help="RunPod datacenter ID")
+    p.add_argument("--mode",           default="",  help="Training mode: sft / orpo / dpo")
+    p.add_argument("--split",          default="",  help="HF split to train on")
     args = p.parse_args()
 
     if args.status:
@@ -552,5 +847,11 @@ if __name__ == "__main__":
         tail()
     elif args.cleanup:
         cleanup()
+    elif args.setup_volume:
+        setup_volume(size_gb=args.volume_size, datacenter_id=args.datacenter)
+    elif args.volume_info:
+        volume_info()
+    elif args.setup_serverless:
+        setup_serverless(image=args.image, gpu_ids=args.gpu_ids)
     else:
         launch(train_mode=args.mode or None, train_split=args.split or None)
