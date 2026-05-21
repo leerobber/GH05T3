@@ -256,21 +256,7 @@ def build_briefing(full: bool = False) -> str:
 def _send_slack(text: str) -> bool:
     try:
         import slack_notify as _slack
-        # Use raw webhook if available, else fall back to notify methods
-        if hasattr(_slack, "send"):
-            _slack.send(text)
-            return True
-        # Try direct webhook
-        env_path = BASE / ".env"
-        webhook = os.environ.get("SLACK_WEBHOOK_URL", "")
-        if not webhook and env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("SLACK_WEBHOOK_URL="):
-                    webhook = line.split("=", 1)[1].strip().strip('"\'')
-        if webhook:
-            import requests
-            r = requests.post(webhook, json={"text": text}, timeout=10)
-            return r.status_code == 200
+        return _slack.post("training", text)
     except Exception as e:
         print(f"  [HERALD] Slack error: {e}")
     return False
