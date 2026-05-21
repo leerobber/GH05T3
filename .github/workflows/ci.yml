@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Backend tests + syntax checks ────────────────────────────────────────
+  backend:
+    name: Backend — tests & syntax
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install test dependencies
+        run: |
+          pip install \
+            fastapi httpx python-dotenv loguru \
+            pytest pytest-asyncio
+
+      - name: Syntax check — backend gateway
+        run: python -m py_compile backend/gateway_v3.py
+
+      - name: Syntax check — training pipeline
+        run: |
+          for f in pre_train.py runpod_launcher.py kairos_dataset_gen.py \
+                   mentor_trainer.py avery_flywheel.py merge_on_runpod.py \
+                   herald.py cmd_listener.py train_sovereign_sft.py; do
+            echo "  py_compile $f"
+            python -m py_compile "$f"
+          done
+
+      - name: Run backend tests
+        working-directory: backend
+        run: pytest tests/ -q
+
+  # ── Frontend build check ──────────────────────────────────────────────────
+  frontend:
+    name: Frontend — build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          REACT_APP_GW3_URL: http://localhost:8002
+          CI: "false"
+        run: yarn build

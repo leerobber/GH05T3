@@ -389,9 +389,33 @@ def main(dry_run: bool):
     print()
 
 
+def gen_datasets(dry_run: bool):
+    """Run kairos + mentor generators to refresh training data before upload."""
+    import subprocess
+    generators = [
+        [sys.executable, str(ROOT / "kairos_dataset_gen.py"), "--pairs", "100", "--append"],
+        [sys.executable, str(ROOT / "mentor_trainer.py"), "--agent", "all", "--pairs", "3"],
+    ]
+    for cmd in generators:
+        label = Path(cmd[1]).stem
+        if dry_run:
+            cmd = cmd + ["--dry-run"]
+        print(f"\n[GEN] {label}...")
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            print(f"  WARNING: {label} exited {result.returncode} — continuing")
+
+
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true")
+    ap = argparse.ArgumentParser(
+        description="Pre-flight upload to HuggingFace before RunPod training."
+    )
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Report what would happen without uploading or generating")
+    ap.add_argument("--gen-datasets", action="store_true",
+                    help="Run kairos + mentor generators first to refresh training data")
     args = ap.parse_args()
+    if args.gen_datasets:
+        gen_datasets(args.dry_run)
     main(args.dry_run)
 
