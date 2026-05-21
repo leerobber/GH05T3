@@ -349,7 +349,8 @@ async def chat_once(session: str, system: str, user: str,
         except Exception as _sov_exc:
             if _is_rate_limit(_sov_exc):
                 _mark_rl("sovereign", 30)
-            LOG.debug("[cascade] sovereign gateway skipped: %s", _sov_exc)
+            LOG.warning("[cascade] sovereign gateway skipped (model=%s, session=%s): %s",
+                        os.environ.get("SOVEREIGN_MODEL", "qwen2.5:0.5b"), session, _sov_exc)
 
     # ── Tier 0b: Ollama direct (local, always free, no network needed) ────────
     if _provider_ok("ollama") and await ollama_available():

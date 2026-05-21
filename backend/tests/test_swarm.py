@@ -18,8 +18,10 @@ if not BASE_URL:
     pytest.skip("REACT_APP_BACKEND_URL not set — skipping integration tests",
                 allow_module_level=True)
 
+# Both public and local routes point to the same CI-local backend (localhost:8001).
+# The `PUBLIC` alias is kept for readability; swarm/validate no longer needs
+# a separate localhost bypass since the 60s proxy cap doesn't apply in CI.
 PUBLIC = BASE_URL
-LOCAL = BASE_URL
 
 _NO_LLM = (
     not os.environ.get("ANTHROPIC_API_KEY")
@@ -31,10 +33,6 @@ _NO_LLM = (
 
 def _api_public(path: str) -> str:
     return f"{PUBLIC}/api{path}"
-
-
-def _api_local(path: str) -> str:
-    return f"{LOCAL}/api{path}"
 
 
 # ---------------------------------------------------------------------------
