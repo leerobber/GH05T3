@@ -594,15 +594,24 @@ class Trainer:
     def _verify(self, proposal, goal, exec_ev=""):
         raw = _call(VERIFIER, [{"role":"user","content":self._verify_prompt(proposal, goal, exec_ev)}],
                     temp=0.1, max_tok=320)
+        # Ollama/backend error — signal caller to skip cycle, not record a false FAIL
+        if raw.startswith("[ERR:"):
+            return "ERR", 0.0, raw[:80], {}
         def _fget(src, key, default=0.3):
-            # Try dict first, then regex scan for bare number
             if key in src:
                 return float(src[key])
+            # Regex fallback handles non-JSON or malformed JSON output
             m2 = re.search(rf'"{key}"\s*:\s*([0-9.]+)', raw)
-            return float(m2.group(1)) if m2 else default
+            if m2:
+                return float(m2.group(1))
+            m3 = re.search(rf'\b{key}\b[^0-9]*([0-9]\.[0-9]+)', raw)
+            return float(m3.group(1)) if m3 else default
         try:
             m = re.search(r'\{.*\}', raw, re.DOTALL)
-            d = json.loads(m.group()) if m else {}
+            try:
+                d = json.loads(m.group()) if m else {}
+            except (json.JSONDecodeError, ValueError):
+                d = {}  # JSON malformed — _fget regex fallback will handle extraction
             spec  = _fget(d, "spec",  0.3)
             exec_ = _fget(d, "exec",  0.3)
             innov = _fget(d, "innov", 0.3)
@@ -722,6 +731,10 @@ class Trainer:
 
         # 4. VERIFY — 4-axis rubric (specificity/executability/innovation/reversibility)
         vstr, score, rationale, axes = self._verify(proposal, goal, exec_ev)
+        if vstr == "ERR":
+            print(f"  VERIFY:   ERR — skipping cycle (verifier offline): {rationale[:60]}")
+            self.cycle -= 1
+            return None
         print(f"  VERIFY:   {vstr} {score:.3f}  "
               f"spec={axes.get('spec','?')} exec={axes.get('exec','?')} "
               f"innov={axes.get('innov','?')} rev={axes.get('rev','?')}")
