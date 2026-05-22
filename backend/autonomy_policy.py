@@ -31,9 +31,18 @@ EMERGENCY_TERMS = {
 
 
 def is_gh05t3_owned_path(path: str | Path) -> bool:
+    # Check path segments so Windows paths work on Linux and vice versa.
+    path_str = str(path).replace("\\", "/")
+    parts = [p for p in path_str.split("/") if p]
+    if "GH05T3" in parts:
+        return True
+    # Filesystem resolution only for paths native to this OS (absolute or home-relative).
     try:
-        p = Path(path).expanduser().resolve()
-        return p == REPO_ROOT or str(p).startswith(str(REPO_ROOT) + "\\")
+        p = Path(path).expanduser()
+        if not p.is_absolute():
+            return False
+        resolved = p.resolve()
+        return resolved == REPO_ROOT or str(resolved).startswith(str(REPO_ROOT) + "/")
     except Exception:
         return False
 

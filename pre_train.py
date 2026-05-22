@@ -163,7 +163,7 @@ def upload_bootstrap_dpo(dry_run: bool) -> int:
 
 
 def _extract_messages_pair(r: dict):
-    """Extract (instruction, response) from OpenAI-style messages format."""
+    """Extract (instruction, response) from OpenAI-style messages format — first Q, last A."""
     msgs = r.get("messages", [])
     if not msgs:
         return None, None
@@ -172,6 +172,49 @@ def _extract_messages_pair(r: dict):
     if not user_msgs or not asst_msgs:
         return None, None
     return _to_str(user_msgs[0]), _to_str(asst_msgs[-1])
+
+
+def _expand_multiturn(r: dict) -> list[tuple[str, str, str]]:
+    """Expand a multi-turn conversation into one SFT pair per assistant turn.
+
+    Turn 1: instruction = U1, response = A1
+    Turn 2: instruction = "User: U1\nAssistant: A1\nUser: U2", response = A2
+    ...
+    """
+    msgs = [m for m in r.get("messages", []) if m.get("role") in ("user", "assistant")]
+    pairs = []
+    history: list[dict] = []   # accumulates [U, A, U, A, ...]
+
+    i = 0
+    while i < len(msgs):
+        if msgs[i]["role"] != "user":
+            i += 1
+            continue
+        user_content = _to_str(msgs[i]["content"])
+        i += 1
+        if i >= len(msgs) or msgs[i]["role"] != "assistant":
+            continue
+        asst_content = _to_str(msgs[i]["content"])
+        i += 1
+
+        # Build instruction from prior history + this user turn
+        if not history:
+            instruction = user_content
+        else:
+            parts = []
+            for h in history:
+                role = "User" if h["role"] == "user" else "Avery"
+                parts.append(f"{role}: {h['content']}")
+            parts.append(f"User: {user_content}")
+            instruction = "\n\n".join(parts)
+
+        if len(instruction) >= 20 and _is_good(asst_content):
+            pairs.append((instruction, asst_content, "multiturn"))
+
+        history.append({"role": "user",      "content": user_content})
+        history.append({"role": "assistant", "content": asst_content})
+
+    return pairs
 
 
 TRAINING_DATA_DIR = ROOT / "training_data"
@@ -260,6 +303,15 @@ def upload_sft_combined(dry_run: bool) -> int:
                           "domain": str(r.get("domain", ""))})
 
     for r in mentor_rows:
+        # Multi-turn conversations get expanded into one pair per assistant turn
+        if "messages" in r and r.get("turns", 0) > 1:
+            expanded = _expand_multiturn(r)
+            if expanded:
+                for inst, resp, dom in expanded:
+                    sft_rows.append({"instruction": inst, "response": resp, "domain": dom})
+            else:
+                skipped += 1
+            continue
         instruction, response, domain = _normalize_row(r)
         if not instruction or len(instruction) < 20 or not _is_good(response):
             skipped += 1

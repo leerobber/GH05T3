@@ -6,7 +6,7 @@ import os
 import time
 import pytest
 import requests
-import websockets
+websockets = pytest.importorskip("websockets", reason="websockets not installed")
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://tatorot-dashboard.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"

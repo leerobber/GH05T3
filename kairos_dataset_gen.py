@@ -30,12 +30,14 @@ ROOT   = Path(__file__).parent
 DATA   = ROOT / "data"
 OUTPUT = DATA / "kairos_dataset.jsonl"
 
-GROQ_BASE_URL   = "https://api.groq.com/openai/v1"
-GROQ_MODEL      = "llama-3.3-70b-versatile"
-GROQ_MODEL_FAST = "llama-3.1-8b-instant"   # ~4x cheaper tokens, use when TPD quota is tight
-OLLAMA_BASE_URL = "http://localhost:11434/v1"
-OLLAMA_MODEL    = "avery"          # or "llama3", "mistral", etc. — whatever's pulled
-ANTHROPIC_MODEL = "claude-opus-4-7"
+GROQ_BASE_URL    = "https://api.groq.com/openai/v1"
+GROQ_MODEL       = "llama-3.3-70b-versatile"
+GROQ_MODEL_FAST  = "llama-3.1-8b-instant"   # ~4x cheaper tokens, use when TPD quota is tight
+OLLAMA_BASE_URL  = "http://localhost:11434/v1"
+OLLAMA_MODEL     = "avery"
+MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
+MISTRAL_MODEL    = "open-mistral-7b"
+ANTHROPIC_MODEL  = "claude-opus-4-7"
 
 
 def _load_env():
@@ -300,6 +302,18 @@ def _make_client(provider: str, model_override: str | None = None):
         print(f"  Groq keys found : {len(keys)}")
         return _GroqRotatingClient(keys, GROQ_BASE_URL, OpenAI), model
 
+    elif provider == "mistral":
+        try:
+            from openai import OpenAI
+        except ImportError:
+            print("ERROR: openai package not installed. Run: pip install openai")
+            sys.exit(1)
+        key = os.environ.get("MISTRAL_API_KEY", "")
+        if not key:
+            print("ERROR: MISTRAL_API_KEY not set"); sys.exit(1)
+        model = model_override or MISTRAL_MODEL
+        return OpenAI(api_key=key, base_url=MISTRAL_BASE_URL), model
+
     elif provider == "ollama":
         try:
             from openai import OpenAI
@@ -327,10 +341,9 @@ def _make_client(provider: str, model_override: str | None = None):
 
 def _auto_detect_provider() -> str:
     """Pick the best available provider based on set API keys."""
-    if os.environ.get("GROQ_API_KEY"):
-        return "groq"
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic"
+    if os.environ.get("MISTRAL_API_KEY"):    return "mistral"
+    if os.environ.get("GROQ_API_KEY"):       return "groq"
+    if os.environ.get("ANTHROPIC_API_KEY"):  return "anthropic"
     return "ollama"
 
 
@@ -394,8 +407,8 @@ def _variations(base: str) -> list[str]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pairs",    type=int, default=500)
-    ap.add_argument("--provider", choices=["groq", "anthropic", "ollama"], default=None,
-                    help="LLM provider. Default: auto-detect from .env (groq > anthropic > ollama)")
+    ap.add_argument("--provider", choices=["groq", "mistral", "anthropic", "ollama"], default=None,
+                    help="LLM provider. Default: auto-detect from .env")
     ap.add_argument("--model",    choices=["fast", "full"], default="full",
                     help="fast=llama-3.1-8b-instant (~4x cheaper tokens), full=llama-3.3-70b-versatile")
     ap.add_argument("--workers",  type=int, default=1,

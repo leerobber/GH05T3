@@ -36,12 +36,16 @@ MENTOR_FILE    = DATA / "mentor_pairs.jsonl"
 BOOTSTRAP_FILE = DATA / "agents_bootstrap.jsonl"
 
 # ── Provider constants ────────────────────────────────────────────────────────
-GROQ_BASE_URL     = "https://api.groq.com/openai/v1"
-GROQ_MODEL        = "llama-3.3-70b-versatile"
-CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
-CEREBRAS_MODEL    = "llama-3.3-70b"
-ANTHROPIC_FAST    = "claude-haiku-4-5-20251001"
-ANTHROPIC_SMART   = "claude-sonnet-4-6"
+GROQ_BASE_URL       = "https://api.groq.com/openai/v1"
+GROQ_MODEL          = "llama-3.3-70b-versatile"
+CEREBRAS_BASE_URL   = "https://api.cerebras.ai/v1"
+CEREBRAS_MODEL      = "llama-3.3-70b"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL    = "deepseek/deepseek-v4-flash:free"
+MISTRAL_BASE_URL    = "https://api.mistral.ai/v1"
+MISTRAL_MODEL       = "open-mistral-7b"
+ANTHROPIC_FAST      = "claude-haiku-4-5-20251001"
+ANTHROPIC_SMART     = "claude-sonnet-4-6"
 
 
 def _load_env():
@@ -58,14 +62,14 @@ _load_env()
 class _RotatingClient:
     """OpenAI-compat client that rotates over multiple API keys on 429/401."""
 
-    def __init__(self, keys: list, base_url: str, model: str, OpenAI):
-        self._clients = [OpenAI(api_key=k, base_url=base_url) for k in keys]
+    def __init__(self, keys: list, base_url: str, model: str, OpenAI, extra_headers: dict | None = None):
+        self._clients = [OpenAI(api_key=k, base_url=base_url, default_headers=extra_headers or {}) for k in keys]
         self._model   = model
         self._idx     = 0
         self._tried: set = set()
 
     def chat(self, messages: list, max_tokens: int = 1200, temperature: float = 0.8) -> str:
-        for _attempt in range(len(self._clients) * 2 + 1):
+        for _attempt in range(20):
             try:
                 resp = self._clients[self._idx].chat.completions.create(
                     model=self._model,
@@ -76,9 +80,10 @@ class _RotatingClient:
                 return resp.choices[0].message.content.strip()
             except Exception as e:
                 err = str(e)
-                tpd = "rate_limit_exceeded" in err and "tokens per day" in err.lower()
-                inv = "invalid_api_key" in err or "401" in err
-                rpm = "rate_limit_exceeded" in err and not tpd
+                tpd      = "rate_limit_exceeded" in err and "tokens per day" in err.lower()
+                inv      = "invalid_api_key" in err or "401" in err
+                rpm      = "free-models-per-min" in err or ("rate_limit" in err.lower() and not tpd and not inv)
+                upstream = "temporarily rate-limited upstream" in err or ("429" in err and "upstream" in err)
                 if tpd or inv:
                     self._tried.add(self._idx)
                     remaining = [i for i in range(len(self._clients)) if i not in self._tried]
@@ -86,16 +91,22 @@ class _RotatingClient:
                         raise RuntimeError("All API keys exhausted")
                     self._idx = remaining[0]
                     print(f"  [key {list(self._tried)[-1]+1} {'TPD' if tpd else 'invalid'} → key {self._idx+1}]")
+                elif upstream:
+                    print(f"  [upstream rate-limit → wait 30s]")
+                    time.sleep(30)
                 elif rpm:
-                    time.sleep(12)
+                    print(f"  [per-min rate-limit → wait 65s]")
+                    time.sleep(65)
+                elif "rate_limit" in err.lower() or "429" in err:
+                    time.sleep(15)
                 else:
                     raise
-        raise RuntimeError("All keys exhausted")
+        raise RuntimeError("Rate limit retries exceeded")
 
 
 def _make_client(provider: str):
     """Return (client, is_anthropic) tuple."""
-    if provider in ("groq", "cerebras"):
+    if provider in ("groq", "cerebras", "openrouter", "mistral"):
         try:
             from openai import OpenAI
         except ImportError:
@@ -106,11 +117,22 @@ def _make_client(provider: str):
                 print("ERROR: GROQ_API_KEY not set"); sys.exit(1)
             print(f"  Groq keys: {len(keys)}")
             return _RotatingClient(keys, GROQ_BASE_URL, GROQ_MODEL, OpenAI), False
-        else:
+        elif provider == "cerebras":
             key = os.environ.get("CEREBRAS_API_KEY", "")
             if not key:
                 print("ERROR: CEREBRAS_API_KEY not set"); sys.exit(1)
             return _RotatingClient([key], CEREBRAS_BASE_URL, CEREBRAS_MODEL, OpenAI), False
+        elif provider == "mistral":
+            key = os.environ.get("MISTRAL_API_KEY", "")
+            if not key:
+                print("ERROR: MISTRAL_API_KEY not set"); sys.exit(1)
+            return _RotatingClient([key], MISTRAL_BASE_URL, MISTRAL_MODEL, OpenAI), False
+        else:  # openrouter
+            key = os.environ.get("OPENROUTER_API_KEY", "")
+            if not key:
+                print("ERROR: OPENROUTER_API_KEY not set"); sys.exit(1)
+            hdrs = {"HTTP-Referer": "https://sovereign.nation", "X-Title": "SovereignNation"}
+            return _RotatingClient([key], OPENROUTER_BASE_URL, OPENROUTER_MODEL, OpenAI, hdrs), False
 
     elif provider == "anthropic":
         try:
@@ -126,7 +148,9 @@ def _make_client(provider: str):
 
 
 def _auto_provider() -> str:
+    if os.environ.get("MISTRAL_API_KEY"):    return "mistral"
     if os.environ.get("GROQ_API_KEY"):       return "groq"
+    if os.environ.get("OPENROUTER_API_KEY"): return "openrouter"
     if os.environ.get("CEREBRAS_API_KEY"):   return "cerebras"
     if os.environ.get("ANTHROPIC_API_KEY"):  return "anthropic"
     return "groq"
@@ -424,7 +448,7 @@ def main():
     ap = argparse.ArgumentParser(description="Mentor training data generator")
     ap.add_argument("--agent",    choices=list(AGENTS.keys()) + ["all"], default="all")
     ap.add_argument("--pairs",    type=int, default=5, help="Target pairs per agent")
-    ap.add_argument("--provider", choices=["groq", "cerebras", "anthropic"], default=None)
+    ap.add_argument("--provider", choices=["groq", "cerebras", "openrouter", "mistral", "anthropic"], default=None)
     ap.add_argument("--dry-run",  action="store_true")
     args = ap.parse_args()
 

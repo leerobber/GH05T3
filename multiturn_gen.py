@@ -28,11 +28,15 @@ ROOT   = Path(__file__).parent
 DATA   = ROOT / "data"
 OUTPUT = DATA / "multiturn_dataset.jsonl"
 
-GROQ_BASE_URL     = "https://api.groq.com/openai/v1"
-GROQ_MODEL        = "llama-3.3-70b-versatile"
-CEREBRAS_BASE_URL = "https://api.cerebras.ai/v1"
-CEREBRAS_MODEL    = "llama-3.3-70b"
-ANTHROPIC_MODEL   = "claude-haiku-4-5-20251001"
+GROQ_BASE_URL       = "https://api.groq.com/openai/v1"
+GROQ_MODEL          = "llama-3.3-70b-versatile"
+CEREBRAS_BASE_URL   = "https://api.cerebras.ai/v1"
+CEREBRAS_MODEL      = "llama-3.3-70b"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL    = "deepseek/deepseek-v4-flash:free"
+MISTRAL_BASE_URL    = "https://api.mistral.ai/v1"
+MISTRAL_MODEL       = "open-mistral-7b"
+ANTHROPIC_MODEL     = "claude-haiku-4-5-20251001"
 
 
 def _load_env():
@@ -51,15 +55,15 @@ _load_env()
 class _RotatingClient:
     """OpenAI-compat multi-key client with TPD/RPM retry."""
 
-    def __init__(self, keys: list, base_url: str, model: str, OpenAI):
-        self._clients = [OpenAI(api_key=k, base_url=base_url) for k in keys]
+    def __init__(self, keys: list, base_url: str, model: str, OpenAI, extra_headers: dict | None = None):
+        self._clients = [OpenAI(api_key=k, base_url=base_url, default_headers=extra_headers or {}) for k in keys]
         self._model   = model
         self._idx     = 0
         self._tried: set = set()
         self._lock    = threading.Lock()
 
     def chat(self, messages: list, max_tokens: int = 1200) -> str:
-        for _attempt in range(len(self._clients) * 2 + 1):
+        for _attempt in range(20):
             try:
                 resp = self._clients[self._idx].chat.completions.create(
                     model=self._model,
@@ -72,6 +76,8 @@ class _RotatingClient:
                 err = str(e)
                 tpd = "rate_limit_exceeded" in err and "tokens per day" in err.lower()
                 inv = "invalid_api_key" in err or "401" in err
+                rpm = "free-models-per-min" in err or ("rate_limit" in err.lower() and not tpd and not inv)
+                upstream = "temporarily rate-limited upstream" in err or ("429" in err and "upstream" in err)
                 if tpd or inv:
                     with self._lock:
                         self._tried.add(self._idx)
@@ -80,16 +86,22 @@ class _RotatingClient:
                             raise RuntimeError("All API keys exhausted")
                         self._idx = remaining[0]
                     print(f"  [key {list(self._tried)[-1]+1} {'TPD' if tpd else 'invalid'} → key {self._idx+1}]")
-                elif "rate_limit_exceeded" in err:
-                    time.sleep(12)
+                elif upstream:
+                    print(f"  [upstream rate-limit → wait 30s]")
+                    time.sleep(30)
+                elif rpm:
+                    print(f"  [per-min rate-limit → wait 65s]")
+                    time.sleep(65)
+                elif "rate_limit" in err.lower() or "429" in err:
+                    time.sleep(15)
                 else:
                     raise
-        raise RuntimeError("All keys exhausted")
+        raise RuntimeError("Rate limit retries exceeded")
 
 
 def _make_client(provider: str):
     """Return (client, is_anthropic) tuple."""
-    if provider in ("groq", "cerebras"):
+    if provider in ("groq", "cerebras", "openrouter", "mistral"):
         try:
             from openai import OpenAI
         except ImportError:
@@ -100,11 +112,22 @@ def _make_client(provider: str):
                 print("ERROR: GROQ_API_KEY not set"); sys.exit(1)
             print(f"  Groq keys: {len(keys)}")
             return _RotatingClient(keys, GROQ_BASE_URL, GROQ_MODEL, OpenAI), False
-        else:
+        elif provider == "cerebras":
             key = os.environ.get("CEREBRAS_API_KEY", "")
             if not key:
                 print("ERROR: CEREBRAS_API_KEY not set"); sys.exit(1)
             return _RotatingClient([key], CEREBRAS_BASE_URL, CEREBRAS_MODEL, OpenAI), False
+        elif provider == "mistral":
+            key = os.environ.get("MISTRAL_API_KEY", "")
+            if not key:
+                print("ERROR: MISTRAL_API_KEY not set"); sys.exit(1)
+            return _RotatingClient([key], MISTRAL_BASE_URL, MISTRAL_MODEL, OpenAI), False
+        else:  # openrouter
+            key = os.environ.get("OPENROUTER_API_KEY", "")
+            if not key:
+                print("ERROR: OPENROUTER_API_KEY not set"); sys.exit(1)
+            hdrs = {"HTTP-Referer": "https://sovereign.nation", "X-Title": "SovereignNation"}
+            return _RotatingClient([key], OPENROUTER_BASE_URL, OPENROUTER_MODEL, OpenAI, hdrs), False
 
     elif provider == "anthropic":
         try:
@@ -120,7 +143,9 @@ def _make_client(provider: str):
 
 
 def _auto_provider() -> str:
+    if os.environ.get("MISTRAL_API_KEY"):    return "mistral"
     if os.environ.get("GROQ_API_KEY"):       return "groq"
+    if os.environ.get("OPENROUTER_API_KEY"): return "openrouter"
     if os.environ.get("CEREBRAS_API_KEY"):   return "cerebras"
     if os.environ.get("ANTHROPIC_API_KEY"):  return "anthropic"
     return "groq"
@@ -263,6 +288,65 @@ SEED_SCENARIOS = [
         ["What phase does Avery spend the most time on and why?",
          "How does Avery adapt KAIROS when resources are severely constrained?"],
     ),
+    # Economy and flywheel
+    (
+        "Design SovereignNation's data flywheel — how usage automatically improves AI quality over time.",
+        ["How do we collect training signal without violating user privacy?",
+         "What's the timeline from raw usage data to an improved deployed model?"],
+    ),
+    (
+        "Build a community token economy for SovereignNation that rewards contribution without inflation.",
+        ["How do we prevent gaming the token system from day one?",
+         "What behaviors should earn tokens vs. what should tokens unlock?"],
+    ),
+    (
+        "SovereignNation wants to become financially self-sustaining without raising prices. How?",
+        ["Which secondary revenue streams make sense for our community?",
+         "How do we launch a new revenue stream without distracting from core product?"],
+    ),
+    (
+        "Design a cooperative ownership model where SovereignNation subscribers earn equity.",
+        ["What legal structure makes subscriber equity feasible at scale?",
+         "How do we communicate equity value to users who don't understand finance?"],
+    ),
+    # Infrastructure and scale
+    (
+        "SovereignNation's infrastructure costs are rising 15% monthly as we grow. How do we fix it?",
+        ["Which optimizations give us the fastest cost reduction?",
+         "How do we balance cost-cutting now vs. investing in scale infrastructure?"],
+    ),
+    (
+        "Design SovereignNation's edge computing strategy for rural users with poor connectivity.",
+        ["How do we decide which features to run on-device vs. cloud?",
+         "What's the model deployment strategy for edge inference?"],
+    ),
+    # Agent intelligence
+    (
+        "FORGE needs to generate a complete authentication system from a one-sentence spec. Walk through it.",
+        ["How does FORGE handle security considerations it wasn't explicitly asked about?",
+         "How does FORGE test the code it generates before handing off to CODEX?"],
+    ),
+    (
+        "ORACLE needs to answer a complex question that requires synthesizing 5 different memory sources.",
+        ["How does ORACLE resolve contradictions between memory sources?",
+         "How does ORACLE communicate uncertainty when sources conflict?"],
+    ),
+    (
+        "The SwarmBus receives 3 conflicting tasks from different users simultaneously. How does NEXUS handle it?",
+        ["What's the priority queue algorithm NEXUS should use?",
+         "How does NEXUS communicate status back to all 3 users in real time?"],
+    ),
+    # Social impact
+    (
+        "SovereignNation wants to eliminate the digital divide for elderly users. Design the strategy.",
+        ["What accessibility features are most critical for elderly users?",
+         "How do we measure whether we're actually serving this population?"],
+    ),
+    (
+        "Design a program where SovereignNation helps families build generational wealth through AI literacy.",
+        ["What does a 3-year AI literacy curriculum look like for families?",
+         "How do we measure whether this is actually moving the needle on wealth-building?"],
+    ),
 ]
 
 
@@ -345,15 +429,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pairs",    type=int, default=200)
     ap.add_argument("--workers",  type=int, default=1)
-    ap.add_argument("--provider", choices=["groq", "cerebras", "anthropic"], default=None)
+    ap.add_argument("--provider", choices=["groq", "cerebras", "openrouter", "mistral", "anthropic"], default=None)
     ap.add_argument("--append",   action="store_true")
     args = ap.parse_args()
 
     provider = args.provider or _auto_provider()
     client, is_anthropic = _make_client(provider)
 
-    # Groq has strict RPM — force workers=1 to avoid 429s
-    workers = 1 if provider == "groq" else args.workers
+    # Rate-limited free tiers — keep workers=1
+    workers = 1 if provider in ("groq", "openrouter") else args.workers
 
     # Build instruction list by cycling through seed scenarios
     scenarios = []

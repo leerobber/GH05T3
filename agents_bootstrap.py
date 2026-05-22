@@ -10,9 +10,14 @@ Run:
   python agents_bootstrap.py --pairs 25        # more pairs per agent
   python agents_bootstrap.py --dry-run         # preview prompts, no API calls
 """
-import argparse, json, os, sys, time
+import argparse, json, os, sys, time, threading
 from pathlib import Path
 import io
+
+MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
+MISTRAL_MODEL    = "open-mistral-7b"
+GROQ_BASE_URL    = "https://api.groq.com/openai/v1"
+GROQ_MODEL       = "llama-3.1-8b-instant"
 
 # Force UTF-8 stdout so Windows cp1252 doesn't choke on special characters
 if hasattr(sys.stdout, 'reconfigure'):
@@ -234,7 +239,51 @@ def _generate_pair(client, agent_name: str, agent_def: dict, prompt: str) -> dic
         return None
 
 
-def main(target_agents: list, pairs_per_agent: int, dry_run: bool):
+def _generate_pair_openai(client, model: str, agent_name: str, agent_def: dict, prompt: str) -> dict | None:
+    system = agent_def["system"]
+    for attempt in range(8):
+        try:
+            chosen_resp = client.chat.completions.create(
+                model=model,
+                max_tokens=1024,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": prompt},
+                ],
+            )
+            chosen = chosen_resp.choices[0].message.content.strip()
+            time.sleep(1.0)
+
+            rejected_resp = client.chat.completions.create(
+                model=model,
+                max_tokens=250,
+                messages=[
+                    {"role": "system", "content": "Give a brief, generic answer without domain-specific detail."},
+                    {"role": "user",   "content": prompt},
+                ],
+            )
+            rejected = rejected_resp.choices[0].message.content.strip() + _WEAK_SUFFIX
+
+            return {
+                "agent":    agent_name,
+                "prompt":   prompt,
+                "chosen":   chosen,
+                "rejected": rejected,
+                "domain":   agent_name,
+            }
+        except Exception as e:
+            err = str(e)
+            if "rate_limit" in err.lower() or "429" in err:
+                wait = 30 if "per-day" in err else 15
+                print(f"    [rate limit — waiting {wait}s]")
+                time.sleep(wait)
+            else:
+                print(f"    [API error: {e}]")
+                return None
+    return None
+
+
+def main(target_agents: list, pairs_per_agent: int, dry_run: bool, provider: str = "anthropic"):
     DATA.mkdir(exist_ok=True)
     out_file = DATA / "agents_bootstrap.jsonl"
 
@@ -256,16 +305,34 @@ def main(target_agents: list, pairs_per_agent: int, dry_run: bool):
         print("\nDry run complete. Run without --dry-run to generate.")
         return
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        print("ERROR: ANTHROPIC_API_KEY not set in .env"); sys.exit(1)
+    use_openai_compat = provider in ("mistral", "groq")
 
-    try:
-        import anthropic
-    except ImportError:
-        print("ERROR: pip install anthropic"); sys.exit(1)
-
-    client = anthropic.Anthropic(api_key=api_key)
+    if use_openai_compat:
+        try:
+            from openai import OpenAI
+        except ImportError:
+            print("ERROR: pip install openai"); sys.exit(1)
+        if provider == "mistral":
+            api_key = os.environ.get("MISTRAL_API_KEY", "")
+            if not api_key:
+                print("ERROR: MISTRAL_API_KEY not set in .env"); sys.exit(1)
+            oa_client = OpenAI(api_key=api_key, base_url=MISTRAL_BASE_URL)
+            oa_model  = MISTRAL_MODEL
+        else:
+            keys = [v for k, v in os.environ.items() if k.startswith("GROQ_API_KEY") and v]
+            if not keys:
+                print("ERROR: GROQ_API_KEY not set in .env"); sys.exit(1)
+            oa_client = OpenAI(api_key=keys[0], base_url=GROQ_BASE_URL)
+            oa_model  = GROQ_MODEL
+    else:
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            print("ERROR: ANTHROPIC_API_KEY not set in .env"); sys.exit(1)
+        try:
+            import anthropic
+        except ImportError:
+            print("ERROR: pip install anthropic"); sys.exit(1)
+        client = anthropic.Anthropic(api_key=api_key)
 
     existing = []
     if out_file.exists():
@@ -287,7 +354,10 @@ def main(target_agents: list, pairs_per_agent: int, dry_run: bool):
                 print(f"  [{i+1}/{len(prompts)}] skip (exists)")
                 continue
             print(f"  [{i+1}/{len(prompts)}] {prompt[:70]}...")
-            pair = _generate_pair(client, agent_name, defn, prompt)
+            if use_openai_compat:
+                pair = _generate_pair_openai(oa_client, oa_model, agent_name, defn, prompt)
+            else:
+                pair = _generate_pair(client, agent_name, defn, prompt)
             if pair:
                 new_pairs.append(pair)
                 print(f"           chosen={len(pair['chosen'])}c  rejected={len(pair['rejected'])}c")
@@ -315,8 +385,10 @@ if __name__ == "__main__":
     ap.add_argument("--agent", default="all",
                     choices=list(AGENTS.keys()) + ["all"])
     ap.add_argument("--pairs", type=int, default=15)
+    ap.add_argument("--provider", default="anthropic",
+                    choices=["anthropic", "mistral", "groq"])
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     target = list(AGENTS.keys()) if args.agent == "all" else [args.agent]
-    main(target, args.pairs, args.dry_run)
+    main(target, args.pairs, args.dry_run, provider=args.provider)
