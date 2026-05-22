@@ -49,6 +49,15 @@ from swarm.peer_registry import PeerRegistry
 from integrations.claude_integration import ClaudeSwarmAgent
 from integrations.github_integration import GitHubAgent, create_github_webhook_router
 from mcp_server import get_mcp_asgi, wire_gateway, MCP_AVAILABLE
+from integrations.stripe_integration import (
+    verify_stripe_signature, process_stripe_event,
+    all_subscribers, subscriber_count, STRIPE_WEBHOOK_SECRET,
+)
+from personas import team_roster, get_persona
+from integrations.story_editor import (
+    story_editor_greeting, story_editor_turn,
+    get_session, reset_session, list_sessions,
+)
 
 log = logging.getLogger("gh0st3.gateway_v3")
 
@@ -867,6 +876,157 @@ async def ghostscript_demos():
 
 
 # ─────────────────────────────────────────────
+# AVERY / TEAM — persona & roster endpoints
+# ─────────────────────────────────────────────
+
+@app.get("/avery")
+async def avery_identity():
+    """Return Avery's public persona — used by the frontend intro panel."""
+    p = get_persona("AVERY")
+    return {
+        "name":   p.name,
+        "title":  p.title,
+        "avatar": p.avatar,
+        "bio":    p.bio,
+        "voice":  p.voice,
+        "startup": {
+            "name":    "Avery",
+            "tagline": "Autonomous intelligence. Human outcomes.",
+            "engine":  "GH05T3",
+        },
+    }
+
+
+@app.get("/avery/team")
+async def avery_team():
+    """Return full agent team roster with humanized personas."""
+    return {"team": team_roster()}
+
+
+# ─────────────────────────────────────────────
+# AVERY / STORY EDITOR — developmental editor mode
+# ─────────────────────────────────────────────
+
+class StoryEditorTurnRequest(BaseModel):
+    session_id: str
+    message:    str
+
+
+async def _story_llm(system: str, messages: list) -> str:
+    """Bridge story editor sessions to the active LLM provider."""
+    # Build a single user turn from the full conversation history
+    history_text = "\n".join(
+        f"{m['role'].upper()}: {m['content']}" for m in messages
+    )
+    try:
+        from ghost_llm import chat_once
+        text, _ = await chat_once(
+            session="story_editor",
+            system=system,
+            user=history_text,
+        )
+        return text
+    except Exception as e:
+        log.error("Story editor LLM call failed: %s", e)
+        return f"[Story editor LLM unavailable: {e}]"
+
+
+@app.get("/avery/story/start/{session_id}")
+async def story_editor_start(session_id: str):
+    """Open a new story editor session and return the first intake question."""
+    reset_session(session_id)
+    greeting = story_editor_greeting()
+    return {
+        "session_id": session_id,
+        "stage":      0,
+        "reply":      greeting,
+        "story":      {},
+    }
+
+
+@app.post("/avery/story/turn")
+async def story_editor_turn_endpoint(req: StoryEditorTurnRequest):
+    """Send one message to an active story editor session."""
+    result = await story_editor_turn(
+        session_id  = req.session_id,
+        user_message= req.message,
+        llm_call    = _story_llm,
+    )
+    return result
+
+
+@app.get("/avery/story/sessions")
+async def story_sessions():
+    """List all active story editor sessions."""
+    return {"sessions": list_sessions()}
+
+
+@app.get("/avery/story/session/{session_id}")
+async def story_session_state(session_id: str):
+    """Return current state of a story editor session."""
+    sess = get_session(session_id)
+    return {
+        "session_id": session_id,
+        "stage":      sess["stage"],
+        "story":      sess["story"],
+        "turns":      len(sess["history"]),
+    }
+
+
+# ─────────────────────────────────────────────
+# STRIPE — billing & subscription webhooks
+# ─────────────────────────────────────────────
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """
+    Stripe webhook receiver.
+    Point your Stripe Dashboard webhook at: https://your-domain/stripe/webhook
+    Required env vars: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
+    """
+    body      = await request.body()
+    sig       = request.headers.get("stripe-signature", "")
+
+    if STRIPE_WEBHOOK_SECRET:
+        if not verify_stripe_signature(body, sig, STRIPE_WEBHOOK_SECRET):
+            raise HTTPException(status_code=400, detail="Invalid Stripe signature")
+
+    try:
+        event = json.loads(body)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    event_type = event.get("type", "")
+    result     = process_stripe_event(event_type, event.get("data", {}))
+
+    # Emit to swarm bus so Kai (NEXUS) and the team can react
+    if result:
+        await bus.emit(
+            src     = "STRIPE",
+            content = f"[STRIPE] {event_type} — {json.dumps(result)}",
+            channel = "#nexus",
+            msg_type= MsgType.TASK,
+            dst     = "NEXUS",
+            metadata= {"stripe_event": event_type, "result": result},
+        )
+        log.info("Stripe event processed: %s → %s", event_type, result.get("action"))
+
+    return {"received": True, "event": event_type, "action": result.get("action") if result else "ignored"}
+
+
+@app.get("/stripe/subscribers")
+async def stripe_subscribers():
+    """Current subscriber summary (counts only — no PII in this endpoint)."""
+    return subscriber_count()
+
+
+@app.get("/stripe/subscribers/all")
+async def stripe_subscribers_all():
+    """Full subscriber list — internal use only, protect this behind auth in prod."""
+    return {"subscribers": all_subscribers()}
+
+
+# ─────────────────────────────────────────────
 # WEBSOCKET — LIVE SWARM STREAM
 # ─────────────────────────────────────────────
 
@@ -902,6 +1062,27 @@ async def ws_stream(ws: WebSocket):
         pass
     finally:
         bus.remove_ws_client(q)
+
+
+# ─────────────────────────────────────────────
+# INSTALL SCRIPTS — served directly for one-liner bootstrapping
+# ─────────────────────────────────────────────
+
+@app.get("/install/android")
+async def install_android():
+    """
+    Serve the Termux setup script so the phone can bootstrap without git auth.
+    On phone: pkg install wget -y && wget http://TATORTOT_IP:8002/install/android -O setup.sh && bash setup.sh
+    """
+    from fastapi.responses import PlainTextResponse
+    script_path = Path(__file__).parent.parent / "native" / "android" / "termux_setup.sh"
+    if not script_path.exists():
+        raise HTTPException(status_code=404, detail="Setup script not found")
+    return PlainTextResponse(
+        content=script_path.read_text(),
+        media_type="text/x-sh",
+        headers={"Content-Disposition": "attachment; filename=termux_setup.sh"},
+    )
 
 
 # ─────────────────────────────────────────────
@@ -985,6 +1166,59 @@ async def integrations_status():
         "jira":     jira_status(),
         "qdrant":   _qdrant_ok,
     }
+
+
+# ─────────────────────────────────────────────
+# SOVEREIGN RECALL / CHRONICLE ENDPOINTS
+# ─────────────────────────────────────────────
+
+_recall_instance = None
+
+def _get_recall():
+    global _recall_instance
+    if _recall_instance is None:
+        try:
+            from sovereign_recall import SovereignRecall
+            _recall_instance = SovereignRecall()
+        except Exception:
+            pass
+    return _recall_instance
+
+
+@app.get("/chronicle/status")
+async def chronicle_status():
+    """Sovereign Recall status — examples, tokens, source breakdown."""
+    r = _get_recall()
+    if r is None:
+        return {"agent_id": "CHRONICLE", "status": "offline", "total_examples": 0}
+    s = r.status()
+    # add source breakdown from the output file
+    sources: dict = {}
+    try:
+        from pathlib import Path
+        import json as _json
+        recall_file = Path(s["output_file"])
+        if recall_file.exists():
+            for line in recall_file.open():
+                try:
+                    rec = _json.loads(line)
+                    src = rec.get("source", "unknown")
+                    sources[src] = sources.get(src, 0) + 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return {**s, "sources": sources, "status": "online"}
+
+
+@app.post("/chronicle/scan")
+async def chronicle_scan():
+    """Trigger an immediate Sovereign Recall scan."""
+    r = _get_recall()
+    if r is None:
+        raise HTTPException(status_code=503, detail="Sovereign Recall not initialized")
+    stats = await r.scan_once()
+    return {"ok": True, "stats": stats}
 
 
 # ─────────────────────────────────────────────

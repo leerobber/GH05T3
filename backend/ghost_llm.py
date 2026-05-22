@@ -37,7 +37,10 @@ LLM_PROVIDER    = os.environ.get("LLM_PROVIDER",    "ollama")
 LLM_MODEL       = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
 ANTHROPIC_MODEL = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
 
-_LOCAL_ONLY_PROVIDERS = {"ollama", "local", "free", "cost_free", "cost-free"}
+# GH05T3 fine-tuned model — served by gh05t3_inference.py on port 8010
+GH05T3_MODEL_URL = os.environ.get("GH05T3_MODEL_URL", "http://localhost:8010")
+
+_LOCAL_ONLY_PROVIDERS = {"ollama", "local", "free", "cost_free", "cost-free", "gh05t3"}
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off"}
 
@@ -202,6 +205,31 @@ async def _openai_compat(base: str, api_key: str | None,
 
 
 # ---------------------------------------------------------------------------
+# GH05T3 fine-tuned model
+# ---------------------------------------------------------------------------
+async def gh05t3_available() -> bool:
+    """Return True if the local GH05T3 inference server is running."""
+    if not GH05T3_MODEL_URL:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            r = await c.get(f"{GH05T3_MODEL_URL}/health")
+            return r.status_code == 200 and r.json().get("status") == "ready"
+    except Exception:
+        return False
+
+
+async def _call_gh05t3(system: str, user: str) -> str:
+    return await _openai_compat(
+        base    = GH05T3_MODEL_URL,
+        api_key = None,
+        model   = "gh05t3",
+        system  = system,
+        user    = user,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Availability helpers
 # ---------------------------------------------------------------------------
 async def ollama_available() -> bool:
@@ -327,9 +355,23 @@ async def chat_once(session: str, system: str, user: str,
     """
     _fail_reason = ""
     cfg = await get_nightly_config()
+    provider = _llm_provider()
+
+    # ── Tier -1: GH05T3 fine-tuned local model (highest priority) ─────────────
+    if provider == "gh05t3" or (provider in {"auto"} and await gh05t3_available()):
+        try:
+            text = await _call_gh05t3(system, user)
+            return text, "gh05t3:local"
+        except Exception as e:
+            LOG.warning("gh05t3 local inference failed: %s", e)
+            if provider == "gh05t3":
+                raise NoLLMError(
+                    f"GH05T3 inference server unavailable at {GH05T3_MODEL_URL}. "
+                    "Run: python gh05t3_inference.py"
+                ) from e
 
     # ── Fast-fail: forced to Ollama-only but Ollama is down ───────────────────
-    if _llm_provider() == "ollama" and _cost_free_only() and not await ollama_available():
+    if provider == "ollama" and _cost_free_only() and not await ollama_available():
         raise NoLLMError(
             "Ollama unavailable and COST_FREE_ONLY=1 with LLM_PROVIDER=ollama. "
             "Start Ollama (ollama serve) or set COST_FREE_ONLY=0 to enable cloud fallbacks."

@@ -22,8 +22,15 @@ SOVEREIGN_MODELS = {
     "avery":    os.environ.get("MODEL_AVERY",    "avery-sovereign"),
 }
 
+# GH05T3 fine-tuned inference server (gh05t3_inference.py — port 8010)
+GH05T3_MODEL_URL = os.environ.get("GH05T3_MODEL_URL", "http://localhost:8010")
+
 GATEWAY_HOST  = os.environ.get("GATEWAY_HOST",  "0.0.0.0")
 GATEWAY_PORT  = int(os.environ.get("GATEWAY_PORT", "8002"))
 GITHUB_PAT    = os.environ.get("GITHUB_PAT",    "")
 GITHUB_REPO   = os.environ.get("GITHUB_REPO",   "leerobber/GH05T3")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
+
+# Stripe — billing & subscriptions
+STRIPE_SECRET_KEY     = os.environ.get("STRIPE_SECRET_KEY",     "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
