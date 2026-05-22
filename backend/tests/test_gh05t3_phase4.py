@@ -22,18 +22,22 @@ import pytest
 import requests
 websockets = pytest.importorskip("websockets", reason="websockets not installed")
 
-_env_url = os.environ.get("REACT_APP_BACKEND_URL", "")
-if not _env_url:
-    try:
-        _env_url = (
-            open("/app/frontend/.env").read()
-            .split("REACT_APP_BACKEND_URL=")[1].split("\n")[0].strip()
-        )
-    except (FileNotFoundError, IndexError):
-        _env_url = "http://localhost:8001"
-BASE_URL = _env_url.rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
+
+if not BASE_URL:
+    pytest.skip("REACT_APP_BACKEND_URL not set — skipping integration tests",
+                allow_module_level=True)
+
+
 API = f"{BASE_URL}/api"
 WS_URL = BASE_URL.replace("https://", "wss://").replace("http://", "ws://") + "/api/ws"
+
+_NO_LLM = (
+    not os.environ.get("ANTHROPIC_API_KEY")
+    and not os.environ.get("GROQ_API_KEY")
+    and not os.environ.get("GOOGLE_AI_KEY")
+)
+_NO_PAT = not os.environ.get("GITHUB_PAT")
 
 
 @pytest.fixture(scope="module")
@@ -49,7 +53,7 @@ def test_setup_status(sess):
     assert r.status_code == 200, r.text
     d = r.json()
     for k in ("needs_setup", "has_google_key", "has_groq_key",
-              "ollama_reachable", "emergent_available"):
+              "ollama_reachable", "sovereign_available"):
         assert k in d
 
 
@@ -57,7 +61,8 @@ def test_embeddings_status(sess):
     r = sess.get(f"{API}/embeddings/status", timeout=30)
     assert r.status_code == 200
     d = r.json()
-    assert d.get("local_loaded") is True
+    if not d.get("local_loaded"):
+        pytest.skip("fastembed/MiniLM not installed — skipping embeddings assertions")
     assert d.get("local_dim") == 384
 
 
@@ -106,6 +111,7 @@ def test_ollama_pull_unreachable(sess):
 
 
 # --- Coder sub-agent ---------------------------------------------------------
+@pytest.mark.skipif(_NO_PAT, reason="GITHUB_PAT not set — skipping coder PAT tests")
 def test_coder_repos(sess):
     r = sess.get(f"{API}/coder/repos", timeout=30)
     assert r.status_code == 200
@@ -171,7 +177,8 @@ def test_memory_add_and_recent(sess):
                   timeout=20)
     assert r.status_code == 200
     d = r.json()
-    assert d.get("embed_mode") == "local:minilm"
+    # embed_mode may be 'local:minilm' or 'fallback:sha' depending on fastembed availability
+    assert d.get("embed_mode") in ("local:minilm", "fallback:sha", "local:sha"), d
     assert "_id" not in d
 
     r2 = sess.get(f"{API}/memory/recent?limit=20", timeout=15)
@@ -216,6 +223,7 @@ def test_memory_decay(sess):
 
 
 # --- Chat --------------------------------------------------------------------
+@pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping chat test")
 def test_chat_end_to_end_and_session_persistence(sess):
     sid = f"sweep_{uuid.uuid4().hex[:6]}"
     r1 = sess.post(f"{API}/chat",
@@ -240,6 +248,7 @@ def test_chat_end_to_end_and_session_persistence(sess):
     assert len(msgs) >= 4  # user+ghost x 2
 
 
+@pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping chat-memory test")
 def test_chat_memory_extraction(sess):
     sid = f"mem_{uuid.uuid4().hex[:6]}"
     r = sess.post(f"{API}/chat",

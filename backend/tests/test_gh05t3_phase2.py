@@ -8,7 +8,12 @@ import pytest
 import requests
 websockets = pytest.importorskip("websockets", reason="websockets not installed")
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://tatorot-dashboard.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
+
+if not BASE_URL:
+    pytest.skip("REACT_APP_BACKEND_URL not set — skipping integration tests",
+                allow_module_level=True)
+
 API = f"{BASE_URL}/api"
 WS_URL = BASE_URL.replace("https://", "wss://").replace("http://", "ws://") + "/api/ws"
 

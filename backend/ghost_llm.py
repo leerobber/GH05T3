@@ -335,7 +335,24 @@ async def chat_once(session: str, system: str, user: str,
             "Start Ollama (ollama serve) or set COST_FREE_ONLY=0 to enable cloud fallbacks."
         )
 
-    # ── Tier 0: Ollama (local, always free, no network needed) ───────────────
+    # ── Tier 0a: SovereignCore gateway (OpenAI-compat, local GPU cluster) ─────
+    # Routes inference across RTX 5050 → Radeon 780M → Ryzen 7 CPU via Ollama.
+    # Preferred over direct Ollama because the gateway handles load balancing and
+    # health-aware routing automatically.
+    if _provider_ok("sovereign"):
+        try:
+            from sovereign_economy import sovereign_available as _sov_ok, sovereign_chat
+            if await _sov_ok():
+                sc_model = os.environ.get("SOVEREIGN_MODEL", "qwen2.5:0.5b")
+                text = await sovereign_chat(system, user, model=sc_model, timeout=60.0)
+                return text, f"sovereign:{sc_model}"
+        except Exception as _sov_exc:
+            if _is_rate_limit(_sov_exc):
+                _mark_rl("sovereign", 30)
+            LOG.warning("[cascade] sovereign gateway skipped (model=%s, session=%s): %s",
+                        os.environ.get("SOVEREIGN_MODEL", "qwen2.5:0.5b"), session, _sov_exc)
+
+    # ── Tier 0b: Ollama direct (local, always free, no network needed) ────────
     if _provider_ok("ollama") and await ollama_available():
         try:
             await ollama_ensure_model("qwen2.5:0.5b")
@@ -686,7 +703,8 @@ async def nightly_status() -> dict:
         "google_model":      cfg.get("google_model",  "gemini-2.0-flash"),
         "groq_model":        cfg.get("groq_model",    "llama-3.3-70b-versatile"),
         "ollama_reachable":  await ollama_available(),
-        "fallback_chain":    ["ollama (local)", "groq (free)", "google (free)", "anthropic"],
+        "sovereign_available": await sovereign_available(),
+        "fallback_chain":    ["sovereign-core (local GPU)", "ollama (local)", "groq (free)", "google (free)", "anthropic"],
     }
 
 
@@ -780,23 +798,48 @@ async def cassandra_premortem(scenario: str) -> str:
     return text.strip()
 
 
-def load_economy_context() -> str:
-    """Load SovereignNation economy state for system prompt injection."""
-    import json
+async def load_economy_context() -> str:
+    """Load live SovereignCore economy metrics for system prompt injection.
+
+    Fetches health, KAIROS cycles, and ledger stats from the SovereignCore
+    gateway (http://localhost:8000 by default via SOVEREIGN_CORE_URL).
+    Falls back to local data files if the gateway is unreachable.
+    Returns an empty string on total failure — never pollutes the prompt.
+    """
+    # Primary: live SovereignCore gateway
+    try:
+        from sovereign_economy import load_sovereign_economy_context
+        ctx = await load_sovereign_economy_context()
+        if ctx:
+            return ctx
+    except Exception:
+        pass
+
+    # Fallback: local data files (sovereign-core cloned next to GH05T3)
+    import json as _json
     from pathlib import Path
     try:
         root = Path(__file__).parent.parent
-        parts = []
+        parts: list[str] = []
         spin_file = root / "data" / "spin_dataset.jsonl"
         if spin_file.exists():
-            count = sum(1 for l in spin_file.open(encoding="utf-8") if l.strip())
+            count = sum(1 for ln in spin_file.open(encoding="utf-8") if ln.strip())
             parts.append(f"SPIN training pairs: {count}")
         state_file = root / "data" / "continuous_state.json"
         if state_file.exists():
-            s = json.loads(state_file.read_text(encoding="utf-8"))
+            s = _json.loads(state_file.read_text(encoding="utf-8"))
             parts.append(f"Flywheel cycles: {s.get('total_cycles', 0)}")
         if parts:
             return "[SovereignNation Economy]\n" + "\n".join(parts)
     except Exception:
         pass
     return ""
+
+
+async def sovereign_available() -> bool:
+    """True if the SovereignCore gateway (port 8000) is reachable."""
+    try:
+        from sovereign_economy import sovereign_available as _sa
+        return await _sa()
+    except Exception:
+        return False

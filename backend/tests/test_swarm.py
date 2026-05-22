@@ -1,9 +1,9 @@
 """GH05T3 Phase-1 SA³ (Self-Assembling Agentic Swarm) backend tests.
 
 Covers every endpoint under /api/swarm/* plus a light regression on existing
-endpoints. Uses localhost:8001 for the long-running /api/swarm/validate call
-(external ingress enforces a 60s proxy cap). Single-task /swarm/run and
-regression endpoints hit the public REACT_APP_BACKEND_URL.
+endpoints. Uses the same REACT_APP_BACKEND_URL that CI sets.
+LLM-dependent tests (swarm/run, swarm/validate, /chat) are skipped when
+no LLM provider is configured so CI passes without API keys.
 """
 from __future__ import annotations
 
@@ -11,23 +11,28 @@ import os
 import time
 import pytest
 import requests
-from dotenv import load_dotenv
 
-try:
-    load_dotenv("/app/frontend/.env")
-except Exception:
-    pass
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 
-PUBLIC = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
-LOCAL = "http://localhost:8001"
+if not BASE_URL:
+    pytest.skip("REACT_APP_BACKEND_URL not set — skipping integration tests",
+                allow_module_level=True)
+
+# Both public and local routes point to the same CI-local backend (localhost:8001).
+# The `PUBLIC` alias is kept for readability; swarm/validate no longer needs
+# a separate localhost bypass since the 60s proxy cap doesn't apply in CI.
+PUBLIC = BASE_URL
+
+_NO_LLM = (
+    not os.environ.get("ANTHROPIC_API_KEY")
+    and not os.environ.get("GROQ_API_KEY")
+    and not os.environ.get("GOOGLE_AI_KEY")
+)
+
 
 
 def _api_public(path: str) -> str:
     return f"{PUBLIC}/api{path}"
-
-
-def _api_local(path: str) -> str:
-    return f"{LOCAL}/api{path}"
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +87,7 @@ class TestSwarmRun:
                           timeout=15)
         assert r.status_code == 400
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping swarm/run LLM tests")
     def test_run_debate_ring_topology(self, reset_swarm):
         r = requests.post(_api_public("/swarm/run"), json={
             "task_type": "debate",
@@ -99,6 +105,7 @@ class TestSwarmRun:
                       "tokens_delta", "latency_ms", "crashed"):
                 assert k in resp
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping swarm/run LLM tests")
     def test_run_code_line_topology_coder_rewarded(self, reset_swarm):
         r = requests.post(_api_public("/swarm/run"), json={
             "task_type": "code",
@@ -110,6 +117,7 @@ class TestSwarmRun:
         # COD should be the specialist and earn tokens
         assert d["deltas"].get("COD", 0) > 0, f"COD should earn, got {d['deltas']}"
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping swarm/run LLM tests")
     def test_run_ethics_star_topology_ethicist_flags(self, reset_swarm):
         r = requests.post(_api_public("/swarm/run"), json={
             "task_type": "ethics",
@@ -121,6 +129,7 @@ class TestSwarmRun:
         assert d["topology"] == "star"
         assert d["deltas"].get("ETH", 0) == 5, f"ETH expected +5, got {d['deltas']}"
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping swarm/run LLM tests")
     def test_run_memory_hub_topology(self, reset_swarm):
         r = requests.post(_api_public("/swarm/run"), json={
             "task_type": "memory",
@@ -132,6 +141,7 @@ class TestSwarmRun:
         # MEM should get a non-negative delta (we can't guarantee hits exist)
         assert "MEM" in d["deltas"]
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping swarm/run LLM tests")
     def test_offspecialty_neutrality_on_debate(self, reset_swarm):
         # Fresh reset not strictly needed — previous deltas can still be 0.
         r = requests.post(_api_public("/swarm/run"), json={
@@ -179,16 +189,17 @@ class TestLedgerAndTasks:
 
 
 # ---------------------------------------------------------------------------
-# /api/swarm/validate — 20-task run (localhost to bypass 60s proxy cap)
+# /api/swarm/validate — 20-task run (LLM required)
 # ---------------------------------------------------------------------------
 class TestSwarmValidate:
     _cached: dict = {}
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping swarm/validate LLM test")
     def test_validate_run_20_tasks(self, reset_swarm):
         # Reset before validate so token economy audit downstream is deterministic.
         requests.post(_api_public("/swarm/reset"), timeout=20)
         t0 = time.time()
-        r = requests.post(_api_local("/swarm/validate"),
+        r = requests.post(_api_public("/swarm/validate"),
                           json={"n": 20}, timeout=600)
         elapsed = time.time() - t0
         assert r.status_code == 200, r.text
@@ -207,6 +218,7 @@ class TestSwarmValidate:
                 assert k in b
             assert 0.0 <= b["success_rate"] <= 1.0
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping topology assertion")
     def test_validate_all_four_topologies_observed(self):
         data = TestSwarmValidate._cached.get("data")
         if data is None:
@@ -216,6 +228,7 @@ class TestSwarmValidate:
         assert set(data["topologies_seen"]) == {"ring", "line", "star", "hub"}, \
             f"expected all 4 topologies, got {data['topologies_seen']}"
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping token economy assertion")
     def test_token_economy_post_validate(self):
         r = requests.get(_api_public("/swarm/state"), timeout=15)
         assert r.status_code == 200
@@ -277,6 +290,7 @@ class TestRegression:
         assert r.status_code == 200
         assert "hits" in r.json()
 
+    @pytest.mark.skipif(_NO_LLM, reason="No LLM configured — skipping chat regression test")
     def test_chat(self):
         r = requests.post(_api_public("/chat"),
                           json={"session_id": "swarm-regression",

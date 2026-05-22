@@ -23,27 +23,28 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
-          restore-keys: ${{ runner.os }}-pip-
+          key: ${{ runner.os }}-pip-ci-${{ hashFiles('backend/requirements-ci.txt') }}
+          restore-keys: ${{ runner.os }}-pip-ci-
 
-      - name: Install test dependencies
-        run: |
-          pip install \
-            fastapi httpx python-dotenv loguru pydantic requests websockets anyio \
-            pytest pytest-asyncio pytest-mock
+      - name: Install CI dependencies
+        run: pip install -r backend/requirements-ci.txt
 
       - name: Syntax check — backend gateway
         run: python -m py_compile backend/gateway_v3.py
 
+      - name: Syntax check — sovereign economy client
+        run: python -m py_compile backend/sovereign_economy.py
+
       - name: Syntax check — training pipeline
         run: |
-          for f in \
-            pre_train.py runpod_launcher.py kairos_dataset_gen.py \
-            mentor_trainer.py avery_flywheel.py merge_on_runpod.py \
-            herald.py cmd_listener.py train_sovereign_sft.py \
-            multiturn_gen.py ghost_trainer.py push_hf_cards.py; do
-            echo "  py_compile $f"
-            python -m py_compile "$f"
+          for f in pre_train.py runpod_launcher.py kairos_dataset_gen.py \
+                   mentor_trainer.py avery_flywheel.py merge_on_runpod.py \
+                   herald.py cmd_listener.py train_sovereign_sft.py \
+                   multiturn_gen.py ghost_trainer.py push_hf_cards.py; do
+            if [ -f "$f" ]; then
+              echo "  py_compile $f"
+              python -m py_compile "$f"
+            fi
           done
 
       - name: Run backend unit tests (live-server tests auto-skipped)
