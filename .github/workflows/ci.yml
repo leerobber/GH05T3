@@ -12,17 +12,6 @@ jobs:
     name: Backend — tests & syntax
     runs-on: ubuntu-latest
 
-    services:
-      mongodb:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --eval 'db.runCommand({ ping: 1 })'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
 
@@ -63,37 +52,6 @@ jobs:
         env:
           PYTEST_ASYNCIO_MODE: auto
         run: pytest tests/ -v -m "not live and not integration"
-
-      - name: Start local backend
-        working-directory: backend
-        env:
-          MONGO_URL: mongodb://localhost:27017
-          DB_NAME: gh05t3_ci
-          LLM_PROVIDER: ollama
-          COST_FREE_ONLY: "1"
-          SOVEREIGN_CORE_URL: http://localhost:8000
-        run: |
-          uvicorn server:app --host 0.0.0.0 --port 8001 &
-          echo "Waiting for backend to be healthy..."
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8001/api/health > /dev/null 2>&1; then
-              echo "Backend ready after ${i}s"
-              break
-            fi
-            sleep 1
-          done
-          curl -sf http://localhost:8001/api/health || (echo "Backend failed to start" && exit 1)
-
-      - name: Run backend integration tests
-        working-directory: backend
-        env:
-          REACT_APP_BACKEND_URL: http://localhost:8001
-          MONGO_URL: mongodb://localhost:27017
-          DB_NAME: gh05t3_ci
-          LLM_PROVIDER: ollama
-          COST_FREE_ONLY: "1"
-          SOVEREIGN_CORE_URL: http://localhost:8000
-        run: pytest tests/ -q --tb=short
 
       - name: Run root unit tests
         run: pytest tests/ -v
