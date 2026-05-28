@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>No problem — SovereignNation</title>
+  <style>
+    :root {
+      --bg: #080c18; --surface: #0d1424; --border: #1e2d45;
+      --accent: #3b82f6; --cyan: #06b6d4; --amber: #f59e0b;
+      --text: #f1f5f9; --muted: #94a3b8;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 56px 48px; max-width: 520px; width: 100%;
+      text-align: center;
+    }
+    .icon { font-size: 3rem; margin-bottom: 24px; }
+    h1 { font-size: 1.8rem; font-weight: 700; margin-bottom: 12px; }
+    .subtitle { color: var(--muted); font-size: 1rem; line-height: 1.6; margin-bottom: 36px; }
+    .options { display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 13px 28px; border-radius: 10px; font-size: 0.95rem; font-weight: 600;
+      text-decoration: none; cursor: pointer; border: none; transition: all 0.15s;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { box-shadow: 0 6px 24px rgba(59,130,246,0.4); transform: translateY(-1px); }
+    .btn-outline {
+      background: transparent; color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-outline:hover { border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.06); }
+    .question {
+      background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2);
+      border-radius: 12px; padding: 20px 24px; font-size: 0.88rem;
+      color: var(--muted); line-height: 1.6;
+    }
+    .question strong { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🙂</div>
+    <h1>No problem at all.</h1>
+    <p class="subtitle">
+      Your payment was cancelled — nothing was charged. Take your time.
+    </p>
+
+    <div class="options">
+      <a href="https://sovereignnation.netlify.app" class="btn btn-primary">
+        ← Back to the demo
+      </a>
+      <a href="https://calendly.com/leer4030/30min" class="btn btn-outline">
+        Book a 15-min call instead →
+      </a>
+    </div>
+
+    <div class="question">
+      <strong>Have a question before committing?</strong><br>
+      Email <a href="mailto:leer4030@gmail.com" style="color:var(--accent)">leer4030@gmail.com</a> —
+      typical response within a few hours. We're happy to answer any questions about
+      data privacy, hardware requirements, or how deployment works.
+    </div>
+  </div>
+</body>
+</html>

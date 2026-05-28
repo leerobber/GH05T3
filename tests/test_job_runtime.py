@@ -21,7 +21,7 @@ def test_create_job_document_records_policy():
     assert job["source"].startswith("think:")
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_run_ghostscript_job_blocks_abuse_without_running():
     called = False
 
@@ -43,7 +43,7 @@ async def test_run_ghostscript_job_blocks_abuse_without_running():
     assert result["policy"]["level"] == "blocked"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_run_ghostscript_job_executes_allowed_job():
     async def runner(source):
         return {"ok": True, "log": [{"step": "think"}], "source_seen": source}

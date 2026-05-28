@@ -35,6 +35,7 @@ import requests
 import slack_notify as _slack
 
 POLL_SEC     = 5
+POLL_MAX_SEC = 120   # cap backoff at 2 minutes
 CMD_CHANNEL  = "gh05t3-cmd"
 SEEN_FILE    = BASE / "data" / "cmd_seen.json"
 PYTHON       = sys.executable
@@ -73,13 +74,20 @@ def _get_messages(channel_id: str, oldest: str = "") -> list:
     params = {"channel": channel_id, "limit": 10}
     if oldest:
         params["oldest"] = oldest
-    r = requests.get(
-        "https://slack.com/api/conversations.history",
-        headers={"Authorization": f"Bearer {token}"},
-        params=params,
-        timeout=10,
-    )
-    return r.json().get("messages", [])
+    try:
+        r = requests.get(
+            "https://slack.com/api/conversations.history",
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+            timeout=10,
+        )
+        return r.json().get("messages", [])
+    except requests.exceptions.ConnectionError:
+        raise   # let main loop's backoff handle it
+    except requests.exceptions.Timeout:
+        raise   # same
+    except Exception:
+        return []
 
 
 def _reply(text: str):
@@ -232,10 +240,14 @@ def main():
     _reply(":robot_face: *GH05T3 command listener online.* Type `!help` to see commands.")
 
     oldest = str(time.time())
+    backoff = POLL_SEC   # current sleep duration; grows on network failure
 
     while True:
         try:
             messages = _get_messages(channel_id, oldest=oldest)
+            # Success — reset backoff
+            backoff = POLL_SEC
+
             for msg in reversed(messages):
                 ts  = msg.get("ts", "")
                 txt = msg.get("text", "").strip()
@@ -261,6 +273,15 @@ def main():
                     _reply(result)
 
             _save_seen(seen)
+
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout) as e:
+            # Network failure — exponential backoff, suppress repeated stack traces
+            err_short = str(e)[:120]
+            print(f"Poll error (network, retrying in {backoff}s): {err_short}")
+            time.sleep(backoff)
+            backoff = min(backoff * 2, POLL_MAX_SEC)
+            continue   # skip the normal sleep below
 
         except Exception as e:
             print(f"Poll error: {e}")

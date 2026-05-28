@@ -266,6 +266,12 @@ def amplify(variants_per_pair: int = DEFAULT_VARIANTS,
     uploaded = False
 
     for i, pair in enumerate(to_amplify):
+        # ── Demo mode: yield Ollama to live clients ──────────────────────────
+        demo_flag = Path("data/demo_mode.flag")
+        while demo_flag.exists():
+            print("  [AMP DEMO MODE] Paused — Ollama reserved for live demo. Checking in 30s...")
+            import time as _time; _time.sleep(30)
+
         goal     = pair.get("goal", "")
         rejected = pair.get("rejected", "")
         rej_score = pair.get("rejected_score", 0.5)

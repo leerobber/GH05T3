@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 import ghost_llm  # noqa: E402
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_chat_once_ollama_mode_never_calls_external_providers(monkeypatch):
     called = []
 
@@ -44,7 +44,7 @@ async def test_chat_once_ollama_mode_never_calls_external_providers(monkeypatch)
     assert called == []
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_nightly_chat_cost_free_never_calls_external_providers(monkeypatch):
     called = []
 

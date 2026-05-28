@@ -3,7 +3,10 @@ from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
 import requests as _req
-from groq import Groq
+try:
+    from groq import Groq as _Groq
+except ImportError:
+    _Groq = None   # groq optional — all production models use Ollama
 from ghost_domains import get_domain, DOMAINS
 try:
     from repo_scanner import load_capability_summary
@@ -24,7 +27,8 @@ VERIFIER = "qwen2.5:7b-instruct"  # Ollama — instruction-tuned rubric judge
 CRITIC   = "dolphin-llama3:8b"    # Ollama — uncensored attacker, brutally honest
 META     = "llama3.2:3b"          # Ollama — tiny + fast for meta rewrites
 
-_groq = Groq(api_key=GROQ_KEY)    # kept for optional future use
+# Groq client — optional (all current models use Ollama, groq kept for future)
+_groq = _Groq(api_key=GROQ_KEY) if (_Groq and GROQ_KEY) else None
 
 # 4-axis scoring weights — must sum to 1.0
 W = {"spec": 0.30, "exec": 0.35, "innov": 0.25, "rev": 0.10}

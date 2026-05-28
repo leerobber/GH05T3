@@ -34,13 +34,27 @@ ECO_DIR = Path(r"C:\Users\leer4\Documents\agent-economy")
 LOGS    = ROOT / "logs"
 LOGS.mkdir(exist_ok=True)
 
-GH_PY  = ROOT / "backend" / ".venv" / "Scripts" / "python.exe"
-ECO_PY = ECO_DIR / "venv" / "Scripts" / "python.exe"
+def _find_py(*candidates) -> Path:
+    """Return the first existing Python executable, fall back to sys.executable."""
+    for c in candidates:
+        p = Path(c)
+        if p.exists():
+            return p
+    return Path(sys.executable)
 
-if not GH_PY.exists():
-    GH_PY = Path(sys.executable)
-if not ECO_PY.exists():
-    ECO_PY = Path(sys.executable)
+GH_PY  = _find_py(
+    ROOT / "backend" / ".venv" / "Scripts" / "python.exe",
+    ROOT / ".venv"           / "Scripts" / "python.exe",
+    ROOT / "venv"            / "Scripts" / "python.exe",
+)
+ECO_PY = _find_py(
+    ECO_DIR / "venv"    / "Scripts" / "python.exe",
+    ECO_DIR / ".venv"   / "Scripts" / "python.exe",
+)
+# System Python 3.12 — has stripe, fastapi, uvicorn installed globally
+SYS_PY = _find_py(
+    r"C:\Users\leer4\AppData\Local\Programs\Python\Python312\python.exe",
+)
 
 STATUS_PORT = 8090
 
@@ -54,6 +68,8 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("supervisor")
+log.info("GH05T3 Python : %s", GH_PY)
+log.info("Economy Python: %s", ECO_PY)
 
 # ── Service definitions ────────────────────────────────────────────────────────
 # order matters — services start in list order, each waits for the previous
@@ -63,8 +79,8 @@ SERVICES = [
         "cmd":     [str(ECO_PY), "start.py"],
         "cwd":     str(ECO_DIR),
         "port":    8081,
-        "health":  "http://localhost:8081/system/stats",
-        "timeout": 30,     # seconds to wait for health check on first start
+        "health":  "http://localhost:8081/",           # /health is slow; root / is fast
+        "timeout": 30,
         "restart": True,
     },
     {
@@ -75,7 +91,7 @@ SERVICES = [
         "port":    None,
         "health":  None,
         "timeout": 3,
-        "restart": True,
+        "restart": False,   # auto_runner.py not yet created — disable until ready
     },
     {
         "name":    "mongo",
@@ -115,6 +131,116 @@ SERVICES = [
         "port":    3210,
         "health":  "http://localhost:3210",
         "timeout": 5,
+        "restart": True,
+    },
+    # ── GH05T3 learning pipeline ───────────────────────────────────────────────
+    {
+        "name":    "continuous-learner",
+        "cmd":     [str(GH_PY), "continuous_learner.py"],
+        "cwd":     str(ROOT),
+        "port":    None,
+        "health":  None,        # uses heartbeat file check below
+        "timeout": 15,
+        "restart": True,
+        "heartbeat_file": str(ROOT / "data" / "learner_heartbeat.json"),
+        "heartbeat_max_age": 900,   # seconds — restart if silent > 15 min (cycles can take 10 min)
+    },
+    {
+        "name":    "cmd-listener",
+        "cmd":     [str(GH_PY), "cmd_listener.py"],
+        "cwd":     str(ROOT),
+        "port":    None,
+        "health":  None,
+        "timeout": 5,
+        "restart": True,
+    },
+    {
+        "name":    "amplifier",
+        "cmd":     [str(GH_PY), "amplifier.py", "--variants", "5"],
+        "cwd":     str(ROOT),
+        "port":    None,
+        "health":  None,
+        "timeout": 5,
+        "restart": True,
+    },
+    # ── SovereignNation client proxy ───────────────────────────────────────────
+    {
+        "name":    "serve",
+        "cmd":     [str(SYS_PY), "sovereignnation/serve.py"],
+        "cwd":     str(ROOT),
+        "port":    7861,
+        "health":  "http://localhost:7861/health",
+        "timeout": 10,
+        "restart": True,
+    },
+    # ── SovereignNation payments service ──────────────────────────────────────
+    {
+        "name":    "payments",
+        "cmd":     [str(SYS_PY), "-m", "uvicorn", "payments:app",
+                    "--host", "0.0.0.0", "--port", "7862", "--log-level", "info"],
+        "cwd":     str(ROOT / "sovereignnation"),
+        "port":    7862,
+        "health":  "http://localhost:7862/health",
+        "timeout": 15,
+        "restart": True,
+    },
+    # ── Agent pipeline CORS proxy (48hr_poc_agent_pipeline.html -> Ollama) ──────
+    {
+        "name":    "pipeline-backend",
+        "cmd":     [str(SYS_PY), "-m", "uvicorn", "pipeline_backend:app",
+                    "--host", "0.0.0.0", "--port", "8099", "--log-level", "warning"],
+        "cwd":     str(ROOT / "sovereignnation"),
+        "port":    8099,
+        "health":  "http://localhost:8099/health",
+        "timeout": 15,
+        "restart": True,
+    },
+    # ── Landing page static server ─────────────────────────────────────────────
+    {
+        "name":    "landing-server",
+        "cmd":     [str(SYS_PY), "-m", "http.server", "8765",
+                    "--directory", str(ROOT / "sovereignnation" / "landing")],
+        "cwd":     str(ROOT),
+        "port":    8765,
+        "health":  "http://localhost:8765/",
+        "timeout": 5,
+        "restart": True,
+    },
+    # ── Cloudflare tunnels ────────────────────────────────────────────────────
+    {
+        "name":    "tunnel-chat",
+        "cmd":     [r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+                    "tunnel", "--url", "http://localhost:7861",
+                    "--logfile", str(ROOT / "data" / "tunnel_chat.log"),
+                    "--loglevel", "info"],
+        "cwd":     str(ROOT),
+        "port":    None,
+        "health":  None,
+        "timeout": 15,
+        "restart": True,
+        "backoff": [5, 10, 20, 40, 60],
+    },
+    {
+        "name":    "tunnel-landing",
+        "cmd":     [r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+                    "tunnel", "--url", "http://localhost:8765",
+                    "--logfile", str(ROOT / "data" / "tunnel_landing.log"),
+                    "--loglevel", "info"],
+        "cwd":     str(ROOT),
+        "port":    None,
+        "health":  None,
+        "timeout": 15,
+        "restart": True,
+        "backoff": [5, 10, 20, 40, 60],
+    },
+    # ── Tunnel URL watcher ────────────────────────────────────────────────────
+    {
+        "name":    "tunnel-watcher",
+        "cmd":     [str(SYS_PY), "tunnel_watcher.py"],
+        "cwd":     str(ROOT),
+        "port":    None,
+        "health":  None,
+        "timeout": 3,
         "restart": True,
     },
 ]
@@ -164,7 +290,28 @@ def _is_healthy(svc: dict) -> bool:
         return _http_ok(health)
     if port:
         return _tcp_open(port)
-    # no check defined — consider healthy if process is alive
+
+    # Heartbeat file check — detect hung (alive but silent) processes
+    hb_file = svc.get("heartbeat_file")
+    hb_max  = svc.get("heartbeat_max_age", 300)
+    if hb_file:
+        hb_path = Path(hb_file)
+        if hb_path.exists():
+            try:
+                data = json.loads(hb_path.read_text(encoding="utf-8"))
+                age  = time.time() - data.get("ts", 0)
+                if age > hb_max:
+                    log.warning("%-18s  heartbeat stale (%.0fs) — marking unhealthy",
+                                svc["name"], age)
+                    return False
+                return True
+            except Exception:
+                pass
+        # File doesn't exist yet — process may still be starting
+        proc = _procs.get(svc["name"])
+        return proc is not None and proc.poll() is None
+
+    # No check defined — process alive = healthy
     proc = _procs.get(svc["name"])
     return proc is not None and proc.poll() is None
 
@@ -280,6 +427,7 @@ def _monitor():
     BACKOFF = [5, 10, 20, 40, 60]   # seconds between restart attempts
 
     while not _stop_event.wait(10):  # check every 10 seconds
+      try:
         for svc in SERVICES:
             name = svc["name"]
             st   = _state[name]
@@ -314,6 +462,21 @@ def _monitor():
                 age = time.time() - st["last_healthy"]
                 if age > 30:
                     st["status"] = "degraded"
+                # Heartbeat-based hung-process kill: if the svc has a heartbeat
+                # file and it's stale by 2x the max age, force-kill so the
+                # monitor's dead-process branch will restart it next tick.
+                hb_max = svc.get("heartbeat_max_age", 0)
+                if hb_max and age > hb_max * 2:
+                    log.warning("%-18s  appears hung (no heartbeat >%ds) — force-killing",
+                                svc["name"], hb_max * 2)
+                    p = _procs.get(svc["name"])
+                    if p and p.poll() is None:
+                        try:
+                            p.kill()
+                        except Exception:
+                            pass
+      except Exception as exc:
+          log.error("Monitor loop error (will retry): %s", exc, exc_info=True)
 
 
 # ── Status HTTP server ─────────────────────────────────────────────────────────
@@ -353,11 +516,46 @@ def _run_status_server():
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
+PIDFILE = ROOT / "data" / "supervisor.pid"
+
+
+def _acquire_lock() -> bool:
+    """Write pidfile. Return False if another instance appears to be running."""
+    PIDFILE.parent.mkdir(exist_ok=True)
+    if PIDFILE.exists():
+        try:
+            existing_pid = int(PIDFILE.read_text().strip())
+            # Check if that PID is actually a running supervisor
+            import psutil
+            proc = psutil.Process(existing_pid)
+            cmdline = " ".join(proc.cmdline())
+            if "supervisor.py" in cmdline:
+                log.warning("Supervisor already running (pid=%d) — exiting.", existing_pid)
+                return False
+        except (ValueError, OSError, ImportError):
+            pass  # stale pidfile or psutil not available — proceed
+    PIDFILE.write_text(str(os.getpid()))
+    return True
+
+
+def _release_lock():
+    try:
+        PIDFILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def _ensure_mongo_data():
     (ROOT / "mongo-data").mkdir(exist_ok=True)
 
 
 def run():
+    if not _acquire_lock():
+        sys.exit(0)
+
+    import atexit
+    atexit.register(_release_lock)
+
     _ensure_mongo_data()
 
     # Status API thread (widget polls this)

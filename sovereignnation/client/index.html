@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SovereignNation — Enterprise AI Infrastructure</title>
+  <style>
+    :root {
+      --bg:        #0a0e1a;
+      --surface:   #111827;
+      --border:    #1e2d45;
+      --accent:    #3b82f6;
+      --accent2:   #06b6d4;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --user-bg:   #1e3a5f;
+      --agent-bg:  #131f30;
+      --danger:    #ef4444;
+      --success:   #22c55e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+    .logo-sub { font-size: 0.75rem; color: var(--muted); margin-top: 1px; letter-spacing: 0.04em; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--success);
+      margin-left: auto;
+      box-shadow: 0 0 6px var(--success);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .status-text { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.02em; }
+
+    /* ── Main layout ── */
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 12px;
+      gap: 8px;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .sidebar-label {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      text-transform: uppercase;
+      padding: 0 4px 4px;
+    }
+    .agent-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: left;
+      width: 100%;
+    }
+    .agent-btn:hover { background: rgba(59,130,246,0.08); border-color: var(--border); }
+    .agent-btn.active {
+      background: rgba(59,130,246,0.15);
+      border-color: var(--accent);
+    }
+    .agent-btn.unavailable { opacity: 0.45; }
+    .agent-icon {
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .agent-info { flex: 1; min-width: 0; }
+    .agent-name { font-size: 0.85rem; font-weight: 600; }
+    .agent-role { font-size: 0.7rem; color: var(--muted); margin-top: 1px; }
+    .sidebar-divider {
+      height: 1px; background: var(--border); margin: 8px 0;
+    }
+    .compliance-badge {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: rgba(59,130,246,0.07);
+      border: 1px solid rgba(59,130,246,0.2);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-top: auto;
+    }
+    .compliance-badge-title {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent2);
+    }
+    .compliance-badge-items {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .compliance-item {
+      font-size: 0.68rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .compliance-item::before {
+      content: '';
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+
+    /* ── Chat area ── */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    .agent-header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+      background: var(--surface);
+    }
+    .agent-header .agent-icon { width: 40px; height: 40px; font-size: 1.25rem; }
+    .agent-header-name { font-size: 1rem; font-weight: 600; }
+    .agent-header-desc { font-size: 0.78rem; color: var(--muted); }
+    .clear-btn {
+      margin-left: auto;
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.72rem;
+      letter-spacing: 0.03em;
+      transition: all 0.15s;
+    }
+    .clear-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .message {
+      display: flex;
+      gap: 12px;
+      max-width: 85%;
+    }
+    .message.user { flex-direction: row-reverse; align-self: flex-end; }
+    .message.agent { align-self: flex-start; }
+    .msg-avatar {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.9rem; flex-shrink: 0;
+    }
+    .msg-content {
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 0.875rem;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .message.user .msg-content {
+      background: var(--user-bg);
+      border-radius: 12px 2px 12px 12px;
+    }
+    .message.agent .msg-content {
+      background: var(--agent-bg);
+      border: 1px solid var(--border);
+      border-radius: 2px 12px 12px 12px;
+    }
+    .message.agent .msg-content code {
+      background: rgba(0,0,0,0.4);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.8em;
+    }
+    .message.agent .msg-content pre {
+      background: rgba(0,0,0,0.5);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+    .message.agent .msg-content pre code { background: none; padding: 0; }
+
+    .typing-indicator {
+      display: none;
+      gap: 4px;
+      padding: 12px 16px;
+      background: var(--agent-bg);
+      border: 1px solid var(--border);
+      border-radius: 2px 12px 12px 12px;
+      width: fit-content;
+    }
+    .typing-indicator.visible { display: flex; }
+    .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--muted);
+      animation: bounce 1.2s infinite;
+    }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-6px); }
+    }
+
+    /* ── Input area ── */
+    .input-area {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-shrink: 0;
+    }
+    .input-wrap { flex: 1; position: relative; }
+    textarea {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.875rem;
+      resize: none;
+      min-height: 44px;
+      max-height: 160px;
+      overflow-y: auto;
+      line-height: 1.5;
+      transition: border-color 0.15s;
+      outline: none;
+    }
+    textarea:focus { border-color: var(--accent); }
+    textarea::placeholder { color: var(--muted); }
+    .send-btn {
+      padding: 11px 22px;
+      border-radius: 10px;
+      border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white;
+      font-weight: 600;
+      font-size: 0.875rem;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      white-space: nowrap;
+    }
+    .send-btn:hover { opacity: 0.9; }
+    .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .input-hint {
+      font-size: 0.68rem; color: var(--muted);
+      padding: 4px 4px 0;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Welcome screen ── */
+    .welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: var(--muted);
+      text-align: center;
+      padding: 40px;
+    }
+    .welcome-lockup {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+    .welcome-icon {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(6,182,212,0.2));
+      border: 1px solid rgba(59,130,246,0.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
+    }
+    .welcome h2 {
+      font-size: 1.15rem;
+      color: var(--text);
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+    .welcome-sub {
+      font-size: 0.83rem;
+      color: var(--muted);
+      max-width: 440px;
+      line-height: 1.65;
+      margin-bottom: 6px;
+    }
+
+    /* ── Demo prompt cards ── */
+    .prompt-grid-label {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-top: 12px;
+    }
+    .prompt-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      width: 100%;
+      max-width: 640px;
+      margin-top: 4px;
+    }
+    .prompt-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .prompt-card:hover {
+      border-color: var(--accent);
+      background: rgba(59,130,246,0.07);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px rgba(59,130,246,0.1);
+    }
+    .prompt-card:active { transform: translateY(0); }
+    .prompt-card-icon { font-size: 1.1rem; }
+    .prompt-card-title {
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .prompt-card-desc {
+      font-size: 0.71rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .prompt-card-full {
+      grid-column: 1 / -1;
+    }
+    .data-residency-note {
+      font-size: 0.69rem;
+      color: var(--muted);
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      opacity: 0.75;
+      letter-spacing: 0.01em;
+    }
+    .data-residency-note span {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Teleprompter / Recording Mode ── */
+    .teleprompter {
+      width: 300px; flex-shrink: 0;
+      background: #060a14;
+      border-right: 1px solid var(--border);
+      display: none; flex-direction: column;
+      padding: 16px 14px; overflow-y: auto; gap: 0;
+    }
+    .tp-header {
+      display: flex; align-items: center; gap: 8px;
+      padding-bottom: 12px; border-bottom: 1px solid var(--border);
+      margin-bottom: 14px; flex-shrink: 0;
+    }
+    .rec-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #ef4444; box-shadow: 0 0 10px #ef4444;
+      animation: pulse 1s infinite; flex-shrink: 0;
+    }
+    .tp-title { font-size: 0.65rem; font-weight: 700; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+    .tp-countdown {
+      display: none; text-align: center;
+      font-size: 5rem; font-weight: 900; color: var(--accent);
+      line-height: 1; padding: 20px 0; flex-shrink: 0;
+    }
+    .tp-firing {
+      display: none; text-align: center;
+      font-size: 0.78rem; font-weight: 700; color: var(--success);
+      letter-spacing: 0.08em; text-transform: uppercase;
+      padding: 8px; flex-shrink: 0;
+    }
+    .tp-cue {
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--accent2);
+      padding: 14px 4px 6px; display: flex; align-items: center; gap: 8px;
+    }
+    .tp-cue::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .tp-line {
+      font-size: 1.05rem; line-height: 1.5; font-weight: 500;
+      color: var(--dim); padding: 8px 12px; border-radius: 8px;
+      border-left: 3px solid transparent;
+      transition: all 0.25s; margin-bottom: 4px; cursor: pointer;
+    }
+    .tp-line.active {
+      color: var(--text); background: rgba(59,130,246,0.1);
+      border-left-color: var(--accent);
+      font-size: 1.12rem;
+    }
+    .tp-line.done { color: #2a3a52; text-decoration: line-through; font-size: 0.85rem; }
+    .tp-hint {
+      font-size: 0.68rem; color: var(--dim); text-align: center;
+      padding: 14px 0 4px; flex-shrink: 0; line-height: 1.6;
+    }
+    .tp-progress {
+      height: 3px; background: var(--border); border-radius: 2px;
+      margin-top: 10px; flex-shrink: 0; overflow: hidden;
+    }
+    .tp-progress-bar {
+      height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 2px; transition: width 0.3s;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">SovereignNation</div>
+    <div class="logo-sub">On-Premises AI Infrastructure</div>
+  </div>
+  <div class="status-dot" id="statusDot" title="Checking inference service..."></div>
+  <div class="status-text" id="statusText">Initializing…</div>
+</header>
+
+<div class="main">
+
+  <!-- Teleprompter panel (visible only in ?autoplay=1 mode) -->
+  <div class="teleprompter" id="teleprompter">
+    <div class="tp-header">
+      <div class="rec-dot"></div>
+      <span class="tp-title">Recording Mode &nbsp;·&nbsp; Space = next line</span>
+    </div>
+    <div class="tp-countdown" id="tpCountdown">3</div>
+    <div class="tp-firing" id="tpFiring">▶ Demo Running…</div>
+    <div class="tp-lines" id="tpLines">
+
+      <div class="tp-cue">Intro</div>
+      <div class="tp-line" data-line="0">"This is SovereignNation."</div>
+      <div class="tp-line" data-line="1">"An AI platform that runs entirely on your hardware."</div>
+      <div class="tp-line" data-line="2">"No data leaves your office. No OpenAI. No Anthropic. Nothing goes to the cloud."</div>
+
+      <div class="tp-cue">The Scenario</div>
+      <div class="tp-line" data-line="3">"Watch what happens when I analyze a real Schedule C."</div>
+      <div class="tp-line" data-line="4">"This client has $340,000 in revenue —"</div>
+      <div class="tp-line" data-line="5">"home office, vehicle deductions, meals."</div>
+      <div class="tp-line" data-line="6">"I want to know their audit exposure before we file."</div>
+
+      <div class="tp-cue">While Demo Runs</div>
+      <div class="tp-line" data-line="7">"While it's analyzing —"</div>
+      <div class="tp-line" data-line="8">"this is running on a server in your office."</div>
+      <div class="tp-line" data-line="9">"Your client's financials never touched the internet."</div>
+      <div class="tp-line" data-line="10">"It's pulling IRC sections, quantifying risk by deduction item, flagging what needs documentation."</div>
+      <div class="tp-line" data-line="11">"This is what a senior associate spends 2 to 4 hours researching."</div>
+
+      <div class="tp-cue">Close</div>
+      <div class="tp-line" data-line="12">"That took about 15 seconds."</div>
+      <div class="tp-line" data-line="13">"The citations are verifiable. The analysis is structured."</div>
+      <div class="tp-line" data-line="14">"And your client's Schedule C data is still sitting in your office —"</div>
+      <div class="tp-line" data-line="15">"not in a training dataset, not on a cloud server. Nowhere else."</div>
+      <div class="tp-line" data-line="16">"This is what we deploy for accounting firms."</div>
+      <div class="tp-line" data-line="17">"Your hardware. Your network. Your data."</div>
+      <div class="tp-line" data-line="18">"Book a 15-minute call — link is below."</div>
+
+    </div>
+    <div class="tp-progress"><div class="tp-progress-bar" id="tpBar" style="width:0%"></div></div>
+    <div class="tp-hint">Space / → to advance &nbsp;·&nbsp; ← to go back &nbsp;·&nbsp; click line to mark done</div>
+  </div>
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-label">Specialist Modules</div>
+
+    <button class="agent-btn" data-agent="avery-sovereign" data-name="AVERY"
+      data-role="Strategic Planning" data-icon="🎯"
+      data-color="#8b5cf6" data-icon-bg="rgba(139,92,246,0.15)"
+      data-desc="KAIROS-driven business planning, growth strategy, market positioning, and operational frameworks">
+      <div class="agent-icon" style="background:rgba(139,92,246,0.15)">🎯</div>
+      <div class="agent-info">
+        <div class="agent-name">AVERY</div>
+        <div class="agent-role">Strategic Planning</div>
+      </div>
+    </button>
+
+    <button class="agent-btn" data-agent="forge-sovereign" data-name="FORGE"
+      data-role="Systems Development" data-icon="⚙️"
+      data-color="#f59e0b" data-icon-bg="rgba(245,158,11,0.15)"
+      data-desc="Production-grade Python, TypeScript, and API development with full error handling, type safety, and documentation">
+      <div class="agent-icon" style="background:rgba(245,158,11,0.15)">⚙️</div>
+      <div class="agent-info">
+        <div class="agent-name">FORGE</div>
+        <div class="agent-role">Systems Development</div>
+      </div>
+    </button>
+
+    <button class="agent-btn" data-agent="oracle-sovereign" data-name="ORACLE"
+      data-role="Research &amp; Analysis" data-icon="🔍"
+      data-color="#06b6d4" data-icon-bg="rgba(6,182,212,0.15)"
+      data-desc="Information synthesis, research queries, document analysis, and sourced summaries across structured and unstructured data">
+      <div class="agent-icon" style="background:rgba(6,182,212,0.15)">🔍</div>
+      <div class="agent-info">
+        <div class="agent-name">ORACLE</div>
+        <div class="agent-role">Research &amp; Analysis</div>
+      </div>
+    </button>
+
+    <button class="agent-btn" data-agent="codex-sovereign" data-name="CODEX"
+      data-role="Technical Documentation" data-icon="📋"
+      data-color="#22c55e" data-icon-bg="rgba(34,197,94,0.15)"
+      data-desc="API references, system documentation, process guides, compliance procedures, and structured technical writing">
+      <div class="agent-icon" style="background:rgba(34,197,94,0.15)">📋</div>
+      <div class="agent-info">
+        <div class="agent-name">CODEX</div>
+        <div class="agent-role">Technical Documentation</div>
+      </div>
+    </button>
+
+    <button class="agent-btn" data-agent="sentinel-sovereign" data-name="SENTINEL"
+      data-role="Security &amp; Compliance" data-icon="🛡️"
+      data-color="#ef4444" data-icon-bg="rgba(239,68,68,0.15)"
+      data-desc="Code security audits, OWASP/CWE analysis, vulnerability assessment, and remediation guidance for production systems">
+      <div class="agent-icon" style="background:rgba(239,68,68,0.15)">🛡️</div>
+      <div class="agent-info">
+        <div class="agent-name">SENTINEL</div>
+        <div class="agent-role">Security &amp; Compliance</div>
+      </div>
+    </button>
+
+    <button class="agent-btn" data-agent="nexus-sovereign" data-name="NEXUS"
+      data-role="Workflow Orchestration" data-icon="🕸️"
+      data-color="#a855f7" data-icon-bg="rgba(168,85,247,0.15)"
+      data-desc="Multi-agent task decomposition, dependency mapping, workflow sequencing, and cross-module coordination">
+      <div class="agent-icon" style="background:rgba(168,85,247,0.15)">🕸️</div>
+      <div class="agent-info">
+        <div class="agent-name">NEXUS</div>
+        <div class="agent-role">Workflow Orchestration</div>
+      </div>
+    </button>
+
+    <button class="agent-btn" data-agent="gh05t3:latest" data-name="AXIOM"
+      data-role="Tax &amp; Compliance Research" data-icon="⚖️"
+      data-color="#10b981" data-icon-bg="rgba(16,185,129,0.15)"
+      data-desc="Federal and state tax research, audit risk analysis, IRS correspondence, deduction compliance, and financial review">
+      <div class="agent-icon" style="background:rgba(16,185,129,0.15)">⚖️</div>
+      <div class="agent-info">
+        <div class="agent-name">AXIOM</div>
+        <div class="agent-role">Tax &amp; Compliance Research</div>
+      </div>
+    </button>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="compliance-badge">
+      <div class="compliance-badge-title">Deployment Status</div>
+      <div class="compliance-badge-items">
+        <div class="compliance-item">On-Premises Inference</div>
+        <div class="compliance-item">Zero Data Egress</div>
+        <div class="compliance-item">No External APIs</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Chat -->
+  <div class="chat-area">
+    <div class="agent-header" id="agentHeader" style="display:none">
+      <div class="agent-icon" id="headerIcon" style="width:40px;height:40px;font-size:1.25rem;"></div>
+      <div>
+        <div class="agent-header-name" id="headerName"></div>
+        <div class="agent-header-desc" id="headerDesc"></div>
+      </div>
+      <button class="clear-btn" onclick="clearChat()">New Session</button>
+    </div>
+
+    <div id="messagesArea">
+      <div class="welcome" id="welcomeScreen">
+        <div class="welcome-lockup">
+          <div class="welcome-icon">⚖️</div>
+          <h2>On-Premises AI for Tax &amp; Accounting Practices</h2>
+        </div>
+        <div class="welcome-sub">
+          Specialist AI modules deployed within your network perimeter.
+          All inference runs locally — no data is transmitted to external services,
+          third-party APIs, or cloud infrastructure.
+        </div>
+
+        <div class="prompt-grid-label">Workflow Demonstrations</div>
+
+        <div class="prompt-grid">
+          <button class="prompt-card" onclick="runDemo(0)">
+            <div class="prompt-card-icon">📊</div>
+            <div class="prompt-card-title">Audit Exposure Analysis</div>
+            <div class="prompt-card-desc">Evaluate Schedule C deduction positions, identify examination triggers, and quantify IRS audit risk by item with IRC citations</div>
+          </button>
+
+          <button class="prompt-card" onclick="runDemo(1)">
+            <div class="prompt-card-icon">📬</div>
+            <div class="prompt-card-title">IRS Correspondence — CP2000</div>
+            <div class="prompt-card-desc">Prepare a response to a CP2000 notice with corrected cost basis, recalculated tax liability, and submission-ready format</div>
+          </button>
+
+          <button class="prompt-card" onclick="runDemo(2)">
+            <div class="prompt-card-icon">📋</div>
+            <div class="prompt-card-title">Client Advisory Brief</div>
+            <div class="prompt-card-desc">Convert income statement and balance sheet data into a structured advisory brief with performance metrics and action items</div>
+          </button>
+
+          <button class="prompt-card" onclick="runDemo(3)">
+            <div class="prompt-card-icon">🔎</div>
+            <div class="prompt-card-title">Deduction Gap Analysis</div>
+            <div class="prompt-card-desc">Identify unclaimed deductions for self-employed clients, estimate tax savings per provision, and document compliance requirements</div>
+          </button>
+
+          <button class="prompt-card prompt-card-full" onclick="runDemo(4)">
+            <div class="prompt-card-icon">⚖️</div>
+            <div class="prompt-card-title">S-Corp Reasonable Compensation Review</div>
+            <div class="prompt-card-desc">Assess IRC §3121 compliance, benchmark officer compensation against industry data, and quantify back payroll tax and penalty exposure across open examination years</div>
+          </button>
+        </div>
+
+        <div class="data-residency-note">
+          <span></span>
+          All processing occurs on-premises. No data is transmitted to external services or cloud infrastructure.
+        </div>
+      </div>
+    </div>
+
+    <div class="messages" id="messages" style="display:none"></div>
+
+    <div style="padding:0 24px 4px;display:none" id="typingWrap">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div class="msg-avatar" id="typingAvatar" style="border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0"></div>
+        <div class="typing-indicator visible">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea id="input" placeholder="Select a specialist module to begin…" disabled rows="1"
+          oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+        <div class="input-hint">Enter to submit &nbsp;·&nbsp; Shift+Enter for new line</div>
+      </div>
+      <button class="send-btn" id="sendBtn" onclick="send()" disabled>Submit →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Empty string = relative URL → routed through serve.py on-premises proxy.
+// Remote clients connect via cloudflared tunnel to port 7861.
+// No Ollama installation required on client side.
+const OLLAMA_URL = '';
+let currentAgent = null;
+
+// ── Access key management ─────────────────────────────────────────────────────
+const SN_KEY_STORAGE = 'sn_access_key';
+
+function getStoredKey() {
+  return localStorage.getItem(SN_KEY_STORAGE) || '';
+}
+function setStoredKey(key) {
+  if (key) localStorage.setItem(SN_KEY_STORAGE, key);
+  else localStorage.removeItem(SN_KEY_STORAGE);
+}
+
+// Attach key to every /api/ request
+function apiHeaders(extra) {
+  const key = getStoredKey();
+  const h = { 'Content-Type': 'application/json', ...extra };
+  if (key) h['X-SN-Key'] = key;
+  return h;
+}
+
+// Show key entry overlay if no key stored, or on 401/402
+function showKeyGate(message) {
+  let overlay = document.getElementById('keyGate');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'keyGate';
+    overlay.style.cssText = [
+      'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999',
+      'display:flex;align-items:center;justify-content:center;font-family:system-ui'
+    ].join(';');
+    overlay.innerHTML = `
+      <div style="background:#111;border:1px solid #333;border-radius:12px;padding:40px;max-width:420px;width:90%;text-align:center">
+        <div style="font-size:28px;margin-bottom:8px">🔐</div>
+        <h2 style="color:#f8fafc;font-size:20px;margin:0 0 8px">SovereignNation Access</h2>
+        <p id="keyGateMsg" style="color:#94a3b8;font-size:14px;margin:0 0 24px;line-height:1.5">
+          Enter your API key from your welcome email to access the AI modules.
+        </p>
+        <input id="keyInput" type="password" placeholder="sn_live_..."
+          style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid #334155;
+                 color:#f8fafc;padding:12px 16px;border-radius:8px;font-size:14px;font-family:monospace;
+                 margin-bottom:12px;outline:none"
+          onkeydown="if(event.key==='Enter')submitKey()" />
+        <button onclick="submitKey()"
+          style="width:100%;background:#7c3aed;color:#fff;border:none;padding:12px;
+                 border-radius:8px;font-size:15px;font-weight:600;cursor:pointer">
+          Access My Account →
+        </button>
+        <p style="color:#475569;font-size:12px;margin:16px 0 0">
+          Key is saved to this browser. Need help? Email support@sovereignnation.ai
+        </p>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+  if (message) {
+    document.getElementById('keyGateMsg').textContent = message;
+    document.getElementById('keyGateMsg').style.color = '#f87171';
+  }
+  overlay.style.display = 'flex';
+  setTimeout(() => document.getElementById('keyInput')?.focus(), 50);
+}
+
+function hideKeyGate() {
+  const overlay = document.getElementById('keyGate');
+  if (overlay) overlay.style.display = 'none';
+}
+
+async function submitKey() {
+  const input = document.getElementById('keyInput');
+  const key = input?.value?.trim();
+  if (!key) return;
+  // Quick validate against /verify-key
+  try {
+    const r = await fetch(`/verify-key?key=${encodeURIComponent(key)}`,
+                          { signal: AbortSignal.timeout(5000) });
+    const data = await r.json();
+    if (r.ok && data.valid) {
+      setStoredKey(key);
+      hideKeyGate();
+      checkStatus();  // refresh status with valid key
+    } else {
+      const msg = data.detail || data.message || 'Invalid key — please check and try again.';
+      document.getElementById('keyGateMsg').textContent = msg;
+      document.getElementById('keyGateMsg').style.color = '#f87171';
+    }
+  } catch {
+    document.getElementById('keyGateMsg').textContent =
+      'Could not reach the server. Check your connection and try again.';
+    document.getElementById('keyGateMsg').style.color = '#f87171';
+  }
+}
+
+// On page load — show gate if no key stored
+(function () {
+  if (!getStoredKey()) showKeyGate();
+})();
+
+// ── System prompts per module ─────────────────────────────────────────────────
+const SYSTEM_PROMPTS = {
+  'gh05t3:latest': `You are AXIOM, a specialist AI module for tax and accounting practices. You provide authoritative analysis of federal and state tax matters, IRS audit risk assessment, reasonable compensation benchmarking, deduction compliance, penalty exposure calculations, and client advisory support. Format responses with clear section headers. Cite applicable IRC sections, Treasury Regulations, and Revenue Rulings where relevant. Use precise, professional language appropriate for CPA review. Begin each response with a brief scope statement identifying the primary issues, then provide structured analysis.`,
+  'avery-sovereign': `You are AVERY, a strategic planning specialist using the KAIROS framework. Provide structured, actionable business strategy with clear phases, measurable objectives, and risk considerations. Use professional business language with numbered steps and section headers. Be specific — reference actual frameworks, metrics, and implementation sequences.`,
+  'forge-sovereign': `You are FORGE, a systems development specialist. Produce production-grade code with full error handling, type annotations, docstrings, and inline documentation. Default to Python unless specified. Include logging, input validation, and edge case handling. Format code blocks properly and explain architectural decisions.`,
+  'oracle-sovereign': `You are ORACLE, a research and analysis specialist. Synthesize information clearly and accurately. Cite source types (regulatory guidance, academic research, industry data) in every substantive claim. Structure responses with an executive summary followed by detailed findings. Flag any areas of uncertainty.`,
+  'codex-sovereign': `You are CODEX, a technical documentation specialist. Produce complete, well-structured documentation — API references, process guides, compliance procedures, and system documentation. Use consistent formatting with clear headers, parameter tables, and examples. Write for the intended audience's technical level.`,
+  'sentinel-sovereign': `You are SENTINEL, a security and compliance specialist. Analyze code and architectures for vulnerabilities using OWASP Top 10 and CWE classifications. For each finding: state the vulnerability class, severity (Critical/High/Medium/Low), affected component, exploit scenario, and specific remediation with code examples. Prioritize by exploitability and impact.`,
+  'nexus-sovereign': `You are NEXUS, a workflow orchestration specialist. Decompose complex projects into structured task graphs with clear dependencies, sequencing, resource requirements, and success criteria. Identify critical path items, parallelization opportunities, and risk checkpoints. Output structured plans with phases, milestones, and assignment recommendations.`,
+};
+
+// ── Demo prompts (accounting workflow vertical) ────────────────────────────────
+const DEMO_PROMPTS = [
+  {
+    agent: 'gh05t3:latest',
+    prompt: `Client is a sole proprietor, Schedule C. Revenue $340K. Claims home office 800 sqft out of 2000 sqft total house. Vehicle deduction 90% business use on a 2019 F-150, no contemporaneous mileage log. $22K in meals and entertainment with no receipts. What is my audit exposure on each item and what should I fix before filing? Please cite the relevant IRC sections.`
+  },
+  {
+    agent: 'gh05t3:latest',
+    prompt: `I received an IRS CP2000 notice for my client. The IRS says they have a 1099-B for $45,000 in stock sales not reported on the return. The client did sell the stock but purchased it for $38,000 — the cost basis just wasn't reported on the original return. Draft a professional response letter to the IRS explaining the corrected basis and calculate the actual tax owed versus what the IRS is claiming.`
+  },
+  {
+    agent: 'gh05t3:latest',
+    prompt: `I have a client meeting in one hour. Here are their numbers: Revenue $1.2M (up 18% YoY), COGS $540K, gross margin 55%. Operating expenses $380K. Net income $280K. They have $95K in accounts receivable aging over 90 days and took on $200K in new equipment debt this year. Write me a plain-English briefing — 3 key talking points a non-financial business owner will actually understand, and flag anything that needs immediate attention.`
+  },
+  {
+    agent: 'gh05t3:latest',
+    prompt: `My client is a self-employed IT consultant earning $180K net income. They work from home in a dedicated office (120 sqft of a 1,200 sqft house), drive 14,000 miles per year for client visits, pay $720/month in health insurance premiums, and have contributed nothing to retirement. They currently take no deductions beyond basic business expenses. What deductions are they missing, what is the estimated tax savings for each one, and what do they need to do to claim them?`
+  },
+  {
+    agent: 'gh05t3:latest',
+    prompt: `Client runs an S-Corp providing IT consulting services in Georgia. Annual revenue $920K, 2 shareholder-employees each taking $35,000 salary and the rest as distributions ($200K+ each). They have been doing this for 3 years. What is the IRS reasonable compensation risk here, what salary range would be defensible based on industry benchmarks, and what is the estimated back payroll tax and penalty exposure if audited for all 3 open years?`
+  }
+];
+let isGenerating = false;
+let messageHistory = {};  // { agentModel: [{role, content}] }
+
+// ── Status check ───────────────────────────────────────────────────────────────
+// Track original role text so we can reset on each poll
+const originalRoles = {};
+document.querySelectorAll('.agent-btn').forEach(btn => {
+  originalRoles[btn.dataset.agent] = btn.querySelector('.agent-role').textContent;
+});
+
+async function checkStatus() {
+  try {
+    const r = await fetch(OLLAMA_URL + '/api/tags', { headers: apiHeaders(), signal: AbortSignal.timeout(4000) });
+    const data = await r.json();
+    const models = data.models?.map(m => m.name) || [];
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusText');
+    dot.style.background = '#22c55e';
+    dot.style.boxShadow = '0 0 6px #22c55e';
+    txt.textContent = `${models.length} specialist module${models.length !== 1 ? 's' : ''} online`;
+
+    // Reset and re-evaluate each module's availability
+    document.querySelectorAll('.agent-btn').forEach(btn => {
+      const model = btn.dataset.agent;
+      const roleEl = btn.querySelector('.agent-role');
+      // Reset to original role text first
+      roleEl.textContent = originalRoles[model] || roleEl.textContent.replace(' — loading', '');
+      const loaded = models.some(m => m.startsWith(model.split(':')[0]));
+      if (!loaded) {
+        roleEl.textContent += ' — loading';
+        btn.classList.add('unavailable');
+      } else {
+        btn.classList.remove('unavailable');
+        btn.style.opacity = '';
+      }
+    });
+  } catch {
+    const dot = document.getElementById('statusDot');
+    dot.style.background = '#ef4444';
+    dot.style.boxShadow = '0 0 6px #ef4444';
+    document.getElementById('statusText').textContent = 'Inference service offline';
+    // Reset all module availability on connection failure
+    document.querySelectorAll('.agent-btn').forEach(btn => {
+      btn.querySelector('.agent-role').textContent = originalRoles[btn.dataset.agent];
+      btn.classList.remove('unavailable');
+      btn.style.opacity = '';
+    });
+  }
+}
+checkStatus();
+setInterval(checkStatus, 30000);
+
+// ── Module selection ──────────────────────────────────────────────────────────
+document.querySelectorAll('.agent-btn').forEach(btn => {
+  btn.addEventListener('click', () => selectAgent(btn));
+});
+
+function selectAgent(btn) {
+  document.querySelectorAll('.agent-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  currentAgent = {
+    model:  btn.dataset.agent,
+    name:   btn.dataset.name,
+    role:   originalRoles[btn.dataset.agent] || btn.dataset.role,
+    icon:   btn.dataset.icon,
+    color:  btn.dataset.color,
+    iconBg: btn.dataset.iconBg,
+    desc:   btn.dataset.desc,
+  };
+
+  // Update header
+  const header = document.getElementById('agentHeader');
+  header.style.display = 'flex';
+  document.getElementById('headerIcon').textContent = currentAgent.icon;
+  document.getElementById('headerIcon').style.background = currentAgent.iconBg;
+  document.getElementById('headerName').textContent = currentAgent.name;
+  document.getElementById('headerDesc').textContent = currentAgent.desc;
+  document.getElementById('typingAvatar').textContent = currentAgent.icon;
+  document.getElementById('typingAvatar').style.background = currentAgent.iconBg;
+
+  // Switch from welcome screen to message view
+  const messagesArea = document.getElementById('messagesArea');
+  if (messagesArea) messagesArea.style.display = 'none';
+  document.getElementById('messages').style.display = 'flex';
+
+  // Restore or init conversation
+  if (!messageHistory[currentAgent.model]) {
+    messageHistory[currentAgent.model] = [];
+    renderMessages();
+    addWelcomeMessage();
+  } else {
+    renderMessages();
+  }
+
+  // Enable input
+  const inp = document.getElementById('input');
+  inp.disabled = false;
+  inp.placeholder = `Enter your query for ${currentAgent.name}…`;
+  document.getElementById('sendBtn').disabled = false;
+  inp.focus();
+}
+
+function addWelcomeMessage() {
+  const welcomes = {
+    'avery-sovereign':
+      `AVERY online. I apply the KAIROS strategic planning framework to business growth, market positioning, and operational execution. Describe your objective and I will provide a structured, phased strategy with measurable milestones.`,
+    'forge-sovereign':
+      `FORGE ready. Provide a feature specification, bug description, or architecture requirement — I will produce production-grade code with full error handling, type annotations, and documentation.`,
+    'oracle-sovereign':
+      `ORACLE active. Submit a research query, document for analysis, or information synthesis request. I will provide structured findings with source type attribution in every substantive claim.`,
+    'codex-sovereign':
+      `CODEX standing by. Describe the documentation requirement — API reference, process guide, compliance procedure, or system architecture. I will produce complete, structured technical documentation formatted for your audience.`,
+    'sentinel-sovereign':
+      `SENTINEL engaged. Submit code, a dependency manifest, or an architecture description. I will identify vulnerabilities by OWASP/CWE classification, assess severity, and provide specific remediation with corrected code.`,
+    'nexus-sovereign':
+      `NEXUS connected. Describe your project scope and objectives. I will decompose the work into a structured task graph with sequencing, dependencies, resource requirements, and critical path identification.`,
+    'gh05t3:latest':
+      `AXIOM online. I specialize in federal and state tax research, IRS audit risk quantification, reasonable compensation analysis, deduction compliance review, and penalty exposure assessment. Describe your client's situation and I will provide a structured, cited analysis.`,
+  };
+  const text = welcomes[currentAgent.model] || `${currentAgent.name} ready. How can I assist?`;
+  messageHistory[currentAgent.model].push({ role: 'assistant', content: text, _welcome: true });
+  renderMessages();
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────────
+function renderMessages() {
+  const container = document.getElementById('messages');
+  container.innerHTML = '';
+  const history = messageHistory[currentAgent?.model] || [];
+  history.forEach(msg => {
+    container.appendChild(buildMessage(msg.role, msg.content));
+  });
+  scrollBottom();
+}
+
+function buildMessage(role, content) {
+  const wrap = document.createElement('div');
+  wrap.className = `message ${role === 'user' ? 'user' : 'agent'}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+
+  const body = document.createElement('div');
+  body.className = 'msg-content';
+
+  if (role === 'user') {
+    avatar.textContent = '👤';
+    avatar.style.background = 'rgba(59,130,246,0.15)';
+    body.textContent = content;
+  } else {
+    avatar.textContent = currentAgent?.icon || '🤖';
+    avatar.style.background = currentAgent?.iconBg || 'rgba(59,130,246,0.15)';
+    body.innerHTML = formatMarkdown(content);
+  }
+
+  wrap.appendChild(avatar);
+  wrap.appendChild(body);
+  return wrap;
+}
+
+function formatMarkdown(text) {
+  return text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^#{1,3}\s+(.+)$/gm, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+function scrollBottom() {
+  const c = document.getElementById('messages');
+  c.scrollTop = c.scrollHeight;
+}
+
+// ── Submit ─────────────────────────────────────────────────────────────────────
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+}
+
+async function send() {
+  if (!currentAgent || isGenerating) return;
+  const inp = document.getElementById('input');
+  const text = inp.value.trim();
+  if (!text) return;
+
+  inp.value = '';
+  inp.style.height = 'auto';
+  isGenerating = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  // Add user message
+  messageHistory[currentAgent.model].push({ role: 'user', content: text });
+  renderMessages();
+
+  // Show typing indicator
+  document.getElementById('typingWrap').style.display = 'block';
+  scrollBottom();
+
+  try {
+    // Build message array — exclude welcome message from context, prepend system prompt
+    const contextMsgs = messageHistory[currentAgent.model].filter(m => !m._welcome);
+    const sysPrompt = SYSTEM_PROMPTS[currentAgent.model];
+    const apiMessages = sysPrompt
+      ? [{ role: 'system', content: sysPrompt }, ...contextMsgs]
+      : contextMsgs;
+
+    const payload = {
+      model: currentAgent.model,
+      messages: apiMessages,
+      stream: true,
+      keep_alive: '15m',
+      options: { temperature: 0.65, top_p: 0.9, num_ctx: 4096 }
+    };
+
+    const resp = await fetch(OLLAMA_URL + '/api/chat', {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      // 401/402 = key problem — show key gate with the server's message
+      if (resp.status === 401 || resp.status === 402) {
+        let detail = errText;
+        try { detail = JSON.parse(errText).detail || errText; } catch {}
+        setStoredKey('');  // clear bad key
+        showKeyGate(detail);
+        resetSendButton();
+        return;
+      }
+      throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+    }
+
+    // Hide typing, begin streaming response
+    document.getElementById('typingWrap').style.display = 'none';
+    let fullResponse = '';
+    messageHistory[currentAgent.model].push({ role: 'assistant', content: '' });
+    const idx = messageHistory[currentAgent.model].length - 1;
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const data = JSON.parse(line);
+          if (data.message?.content) {
+            fullResponse += data.message.content;
+            messageHistory[currentAgent.model][idx].content = fullResponse;
+            renderMessages();
+          }
+        } catch { /* partial JSON chunk, skip */ }
+      }
+    }
+
+    if (!fullResponse) throw new Error('No response received from inference module');
+
+  } catch (err) {
+    document.getElementById('typingWrap').style.display = 'none';
+
+    // Provide context-specific error messages
+    let errContent;
+    const msg = err.message || '';
+    if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('NetworkError')) {
+      errContent = `⏳ The inference module is initializing. This occurs when the model has been idle for more than 10 minutes and requires a reload into memory.\n\nEstimated wait: 15–25 seconds. Please resubmit your query.`;
+    } else if (msg.includes('502') || msg.includes('503') || msg.includes('Failed to fetch')) {
+      errContent = `⚠️ Inference service unavailable. The on-premises service may be restarting.\n\nWait 10–15 seconds and resubmit. If the issue persists, contact your system administrator.`;
+    } else if (msg.includes('404')) {
+      errContent = `⚠️ Model not found. The ${currentAgent.name} module may not be installed on this deployment.\n\nContact your administrator to verify module availability.`;
+    } else {
+      errContent = `⚠️ ${msg}\n\nIf this error persists, verify the on-premises inference service is running.`;
+    }
+
+    messageHistory[currentAgent.model].push({ role: 'assistant', content: errContent });
+    renderMessages();
+  }
+
+  isGenerating = false;
+  document.getElementById('sendBtn').disabled = false;
+  inp.focus();
+}
+
+function clearChat() {
+  if (!currentAgent) return;
+  messageHistory[currentAgent.model] = [];
+  renderMessages();
+  addWelcomeMessage();
+}
+
+// ── Demo launcher ──────────────────────────────────────────────────────────────
+function runDemo(index) {
+  const p = DEMO_PROMPTS[index];
+  const agentBtn = document.querySelector(`.agent-btn[data-agent="${p.agent}"]`);
+  if (agentBtn) selectAgent(agentBtn);
+  setTimeout(() => {
+    const inp = document.getElementById('input');
+    inp.value = p.prompt;
+    autoResize(inp);
+    send();
+  }, 80);
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+// ── Recording / Autoplay Mode ─────────────────────────────────────────────
+(function() {
+  if (new URLSearchParams(window.location.search).get('autoplay') !== '1') return;
+
+  const TOTAL_LINES = 19;
+  let currentLine = 0;
+  let demoFired = false;
+
+  // Show teleprompter, hide sidebar
+  document.getElementById('teleprompter').style.display = 'flex';
+  document.querySelector('.sidebar').style.display = 'none';
+
+  function activateLine(n) {
+    if (n < 0 || n >= TOTAL_LINES) return;
+    currentLine = n;
+    document.querySelectorAll('.tp-line').forEach(el => {
+      const idx = parseInt(el.dataset.line);
+      el.classList.remove('active');
+      if (idx < n) el.classList.add('done');
+      else el.classList.remove('done');
+    });
+    const target = document.querySelector(`.tp-line[data-line="${n}"]`);
+    if (target) {
+      target.classList.remove('done');
+      target.classList.add('active');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    const pct = Math.round((n / (TOTAL_LINES - 1)) * 100);
+    document.getElementById('tpBar').style.width = pct + '%';
+  }
+
+  // Click a line to jump to it
+  document.querySelectorAll('.tp-line').forEach(el => {
+    el.addEventListener('click', () => activateLine(parseInt(el.dataset.line)));
+  });
+
+  // Keyboard controls
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space' || e.code === 'ArrowRight') {
+      e.preventDefault();
+      activateLine(currentLine + 1);
+    }
+    if (e.code === 'ArrowLeft') {
+      e.preventDefault();
+      activateLine(currentLine - 1);
+    }
+  });
+
+  // Start on line 0
+  activateLine(0);
+
+  // Countdown then fire demo after 6 seconds (enough time to read intro lines 0-2)
+  const countEl = document.getElementById('tpCountdown');
+  const firingEl = document.getElementById('tpFiring');
+  setTimeout(() => {
+    countEl.style.display = 'block';
+    let c = 3;
+    countEl.textContent = c;
+    const cd = setInterval(() => {
+      c--;
+      if (c > 0) {
+        countEl.textContent = c;
+      } else {
+        clearInterval(cd);
+        countEl.style.display = 'none';
+        firingEl.style.display = 'block';
+        demoFired = true;
+        runDemo(0); // Schedule C audit — AXIOM agent
+        activateLine(7); // advance to "while demo runs" section
+        // Hide firing indicator once generation starts
+        setTimeout(() => { firingEl.style.display = 'none'; }, 3000);
+      }
+    }, 1000);
+  }, 6000);
+})();
+</script>
+</body>
+</html>

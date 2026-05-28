@@ -41,13 +41,30 @@ args, _ = ap.parse_known_args()
 HF_TOKEN    = os.environ.get("HF_TOKEN", "")
 BASE_MODEL  = "Qwen/Qwen2-7B-Instruct"
 HF_DATASET  = "tastytator/sovereign-economy"
-OUTPUT_DIR  = "/workspace/avery-lora"
-CKPT_DIR    = "/workspace/checkpoints"
+
+# ── Environment detection (Kaggle vs RunPod vs local) ─────────────────────────
+ON_KAGGLE  = os.path.exists("/kaggle/working")
+ON_RUNPOD  = os.path.exists("/workspace") and not ON_KAGGLE
+WORK_ROOT  = "/kaggle/working" if ON_KAGGLE else "/workspace"
+
+if ON_KAGGLE:
+    print("[ENV] Kaggle detected -- outputs -> /kaggle/working/ (persisted)")
+elif ON_RUNPOD:
+    print("[ENV] RunPod detected  -- outputs -> /workspace/")
+else:
+    print("[ENV] Local detected   -- outputs -> ./workspace/")
+    WORK_ROOT = str(Path(__file__).parent / "workspace")
+
+OUTPUT_DIR  = os.environ.get("OUTPUT_DIR",  f"{WORK_ROOT}/avery-lora")
+CKPT_DIR    = os.environ.get("CKPT_DIR",    f"{WORK_ROOT}/checkpoints")
 EPOCHS      = args.epochs
 MAX_STEPS   = args.max_steps
 MAX_SEQ_LEN = 2048
 MODE        = args.mode
 AGENT       = args.agent
+
+Path(CKPT_DIR).mkdir(parents=True, exist_ok=True)
+Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
 # ── Per-agent config ──────────────────────────────────────────────────────────
 
@@ -500,6 +517,46 @@ elif MODE == "grpo":
         ),
     )
 
+# ── Intermediate-push callback — survives Kaggle/RunPod session death ─────────
+from transformers import TrainerCallback
+
+class IntermediatePushCallback(TrainerCallback):
+    """Push LoRA adapter to HuggingFace every N steps.
+
+    If the training session is killed (Kaggle timeout, RunPod spot preemption,
+    OOM) the latest adapter is already on HF — nothing is lost.
+    """
+    PUSH_EVERY = int(os.environ.get("PUSH_EVERY_STEPS", "100"))
+
+    def __init__(self, model, tokenizer, hf_repo, hf_token):
+        self._model     = model
+        self._tokenizer = tokenizer
+        self._repo      = hf_repo
+        self._token     = hf_token
+        self._last_push = 0
+
+    def on_step_end(self, args, state, control, **kwargs):
+        step = state.global_step
+        if step == 0 or step - self._last_push < self.PUSH_EVERY:
+            return
+        self._last_push = step
+        print(f"\n  [PUSH] Intermediate push at step {step} → {self._repo} ...")
+        try:
+            self._model.push_to_hub(self._repo, token=self._token,
+                                    private=False, commit_message=f"step-{step}")
+            print(f"  [PUSH] Done (step {step})")
+        except Exception as e:
+            print(f"  [PUSH] WARNING: push failed at step {step}: {e} — continuing")
+
+
+push_cb = IntermediatePushCallback(
+    model     = model,
+    tokenizer = tokenizer,
+    hf_repo   = cfg["hf_repo"],
+    hf_token  = HF_TOKEN,
+)
+
+trainer.add_callback(push_cb)
 trainer_stats = trainer.train(resume_from_checkpoint=resume_checkpoint)
 final_loss    = trainer_stats.metrics.get("train_loss", 0)
 final_runtime = trainer_stats.metrics.get("train_runtime", 0)

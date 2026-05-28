@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SovereignNation — Live Demo</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#060a14;--panel:#0c1428;--border:rgba(59,130,246,0.2);
+  --blue:#3b82f6;--cyan:#06b6d4;--green:#10b981;--amber:#f59e0b;--red:#ef4444;
+  --text:#e2e8f0;--muted:#94a3b8;--dim:#475569;--mono:'Courier New',monospace;
+}
+html,body{width:100%;min-height:100vh;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;}
+
+/* ── STAGE ── */
+#stage{width:100vw;height:100vh;position:relative;display:flex;flex-direction:column;}
+
+/* ── TOP BAR ── */
+.topbar{
+  height:44px;background:rgba(6,10,20,0.98);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;padding:0 20px;flex-shrink:0;
+}
+.tb-logo{font-size:12px;font-weight:700;letter-spacing:1px;color:var(--blue);}
+.tb-status{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--green);letter-spacing:1.5px;text-transform:uppercase;}
+.tb-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.8s infinite;}
+.tb-right{font-size:10px;color:var(--dim);letter-spacing:0.5px;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
+
+/* ── MAIN AREA ── */
+.main{flex:1;display:flex;overflow:hidden;}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  width:170px;flex-shrink:0;background:rgba(4,8,18,0.9);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;padding:12px 0;
+}
+.sb-label{font-size:8px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;padding:4px 14px 10px;}
+.agent{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:default;transition:all .2s;border-left:2px solid transparent;}
+.agent.active{background:rgba(59,130,246,.1);border-left-color:var(--blue);}
+.agent-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.agent-name{font-size:11px;font-weight:600;}
+.agent-role{font-size:9px;color:var(--dim);margin-top:1px;}
+.agent-live{margin-left:auto;width:5px;height:5px;border-radius:50%;background:var(--green);}
+.sb-divider{height:1px;background:var(--border);margin:6px 12px;}
+
+/* ── CHAT AREA ── */
+.chat-area{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.chat-header{
+  padding:11px 20px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;background:rgba(8,12,24,0.8);
+}
+.ch-badge{
+  width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:800;color:#fff;flex-shrink:0;font-family:var(--mono);
+  background:linear-gradient(135deg,#1e3a5f,var(--blue));
+}
+.ch-name{font-size:12px;font-weight:700;letter-spacing:.5px;}
+.ch-sub{font-size:9px;color:var(--dim);margin-top:2px;}
+.ch-tag{
+  margin-left:auto;font-size:8px;padding:3px 9px;
+  background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);
+  border-radius:20px;color:var(--green);letter-spacing:1px;text-transform:uppercase;
+}
+.messages{flex:1;overflow:hidden;padding:18px;display:flex;flex-direction:column;gap:12px;}
+
+/* messages */
+.msg-user{
+  align-self:flex-end;max-width:70%;
+  background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);
+  border-radius:12px 12px 3px 12px;padding:10px 14px;
+  font-size:12px;line-height:1.55;opacity:0;transform:translateY(8px);
+  transition:opacity .35s ease,transform .35s ease;
+}
+.msg-user.show{opacity:1;transform:translateY(0);}
+.msg-ai{
+  align-self:flex-start;max-width:90%;display:flex;gap:10px;
+  opacity:0;transform:translateY(8px);transition:opacity .35s ease,transform .35s ease;
+}
+.msg-ai.show{opacity:1;transform:translateY(0);}
+.msg-ai-body{
+  background:rgba(8,16,40,.9);border:1px solid var(--border);
+  border-radius:3px 12px 12px 12px;padding:12px 15px;
+  font-size:11px;line-height:1.8;font-family:var(--mono);flex:1;
+}
+.ai-icon{
+  width:28px;height:28px;border-radius:6px;flex-shrink:0;margin-top:2px;
+  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;
+  background:linear-gradient(135deg,#1e3a5f,var(--blue));font-family:var(--mono);
+}
+
+/* text line animation */
+.tl{display:block;opacity:0;transform:translateY(4px);transition:opacity .2s,transform .2s;}
+.tl.v{opacity:1;transform:translateY(0);}
+.hi{color:var(--cyan);font-weight:700;}
+.ok{color:var(--green);}
+.wa{color:var(--amber);}
+.er{color:var(--red);}
+.dm{color:var(--dim);}
+
+/* thinking */
+.thinking{
+  display:flex;align-items:center;gap:8px;padding:10px 14px;
+  background:rgba(8,16,40,.9);border:1px solid var(--border);
+  border-radius:3px 12px 12px 12px;font-size:10px;color:var(--muted);
+  opacity:0;transition:opacity .3s;
+}
+.thinking.show{opacity:1;}
+.thinking-dots span{animation:blink 1.2s infinite;}
+.thinking-dots span:nth-child(2){animation-delay:.2s;}
+.thinking-dots span:nth-child(3){animation-delay:.4s;}
+@keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
+
+/* progress bar */
+.progress-bar{height:2px;background:rgba(59,130,246,.12);}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--cyan));width:0;transition:width .4s ease;}
+
+/* ── SUBTITLE BAR ── */
+#subtitle-bar{
+  min-height:72px;background:rgba(0,0,0,0.88);border-top:1px solid rgba(59,130,246,0.15);
+  display:flex;align-items:center;justify-content:center;padding:12px 40px;
+  position:relative;flex-shrink:0;
+}
+#subtitle-text{
+  font-size:16px;line-height:1.55;text-align:center;color:#fff;
+  font-weight:500;max-width:820px;letter-spacing:0.01em;
+  min-height:48px;display:flex;align-items:center;justify-content:center;
+  opacity:0;transition:opacity .4s ease;
+}
+#subtitle-text.show{opacity:1;}
+.sub-accent{color:var(--cyan);font-weight:700;}
+.sub-green{color:#4ade80;font-weight:700;}
+.sub-amber{color:var(--amber);font-weight:700;}
+
+/* replay / cta */
+#replay-overlay{
+  position:fixed;inset:0;background:rgba(6,10,20,.92);
+  display:none;align-items:center;justify-content:center;flex-direction:column;gap:20px;z-index:100;
+}
+#replay-overlay.show{display:flex;}
+.replay-title{font-size:22px;font-weight:800;letter-spacing:-0.5px;}
+.replay-sub{font-size:14px;color:var(--muted);max-width:420px;text-align:center;line-height:1.6;}
+.replay-btns{display:flex;gap:12px;margin-top:8px;}
+.btn-replay{
+  padding:12px 28px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:none;
+  background:var(--blue);color:#fff;transition:opacity .15s;
+}
+.btn-replay:hover{opacity:.85;}
+.btn-cta{
+  padding:12px 28px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;
+  background:transparent;border:1px solid var(--border);color:var(--text);text-decoration:none;
+  display:flex;align-items:center;transition:border-color .15s;
+}
+.btn-cta:hover{border-color:var(--blue);}
+
+/* ── PROGRESS DOTS ── */
+.scene-dots{
+  position:absolute;right:20px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:5px;
+}
+.sdot{width:5px;height:5px;border-radius:50%;background:var(--dim);transition:background .3s,transform .3s;}
+.sdot.active{background:var(--blue);transform:scale(1.4);}
+.sdot.done{background:var(--cyan);}
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <span class="tb-logo">SovereignNation</span>
+    <div class="tb-status">
+      <span class="tb-dot"></span>
+      <span>All Systems Online</span>
+    </div>
+    <span class="tb-right">On-Premises Inference · Zero Cloud Exposure</span>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="progress-bar"><div class="progress-fill" id="prog"></div></div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="sb-label">AI Specialists</div>
+      <div class="agent active" id="ag-axiom">
+        <div class="agent-dot" style="background:#3b82f6"></div>
+        <div>
+          <div class="agent-name">AXIOM</div>
+          <div class="agent-role">Tax Research</div>
+        </div>
+        <div class="agent-live"></div>
+      </div>
+      <div class="sb-divider"></div>
+      <div class="agent" id="ag-avery">
+        <div class="agent-dot" style="background:#8b5cf6"></div>
+        <div><div class="agent-name">AVERY</div><div class="agent-role">Strategy</div></div>
+      </div>
+      <div class="agent" id="ag-oracle">
+        <div class="agent-dot" style="background:#06b6d4"></div>
+        <div><div class="agent-name">ORACLE</div><div class="agent-role">Research</div></div>
+      </div>
+      <div class="agent" id="ag-forge">
+        <div class="agent-dot" style="background:#f59e0b"></div>
+        <div><div class="agent-name">FORGE</div><div class="agent-role">Dev</div></div>
+      </div>
+      <div class="agent" id="ag-sentinel">
+        <div class="agent-dot" style="background:#ef4444"></div>
+        <div><div class="agent-name">SENTINEL</div><div class="agent-role">Security</div></div>
+      </div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="chat-area">
+      <div class="chat-header">
+        <div class="ch-badge">AX</div>
+        <div>
+          <div class="ch-name">AXIOM — Tax &amp; Compliance Research</div>
+          <div class="ch-sub">IRC · Treasury Regulations · Revenue Rulings · Audit Analytics</div>
+        </div>
+        <div class="ch-tag">Local GPU · Private</div>
+      </div>
+      <div class="messages" id="msgs"></div>
+    </div>
+
+  </div>
+
+  <!-- SUBTITLE BAR -->
+  <div id="subtitle-bar">
+    <div id="subtitle-text"></div>
+    <div class="scene-dots" id="scene-dots"></div>
+  </div>
+
+</div>
+
+<!-- REPLAY OVERLAY -->
+<div id="replay-overlay">
+  <div class="replay-title">Research Done. Data Never Left.</div>
+  <div class="replay-sub">
+    2 hours of staff research completed in 15 seconds —
+    entirely on your hardware. No OpenAI. No Anthropic. No cloud.
+  </div>
+  <div class="replay-btns">
+    <button class="btn-replay" onclick="startDemo()">▶ Watch Again</button>
+    <a class="btn-cta" href="mailto:leer4030@gmail.com?subject=SovereignNation%20Demo%20Request&body=Hi%2C%20I%27d%20like%20to%20learn%20more%20about%20SovereignNation%20for%20my%20firm.%0A%0AFirm%20name%3A%20%0AFirm%20size%3A%20%0A">Contact Sales →</a>
+  </div>
+</div>
+
+<script>
+// ── SCENE DEFINITIONS ──────────────────────────────────────────────────────
+const SCENES = [
+  {
+    // Scene 1: intro subtitle, no message yet
+    subtitle: 'A CPA firm needs to assess <span class="sub-accent">audit risk</span> for a client's Schedule C — fast.',
+    duration: 3200,
+    action: 'intro',
+  },
+  {
+    subtitle: 'They type their question into <span class="sub-accent">AXIOM</span> — SovereignNation\'s on-premises tax specialist.',
+    duration: 3000,
+    action: 'show_user_msg',
+    msg: 'Client Schedule C: $340K gross revenue, $47,200 home office deduction, $28,400 vehicle expenses, $31,000 meals & entertainment. What\'s our audit exposure? Which line items are highest risk?',
+  },
+  {
+    subtitle: 'AXIOM processes the request <span class="sub-green">locally</span> — no data transmitted, no external API calls.',
+    duration: 3500,
+    action: 'thinking',
+  },
+  {
+    subtitle: 'In <span class="sub-green">15 seconds</span>, a full audit risk report with IRC citations appears.',
+    duration: 4000,
+    action: 'show_ai_response',
+    lines: [
+      { text: '■ SCHEDULE C AUDIT RISK ANALYSIS', cls: 'hi' },
+      { text: '  Client: [REDACTED] · FY2024 · Revenue: $340,000', cls: '' },
+      { text: '' },
+      { text: '  RISK TIER 1 — HIGH EXPOSURE', cls: 'wa' },
+      { text: '  ┌ Home Office: $47,200 (13.9% of revenue)', cls: '' },
+      { text: '  │  IRS DIF score elevated. Rev. Rul. 62-180 applies.', cls: 'dm' },
+      { text: '  │  Recommend: Form 8829, exclusive-use documentation,', cls: 'dm' },
+      { text: '  │  sq. footage proof. Audit flag probability: HIGH.', cls: 'er' },
+      { text: '  └' },
+      { text: '  ┌ Meals & Entertainment: $31,000 (9.1% of revenue)', cls: '' },
+      { text: '  │  Post-TCJA: 50% limitation (IRC §274(n)).', cls: 'dm' },
+      { text: '  │  Deductible: $15,500 max. Client may be over by ~$12K.', cls: 'wa' },
+      { text: '  └' },
+      { text: '' },
+      { text: '  RISK TIER 2 — MODERATE', cls: 'hi' },
+      { text: '  ┌ Vehicle Expenses: $28,400', cls: '' },
+      { text: '  │  Mileage log required (IRC §274(d)). Business-use %', cls: 'dm' },
+      { text: '  │  must be documented. Recommend contemporaneous log.', cls: 'dm' },
+      { text: '  └' },
+      { text: '' },
+      { text: '  RECOMMENDED ACTIONS:', cls: 'ok' },
+      { text: '  ✓ Request home office sq footage & lease/mortgage docs', cls: '' },
+      { text: '  ✓ Require 2024 mileage log with business purpose notes', cls: '' },
+      { text: '  ✓ Reclassify excess meals — flag $12K as non-deductible', cls: '' },
+      { text: '  ✓ File Form 8829 with square footage calculation', cls: '' },
+      { text: '' },
+      { text: '  Net corrected deductions: ~$83,200 (vs claimed $106,600)', cls: 'ok' },
+      { text: '  Estimated tax impact: +$5,800 (28% effective rate)', cls: 'wa' },
+    ],
+    lineDelay: 90,
+  },
+  {
+    subtitle: 'Full IRC citations. Risk tiers. Recommended actions. Estimated tax impact.',
+    duration: 3200,
+    action: 'pause',
+  },
+  {
+    subtitle: 'This used to take a staff member <span class="sub-amber">2+ hours</span>. With SovereignNation: <span class="sub-green">15 seconds</span>.',
+    duration: 3500,
+    action: 'pause',
+  },
+  {
+    subtitle: 'Every response generated <span class="sub-accent">on your hardware</span>. Client data never leaves your network.',
+    duration: 3500,
+    action: 'pause',
+  },
+  {
+    subtitle: '<span class="sub-green">7 specialist AI modules.</span> Flat monthly rate. No per-query fees. No cloud risk.',
+    duration: 3500,
+    action: 'end',
+  },
+];
+
+// ── STATE ─────────────────────────────────────────────────────────────────
+let currentScene = 0;
+let timer = null;
+let thinkingEl = null;
+
+function $(id){ return document.getElementById(id); }
+
+// ── SETUP SCENE DOTS ──────────────────────────────────────────────────────
+function setupDots(){
+  const c = $('scene-dots');
+  c.innerHTML = '';
+  SCENES.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'sdot';
+    d.id = 'sdot-' + i;
+    c.appendChild(d);
+  });
+}
+
+function updateDots(idx){
+  SCENES.forEach((_, i) => {
+    const d = $('sdot-' + i);
+    if (!d) return;
+    d.className = 'sdot' + (i < idx ? ' done' : i === idx ? ' active' : '');
+  });
+}
+
+// ── SUBTITLE ──────────────────────────────────────────────────────────────
+function setSubtitle(html){
+  const el = $('subtitle-text');
+  el.classList.remove('show');
+  setTimeout(() => {
+    el.innerHTML = html;
+    el.classList.add('show');
+  }, 200);
+}
+
+// ── MESSAGES ──────────────────────────────────────────────────────────────
+function addUserMsg(text){
+  const msgs = $('msgs');
+  const el = document.createElement('div');
+  el.className = 'msg-user';
+  el.textContent = text;
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+  setTimeout(() => el.classList.add('show'), 50);
+}
+
+function addThinking(){
+  const msgs = $('msgs');
+  const el = document.createElement('div');
+  el.className = 'thinking';
+  el.innerHTML = `
+    <div class="ai-icon" style="margin:0;width:22px;height:22px;font-size:9px;">AX</div>
+    <span>AXIOM is analyzing your Schedule C data</span>
+    <span class="thinking-dots"><span>●</span><span>●</span><span>●</span></span>
+  `;
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+  thinkingEl = el;
+  setTimeout(() => el.classList.add('show'), 50);
+}
+
+function removeThinking(){
+  if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+}
+
+function addAiResponse(lines, lineDelay){
+  removeThinking();
+  const msgs = $('msgs');
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-ai';
+
+  const icon = document.createElement('div');
+  icon.className = 'ai-icon';
+  icon.textContent = 'AX';
+  wrap.appendChild(icon);
+
+  const body = document.createElement('div');
+  body.className = 'msg-ai-body';
+  wrap.appendChild(body);
+  msgs.appendChild(wrap);
+
+  setTimeout(() => wrap.classList.add('show'), 50);
+
+  lines.forEach((line, i) => {
+    const span = document.createElement('span');
+    span.className = 'tl' + (line.cls ? ' ' + line.cls : '');
+    span.textContent = line.text;
+    body.appendChild(span);
+    body.appendChild(document.createElement('br'));
+    setTimeout(() => {
+      span.classList.add('v');
+      msgs.scrollTop = msgs.scrollHeight;
+    }, 200 + i * (lineDelay || 80));
+  });
+}
+
+// ── PROGRESS ──────────────────────────────────────────────────────────────
+function setProgress(pct){
+  $('prog').style.width = pct + '%';
+}
+
+// ── RUN SCENE ─────────────────────────────────────────────────────────────
+function runScene(idx){
+  if (idx >= SCENES.length) { showEnd(); return; }
+  currentScene = idx;
+  const scene = SCENES[idx];
+
+  updateDots(idx);
+  setProgress((idx / SCENES.length) * 100);
+  setSubtitle(scene.subtitle);
+
+  if (scene.action === 'show_user_msg') {
+    setTimeout(() => addUserMsg(scene.msg), 600);
+  } else if (scene.action === 'thinking') {
+    setTimeout(() => addThinking(), 400);
+  } else if (scene.action === 'show_ai_response') {
+    setTimeout(() => addAiResponse(scene.lines, scene.lineDelay), 200);
+  }
+
+  timer = setTimeout(() => runScene(idx + 1), scene.duration);
+}
+
+function showEnd(){
+  setProgress(100);
+  updateDots(SCENES.length);
+  setTimeout(() => {
+    $('replay-overlay').classList.add('show');
+  }, 800);
+}
+
+// ── START ─────────────────────────────────────────────────────────────────
+function startDemo(){
+  clearTimeout(timer);
+  $('replay-overlay').classList.remove('show');
+  $('msgs').innerHTML = '';
+  thinkingEl = null;
+  currentScene = 0;
+  setProgress(0);
+  $('subtitle-text').classList.remove('show');
+  setupDots();
+  setTimeout(() => runScene(0), 600);
+}
+
+// Kick off
+setupDots();
+startDemo();
+</script>
+</body>
+</html>

@@ -134,6 +134,17 @@ training_data/*.log
 kaggle_output*/
 kaggle_push/
 kaggle_secrets_dataset/
+kaggle_debug/
+kaggle_pull_result/
+kaggle_pull_tmp/
+kaggle_pull_tmp2/
+
+# Merged model artifacts (large, generated)
+sovereign-merged/
+sovereign-releases/
+
+# Binary tools
+llama-cpp/
 
 # Local runtime data
 data/
@@ -141,6 +152,9 @@ course/
 .claude/
 Tor Browser/
 memory/conversations.jsonl
+
+# Runtime-generated files
+tunnel_url.txt
 
 # VS Code workspace (local only)
 *.code-workspace

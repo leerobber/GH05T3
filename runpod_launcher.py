@@ -25,7 +25,7 @@ API_KEY           = os.environ.get("RUNPOD_API_KEY", "")
 HF_TOKEN          = os.environ.get("HF_TOKEN", "")
 NETWORK_VOLUME_ID = os.environ.get("RUNPOD_VOLUME_ID", "")
 SSH_KEY_PUB       = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIARR9yuDQlP7BJ8VKXq3o/bZlPLov71iDTRb2HBtfMQl claude-avery-training"
-TRAIN_SCRIPT  = Path(__file__).parent / "train_sovereign_sft.py"
+TRAIN_SCRIPT  = Path(__file__).parent / "runpod_train.py"
 STATE_FILE    = Path(__file__).parent / "data" / "runpod_state.json"
 LOG_FILE      = Path(__file__).parent / "data" / "train_run.log"
 ERR_FILE      = Path(__file__).parent / "data" / "train_run_err.log"
@@ -309,12 +309,12 @@ def _load_state() -> dict:
 
 
 # ── SSH helpers ───────────────────────────────────────────────────────────────
-def _scp_upload(ip: str, port: int, local: str, remote: str):
+def _scp_upload(ip: str, port: int, local: str, remote: str, timeout: int = 60):
     key = _ssh_key_path()
     cmd = ["scp", "-i", key, "-P", str(port),
            "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=15",
            local, f"root@{ip}:{remote}"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(f"SCP failed: {result.stderr}")
 
@@ -465,7 +465,7 @@ def launch(train_mode: str = None, train_split: str = None):
     print(f"\n[4/6] Uploading training script to {ip}:{port}...")
     for scp_attempt in range(1, 6):
         try:
-            _scp_upload(ip, port, str(TRAIN_SCRIPT), "/workspace/train_sovereign_sft.py")
+            _scp_upload(ip, port, str(TRAIN_SCRIPT), "/workspace/runpod_train.py")
             print("  Uploaded.")
             break
         except RuntimeError as e:
@@ -482,16 +482,10 @@ def launch(train_mode: str = None, train_split: str = None):
 
     # ── Launch ────────────────────────────────────────────────────────────────
     print(f"\n[5/6] Launching training on pod...")
-    train_agent = os.environ.get("TRAIN_AGENT", "avery")
     train_cmd = (
-        f"export HF_TOKEN={HF_TOKEN}; "
-        f"export TRAIN_MODE={train_mode}; "
-        + (f"export TRAIN_SPLIT={train_split}; " if train_split else "")
-        + f"export TRAIN_AGENT={train_agent}; "
-        f"nohup python /workspace/train_sovereign_sft.py "
-        f"--mode {train_mode} --agent {train_agent} "
-        + (f"--split {train_split} " if train_split else "")
-        + f"> /workspace/train.log 2>&1 & echo LAUNCHED"
+        f"nohup python /workspace/runpod_train.py "
+        f"--hf_token {HF_TOKEN} "
+        f"> /workspace/train.log 2>&1 & echo LAUNCHED"
     )
     _ssh_run(ip, port, train_cmd, timeout=300)
 

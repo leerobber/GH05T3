@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Confirmed — SovereignNation</title>
+  <style>
+    :root {
+      --bg: #080c18; --surface: #0d1424; --border: #1e2d45;
+      --accent: #3b82f6; --cyan: #06b6d4; --green: #22c55e;
+      --text: #f1f5f9; --muted: #94a3b8;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 56px 48px; max-width: 560px; width: 100%;
+      text-align: center;
+    }
+    .check-ring {
+      width: 80px; height: 80px; border-radius: 50%;
+      background: rgba(34,197,94,0.12); border: 2px solid var(--green);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 32px; font-size: 2.2rem;
+      animation: pop 0.5s cubic-bezier(0.175,0.885,0.32,1.275) both;
+    }
+    @keyframes pop { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    h1 { font-size: 1.9rem; font-weight: 700; margin-bottom: 12px; }
+    .subtitle { color: var(--muted); font-size: 1rem; line-height: 1.6; margin-bottom: 40px; }
+    .next-steps {
+      background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.2);
+      border-radius: 12px; padding: 24px; text-align: left; margin-bottom: 32px;
+    }
+    .next-steps h3 { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--accent); margin-bottom: 16px; }
+    .step { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 14px; }
+    .step:last-child { margin-bottom: 0; }
+    .step-num {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--accent); color: white; font-size: 0.75rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .step-text { font-size: 0.9rem; color: var(--muted); padding-top: 3px; line-height: 1.5; }
+    .step-text strong { color: var(--text); }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 13px 28px; border-radius: 10px; font-size: 0.95rem; font-weight: 600;
+      text-decoration: none; cursor: pointer; border: none;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { box-shadow: 0 6px 24px rgba(59,130,246,0.4); transform: translateY(-1px); }
+    .session-id { font-size: 0.72rem; color: var(--muted); margin-top: 24px; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="check-ring">✓</div>
+
+    <h1>You're in. Welcome aboard.</h1>
+    <p class="subtitle">
+      Payment confirmed. You'll receive a receipt from Stripe at your email address within a few minutes.
+    </p>
+
+    <div class="next-steps">
+      <h3>What happens next</h3>
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-text">
+          <strong>Email within 1 hour</strong> — we'll reach out to schedule your hardware survey and deployment call.
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-text">
+          <strong>Deployment call (30–60 min)</strong> — we configure the 7 AI modules to your firm's workflow and data.
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-text">
+          <strong>Go live within 48 hours</strong> — your team starts using ORACLE, AXIOM, FORGE and the rest immediately.
+        </div>
+      </div>
+    </div>
+
+    <a href="https://sovereignnation.netlify.app" class="btn btn-primary">
+      ← Back to SovereignNation
+    </a>
+
+    <div class="session-id" id="sid"></div>
+  </div>
+
+  <script>
+    // Show session ID for reference
+    const params = new URLSearchParams(location.search);
+    const sid = params.get("session_id");
+    if (sid) {
+      document.getElementById("sid").textContent = "Confirmation ref: " + sid;
+    }
+  </script>
+</body>
+</html>

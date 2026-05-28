@@ -200,7 +200,22 @@ def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
     trainer: Trainer | None = None
     current_domain = domain_override or DOMAIN_ROTATION[state["domain_index"] % len(DOMAIN_ROTATION)]
 
-    global_cycle = 0
+    global_cycle    = 0
+    consecutive_err = 0
+    MAX_CONSECUTIVE = 10   # stop only if 10 cycles in a row all fail
+
+    import traceback as _tb
+
+    def _heartbeat():
+        """Write a timestamp so the supervisor / external monitor can detect hangs."""
+        try:
+            Path("data/learner_heartbeat.json").write_text(
+                json.dumps({"ts": time.time(), "total_cycles": state["total_cycles"],
+                            "domain": current_domain}),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
 
     try:
         while total_cap is None or global_cycle < total_cap:
@@ -219,6 +234,22 @@ def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
                         state["total_cycles"], _count_spin()
                     )
 
+            # ── Demo mode: yield Ollama to live clients ──────────────────────
+            demo_flag = Path("data/demo_mode.flag")
+            if demo_flag.exists():
+                print("  [DEMO MODE] Paused — Ollama reserved for live demo. Checking again in 30s...")
+                # Write heartbeat while paused so supervisor doesn't kill/restart us
+                try:
+                    Path("data/learner_heartbeat.json").write_text(
+                        json.dumps({"ts": time.time(), "total_cycles": state["total_cycles"],
+                                    "status": "paused_demo_mode"}),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    pass
+                time.sleep(30)
+                continue
+
             # Build trainer for current domain
             if trainer is None or trainer.domain != current_domain:
                 trainer = Trainer(domain=current_domain)
@@ -228,21 +259,57 @@ def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
                 rescan_repos(state["total_cycles"])
                 state["last_scan_cycle"] = state["total_cycles"]
 
-            # Run one training cycle
-            result = trainer.run_cycle()
+            # ── Run one training cycle (isolated — never kills the loop) ─────
+            try:
+                result = trainer.run_cycle()
+                consecutive_err = 0   # reset on success
 
-            state["total_cycles"]  += 1
-            state["domain_cycles"] += 1
-            global_cycle           += 1
+                state["total_cycles"]  += 1
+                state["domain_cycles"] += 1
+                global_cycle           += 1
 
-            # Upload SPIN when threshold hit
-            spin_count = _count_spin()
-            if spin_count - state.get("last_upload_count", 0) >= spin_threshold:
-                upload_spin_to_hf(state)
+                # Upload SPIN when threshold hit
+                spin_count = _count_spin()
+                if spin_count - state.get("last_upload_count", 0) >= spin_threshold:
+                    upload_spin_to_hf(state)
 
-            _save_state(state)
+                _save_state(state)
+                _heartbeat()
 
-            # Brief breathing room between cycles
+            except KeyboardInterrupt:
+                raise   # let outer handler catch this
+
+            except Exception as cycle_err:
+                consecutive_err += 1
+                err_msg = f"Cycle error #{consecutive_err}: {cycle_err}"
+                print(f"\n  [CYCLE ERR] {err_msg}")
+                _tb.print_exc()
+
+                # Still advance counters so state doesn't loop on same bad goal
+                state["total_cycles"]  += 1
+                state["domain_cycles"] += 1
+                global_cycle           += 1
+                _save_state(state)
+                _heartbeat()
+
+                if _slack:
+                    try:
+                        _slack.post("continuous-learner",
+                                    f":warning: {err_msg} — continuing")
+                    except Exception:
+                        pass
+
+                if consecutive_err >= MAX_CONSECUTIVE:
+                    print(f"\n  [ABORT] {MAX_CONSECUTIVE} consecutive errors — "
+                          f"rebuilding trainer and waiting 60s before retry")
+                    trainer = None           # force fresh Trainer next cycle
+                    consecutive_err = 0
+                    time.sleep(60)
+                else:
+                    time.sleep(5)            # short pause before retrying
+                continue
+
+            # Brief breathing room between successful cycles
             time.sleep(0.5)
 
     except KeyboardInterrupt:

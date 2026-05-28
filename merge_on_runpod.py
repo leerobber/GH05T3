@@ -19,7 +19,7 @@ GGUF_NAME = "avery-sovereign-q8.gguf"
 WORKER_PY = f'''import os, gc, subprocess, sys
 
 HF_TOKEN   = "{HF_TOKEN}"
-BASE_MODEL = "Qwen/Qwen2-7B-Instruct"
+BASE_MODEL = "Qwen/Qwen2.5-3B-Instruct"
 LORA_REPO  = "{LORA_REPO}"
 HF_REPO    = "{HF_REPO}"
 GGUF_NAME  = "{GGUF_NAME}"
@@ -226,3 +226,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
