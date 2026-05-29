@@ -1,4 +1,4 @@
-# SovereignNation — First Client Outreach Scripts
+# AETHYRO — First Client Outreach Scripts
 
 ## How to use these
 - LinkedIn DM: paste the "DM Version" after finding them in a group or on a post
@@ -25,12 +25,12 @@ Would you be open to a 15-minute call to see if it makes sense
 for your firm? No pitch — just want to understand your current
 workflow.
 
-— Rob | SovereignNation
+— Rob | AETHYRO
 ```
 
 ### Call Script (when they pick up)
 ```
-"Hi [Name], this is Rob Lee from SovereignNation. I help small
+"Hi [Name], this is Rob Lee from AETHYRO. I help small
 CPA firms run private AI on their own hardware so client data
 never touches the cloud. Do you have 2 minutes?
 
@@ -81,12 +81,12 @@ office.
 
 Worth a 15-minute call? I can show you a live demo.
 
-— Rob | SovereignNation
+— Rob | AETHYRO
 ```
 
 ### Call Script
 ```
-"Hi [Name], Rob Lee from SovereignNation. I help independent
+"Hi [Name], Rob Lee from AETHYRO. I help independent
 insurance agents run AI privately so client health and policy
 data stays off the cloud. Quick 2 minutes?
 
@@ -133,12 +133,12 @@ Same capability as ChatGPT. One-time setup, no monthly fees.
 
 Worth a 15-minute call to see if it fits your workflow?
 
-— Rob | SovereignNation
+— Rob | AETHYRO
 ```
 
 ### Call Script
 ```
-"Hi [Name], Rob Lee with SovereignNation. I help real estate
+"Hi [Name], Rob Lee with AETHYRO. I help real estate
 agents use AI for offer letters and client work without putting
 buyer data in the cloud. Got 2 minutes?
 
@@ -196,7 +196,7 @@ Worth it?
 
 ## Booking the Call
 Direct scheduler link (set up Calendly free tier):
-- 15-min slot: "SovereignNation Discovery Call"
+- 15-min slot: "AETHYRO Discovery Call"
 - Buffer: 30 min between calls
 - Availability: T/W/Th, 10am–4pm ET
 

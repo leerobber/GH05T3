@@ -53,6 +53,13 @@ PUBLISHABLE_KEY      = os.getenv("STRIPE_PUBLISHABLE_KEY", "")
 BASE_URL             = os.getenv("PAYMENTS_BASE_URL", "http://localhost:7861").rstrip("/")
 PORTAL_ENABLED       = os.getenv("STRIPE_PORTAL_ENABLED", "0") == "1"
 NOTIFY_EMAIL         = os.getenv("NOTIFY_EMAIL", "")
+# ── SMTP (welcome / onboarding emails) — optional; no-op if unconfigured ──────
+SMTP_HOST            = os.getenv("SMTP_HOST", "")
+SMTP_PORT            = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER            = os.getenv("SMTP_USER", "")
+SMTP_PASS            = os.getenv("SMTP_PASS", "")
+FROM_EMAIL           = os.getenv("FROM_EMAIL", "") or SMTP_USER or NOTIFY_EMAIL
+PRODUCT_NAME         = os.getenv("PRODUCT_NAME", "SovereignNation")
 DATA_DIR             = ROOT.parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
 PAYMENTS_LOG         = DATA_DIR / "payments.json"
@@ -69,6 +76,46 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("payments")
+
+
+# ── Onboarding email ────────────────────────────────────────────────────────────
+def _send_welcome_email(to_email: str, api_key: str, plan: str) -> None:
+    """Email a new customer their API key. No-op (logged) if SMTP not configured."""
+    if not to_email or to_email == "unknown":
+        log.warning("Welcome email skipped — no customer email on record")
+        return
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
+        log.warning(
+            "Welcome email NOT sent (SMTP not configured) — set SMTP_HOST/SMTP_USER/"
+            "SMTP_PASS in .env.payments. Key for %s: %s", to_email, api_key,
+        )
+        return
+
+    import smtplib
+    from email.message import EmailMessage
+
+    msg = EmailMessage()
+    msg["Subject"] = f"Welcome to {PRODUCT_NAME} — your API key"
+    msg["From"]    = FROM_EMAIL
+    msg["To"]      = to_email
+    msg.set_content(
+        f"Welcome to {PRODUCT_NAME}!\n\n"
+        f"Your {plan} plan is active. Here is your API key:\n\n"
+        f"    {api_key}\n\n"
+        f"Keep it secret — use it as the Bearer token in the Authorization header "
+        f"when calling the API.\n\n"
+        f"Questions? Just reply to this email.\n\n"
+        f"— The {PRODUCT_NAME} Team"
+    )
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+        log.info("Welcome email sent to %s", to_email)
+    except Exception as e:
+        log.error("Welcome email FAILED for %s: %s", to_email, e)
+
 
 # ── Pricing Catalogue ─────────────────────────────────────────────────────────
 # These match what's shown on the landing page.
@@ -351,7 +398,7 @@ async def stripe_webhook(
         log.info("  API Key  : %s", api_key)
         log.info("=" * 60)
 
-        # TODO: send welcome email with api_key to customer_email
+        _send_welcome_email(customer_email, api_key, plan)
 
     # ── invoice.payment_succeeded (recurring monthly) ──────────────────────
     elif etype == "invoice.payment_succeeded":

@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Aethyro — Agent Console</title>
+<style>
+:root {
+  --bg:       #080d1a;
+  --surface:  #0f1629;
+  --card:     #131d33;
+  --border:   #1a2640;
+  --accent:   #3b82f6;
+  --cyan:     #06b6d4;
+  --gold:     #f59e0b;
+  --green:    #22c55e;
+  --red:      #ef4444;
+  --text:     #e2e8f0;
+  --muted:    #64748b;
+  --oracle:   #06b6d4;
+  --forge:    #ef4444;
+  --codex:    #22c55e;
+  --nexus:    #a78bfa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── TOP BAR ── */
+.topbar{display:flex;align-items:center;gap:1rem;padding:.6rem 1.25rem;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0}
+.logo{font-size:1rem;font-weight:700;background:linear-gradient(135deg,#3b82f6,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);transition:background .3s}
+.status-dot.ok{background:var(--green)}
+.status-dot.err{background:var(--red)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:.75rem;font-size:.8rem;color:var(--muted)}
+.skill-count{font-size:.75rem;color:var(--cyan);background:rgba(6,182,212,.1);padding:.2rem .6rem;border-radius:100px;border:1px solid rgba(6,182,212,.2)}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)}
+.tab{padding:.6rem 1.25rem;font-size:.82rem;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;text-transform:uppercase;letter-spacing:.06em}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ── MAIN LAYOUT ── */
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:200px;flex-shrink:0;border-right:1px solid var(--border);padding:.75rem;display:flex;flex-direction:column;gap:.4rem;background:var(--surface);overflow-y:auto}
+.content{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── AGENT AVATARS ── */
+.avatar{width:34px;height:34px;flex-shrink:0;border-radius:8px;overflow:visible}
+@keyframes pulse-oracle{0%,100%{filter:drop-shadow(0 0 3px #06b6d4)}50%{filter:drop-shadow(0 0 7px #06b6d4)}}
+@keyframes pulse-forge {0%,100%{filter:drop-shadow(0 0 3px #ef4444)}50%{filter:drop-shadow(0 0 7px #ef4444)}}
+@keyframes pulse-codex {0%,100%{filter:drop-shadow(0 0 3px #22c55e)}50%{filter:drop-shadow(0 0 7px #22c55e)}}
+@keyframes pulse-nexus {0%,100%{filter:drop-shadow(0 0 3px #a78bfa)}50%{filter:drop-shadow(0 0 7px #a78bfa)}}
+.avatar-oracle{animation:pulse-oracle 3s ease-in-out infinite}
+.avatar-forge {animation:pulse-forge  2.5s ease-in-out infinite}
+.avatar-codex {animation:pulse-codex  3.5s ease-in-out infinite}
+.avatar-nexus {animation:pulse-nexus  4s ease-in-out infinite}
+.msg-avatar{width:28px;height:28px;flex-shrink:0;margin-right:.5rem}
+
+/* ── AGENT BUTTONS ── */
+.agent-btn{display:flex;align-items:center;gap:.6rem;padding:.5rem .8rem;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.82rem;font-weight:600;cursor:pointer;transition:all .2s;width:100%;text-align:left}
+.agent-btn:hover{background:rgba(255,255,255,.04);color:var(--text);border-color:rgba(255,255,255,.1)}
+.agent-btn.active{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.3);color:var(--text)}
+.agent-btn .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot-oracle{background:var(--oracle)}
+.dot-forge{background:var(--forge)}
+.dot-codex{background:var(--codex)}
+.dot-nexus{background:var(--nexus)}
+.agent-btn .badge{margin-left:auto;font-size:.65rem;background:rgba(255,255,255,.07);padding:.1rem .4rem;border-radius:4px;color:var(--muted)}
+.sidebar-label{font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);padding:.4rem .3rem .1rem}
+.auto-badge{font-size:.7rem;background:rgba(59,130,246,.15);color:var(--accent);border:1px solid rgba(59,130,246,.3);border-radius:6px;padding:.25rem .6rem;cursor:pointer;transition:all .15s}
+.auto-badge.active{background:rgba(59,130,246,.25);color:#93c5fd}
+
+/* ── CHAT PANEL ── */
+.messages{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.75rem}
+.msg{max-width:85%;padding:.8rem 1rem;border-radius:12px;font-size:.9rem;line-height:1.6;word-break:break-word}
+.msg.user{align-self:flex-end;background:#1e3a5f;border:1px solid #2a4a75;border-bottom-right-radius:3px}
+.msg.assistant{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:3px}
+.msg.system-msg{align-self:center;font-size:.75rem;color:var(--muted);background:transparent;padding:.2rem .6rem}
+.agent-tag{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.35rem;opacity:.8}
+.tag-oracle{color:var(--oracle)}
+.tag-forge{color:var(--forge)}
+.tag-codex{color:var(--codex)}
+.tag-nexus{color:var(--nexus)}
+.tag-auto{color:var(--accent)}
+.msg-meta{font-size:.68rem;color:var(--muted);margin-top:.4rem}
+.msg pre{background:#0a0f1e;border:1px solid var(--border);border-radius:6px;padding:.75rem;margin:.5rem 0;overflow-x:auto;font-size:.8rem}
+.msg code{font-family:'Cascadia Code','Fira Code',monospace}
+.typing{color:var(--muted);font-style:italic;font-size:.85rem}
+
+/* ── INPUT BAR ── */
+.input-bar{padding:.75rem 1rem;border-top:1px solid var(--border);display:flex;gap:.6rem;align-items:flex-end;flex-shrink:0;background:var(--surface)}
+.input-bar textarea{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:.9rem;padding:.65rem .9rem;resize:none;height:44px;max-height:180px;overflow-y:auto;font-family:inherit;outline:none;transition:border-color .15s}
+.input-bar textarea:focus{border-color:var(--accent)}
+.send-btn{padding:.55rem 1.1rem;background:var(--accent);color:#fff;border:none;border-radius:8px;font-weight:700;font-size:.85rem;cursor:pointer;transition:background .15s;height:44px;flex-shrink:0}
+.send-btn:hover{background:#2563eb}
+.send-btn:disabled{background:#1e3a5f;color:var(--muted);cursor:not-allowed}
+.tools-toggle{padding:.45rem .7rem;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:.75rem;cursor:pointer;height:44px;transition:all .15s}
+.tools-toggle:hover,.tools-toggle.active{border-color:var(--green);color:var(--green)}
+.mic-btn{padding:.45rem .65rem;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:.95rem;cursor:pointer;height:44px;transition:all .15s;flex-shrink:0}
+.mic-btn:hover{border-color:var(--cyan);color:var(--cyan)}
+@keyframes pulse-rec{0%,100%{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.4)}50%{background:rgba(239,68,68,.25);border-color:var(--red)}}
+.mic-btn.recording{color:var(--red);animation:pulse-rec .9s ease-in-out infinite}
+
+/* ── CODEX RUN PANEL ── */
+.codex-panel{flex:1;display:flex;flex-direction:column;gap:.75rem;padding:1rem;overflow-y:auto}
+.codex-task-input{background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:.75rem 1rem;font-size:.9rem;resize:vertical;min-height:80px;font-family:inherit;outline:none;width:100%;transition:border-color .15s}
+.codex-task-input:focus{border-color:var(--green)}
+.run-btn{padding:.6rem 1.4rem;background:var(--green);color:#000;border:none;border-radius:8px;font-weight:700;font-size:.9rem;cursor:pointer;transition:background .15s;align-self:flex-start}
+.run-btn:hover{background:#16a34a}
+.run-btn:disabled{background:#1a3320;color:var(--muted);cursor:not-allowed}
+.tool-log{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:.75rem}
+.tool-log-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--green);margin-bottom:.6rem}
+.tool-entry{display:flex;gap:.6rem;align-items:flex-start;padding:.4rem 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:.8rem}
+.tool-entry:last-child{border-bottom:none}
+.tool-name{color:var(--green);font-weight:700;font-family:monospace;flex-shrink:0}
+.tool-result{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:500px}
+.codex-response{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1rem;font-size:.9rem;line-height:1.65;white-space:pre-wrap}
+.codex-stats{font-size:.72rem;color:var(--muted);margin-top:.5rem}
+
+/* ── VISION PANEL ── */
+.vision-panel{flex:1;display:flex;flex-direction:column;gap:.75rem;padding:1rem;overflow-y:auto}
+.drop-zone{border:2px dashed var(--border);border-radius:12px;padding:2.5rem;text-align:center;cursor:pointer;transition:all .2s;color:var(--muted)}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--accent);background:rgba(59,130,246,.05);color:var(--text)}
+.drop-zone img{max-width:100%;max-height:220px;border-radius:8px;margin-top:.75rem;object-fit:contain}
+.vision-query{background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--text);padding:.65rem .9rem;font-size:.9rem;resize:none;height:60px;font-family:inherit;outline:none;width:100%;transition:border-color .15s}
+.vision-query:focus{border-color:var(--accent)}
+.vision-agent-row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.v-agent-btn{padding:.35rem .8rem;border-radius:100px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.78rem;font-weight:600;cursor:pointer;transition:all .15s}
+.v-agent-btn.active{background:rgba(59,130,246,.15);border-color:var(--accent);color:var(--text)}
+.vision-result{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:1rem;font-size:.9rem;line-height:1.65;white-space:pre-wrap}
+
+/* ── SKILLS PANEL ── */
+.skills-panel{flex:1;padding:1rem;overflow-y:auto;display:flex;flex-direction:column;gap:1rem}
+.skill-agent-section{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.skill-agent-header{padding:.75rem 1rem;display:flex;align-items:center;gap:.75rem;border-bottom:1px solid var(--border)}
+.skill-agent-name{font-size:.82rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.skill-count-badge{margin-left:auto;font-size:.7rem;background:rgba(255,255,255,.07);padding:.15rem .5rem;border-radius:100px;color:var(--muted)}
+.skill-item{padding:.65rem 1rem;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer;transition:background .15s}
+.skill-item:last-child{border-bottom:none}
+.skill-item:hover{background:rgba(255,255,255,.03)}
+.skill-name{font-size:.82rem;font-weight:600;color:var(--text)}
+.skill-desc{font-size:.75rem;color:var(--muted);margin-top:.15rem}
+.skill-detail{padding:.75rem 1rem;background:#08101e;border-top:1px solid var(--border);font-size:.82rem;line-height:1.65;white-space:pre-wrap;display:none}
+.skill-detail.open{display:block}
+.refresh-btn{padding:.4rem .9rem;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:.78rem;cursor:pointer;transition:all .15s}
+.refresh-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#1e2d45;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#2a3f5f}
+
+/* ── SPINNER ── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:.4rem}
+
+/* ── HIDDEN ── */
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <span class="logo">Aethyro</span>
+  <span class="status-dot" id="statusDot" title="Pipeline status"></span>
+  <span style="font-size:.78rem;color:var(--muted)" id="statusText">Connecting...</span>
+  <div class="topbar-right">
+    <span class="skill-count" id="totalSkills">0 skills</span>
+    <span style="font-size:.75rem">pipeline :8099</span>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <div class="tab active" data-tab="chat">Chat</div>
+  <div class="tab" data-tab="board">⚡ Full Board</div>
+  <div class="tab" data-tab="codex">CODEX Run</div>
+  <div class="tab" data-tab="vision">Vision</div>
+  <div class="tab" data-tab="skills">Skills</div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-label">Routing</div>
+    <button class="auto-badge active" id="autoRouteBtn" onclick="toggleAutoRoute()">⚡ Auto-Route ON</button>
+
+    <div class="sidebar-label" style="margin-top:.5rem">Agents</div>
+    <button class="agent-btn" data-agent="oracle" onclick="selectAgent('oracle')">
+      <svg class="avatar avatar-oracle" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="20" cy="20" r="17" fill="rgba(6,182,212,0.12)" stroke="#06b6d4" stroke-width="1.5"/>
+        <circle cx="20" cy="20" r="9" fill="none" stroke="#06b6d4" stroke-width="1.5"/>
+        <circle cx="20" cy="20" r="3.5" fill="#06b6d4"/>
+        <line x1="3" y1="20" x2="11" y2="20" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="29" y1="20" x2="37" y2="20" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="20" y1="3" x2="20" y2="11" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="20" y1="29" x2="20" y2="37" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="7.5" y1="7.5" x2="13" y2="13" stroke="#06b6d4" stroke-width="1" stroke-linecap="round" opacity=".5"/>
+        <line x1="32.5" y1="7.5" x2="27" y2="13" stroke="#06b6d4" stroke-width="1" stroke-linecap="round" opacity=".5"/>
+        <line x1="7.5" y1="32.5" x2="13" y2="27" stroke="#06b6d4" stroke-width="1" stroke-linecap="round" opacity=".5"/>
+        <line x1="32.5" y1="32.5" x2="27" y2="27" stroke="#06b6d4" stroke-width="1" stroke-linecap="round" opacity=".5"/>
+      </svg>
+      ORACLE<span class="badge" id="badge-oracle">0</span>
+    </button>
+    <button class="agent-btn" data-agent="forge" onclick="selectAgent('forge')">
+      <svg class="avatar avatar-forge" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="20,2 38,11 38,29 20,38 2,29 2,11" fill="rgba(239,68,68,0.12)" stroke="#ef4444" stroke-width="1.5"/>
+        <polygon points="20,10 30,16 30,24 20,30 10,24 10,16" fill="rgba(239,68,68,0.15)" stroke="#ef4444" stroke-width="1" opacity=".7"/>
+        <line x1="20" y1="13" x2="20" y2="27" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="13" y1="20" x2="27" y2="20" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="20" cy="20" r="2" fill="#ef4444"/>
+      </svg>
+      FORGE<span class="badge" id="badge-forge">0</span>
+    </button>
+    <button class="agent-btn" data-agent="codex" onclick="selectAgent('codex')">
+      <svg class="avatar avatar-codex" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="2" width="36" height="36" rx="7" fill="rgba(34,197,94,0.1)" stroke="#22c55e" stroke-width="1.5"/>
+        <rect x="7" y="7" width="26" height="4" rx="2" fill="rgba(34,197,94,0.3)"/>
+        <polyline points="10,19 5,24 10,29" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="30,19 35,24 30,29" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="16" y1="30" x2="24" y2="18" stroke="#22c55e" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+      CODEX<span class="badge" id="badge-codex">0</span>
+    </button>
+    <button class="agent-btn" data-agent="nexus" onclick="selectAgent('nexus')">
+      <svg class="avatar avatar-nexus" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="20" cy="20" r="17" fill="rgba(167,139,250,0.1)" stroke="#a78bfa" stroke-width="1.5"/>
+        <circle cx="20" cy="20" r="4.5" fill="#a78bfa"/>
+        <circle cx="20" cy="6" r="2.5" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/>
+        <circle cx="20" cy="34" r="2.5" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/>
+        <circle cx="6" cy="20" r="2.5" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/>
+        <circle cx="34" cy="20" r="2.5" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/>
+        <circle cx="9.8" cy="9.8" r="2" fill="rgba(167,139,250,0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <circle cx="30.2" cy="9.8" r="2" fill="rgba(167,139,250,0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <circle cx="9.8" cy="30.2" r="2" fill="rgba(167,139,250,0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <circle cx="30.2" cy="30.2" r="2" fill="rgba(167,139,250,0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <line x1="20" y1="15.5" x2="20" y2="8.5" stroke="#a78bfa" stroke-width="1.2"/>
+        <line x1="20" y1="24.5" x2="20" y2="31.5" stroke="#a78bfa" stroke-width="1.2"/>
+        <line x1="15.5" y1="20" x2="8.5" y2="20" stroke="#a78bfa" stroke-width="1.2"/>
+        <line x1="24.5" y1="20" x2="31.5" y2="20" stroke="#a78bfa" stroke-width="1.2"/>
+        <line x1="16.8" y1="16.8" x2="11.6" y2="11.6" stroke="#a78bfa" stroke-width="1"/>
+        <line x1="23.2" y1="16.8" x2="28.4" y2="11.6" stroke="#a78bfa" stroke-width="1"/>
+        <line x1="16.8" y1="23.2" x2="11.6" y2="28.4" stroke="#a78bfa" stroke-width="1"/>
+        <line x1="23.2" y1="23.2" x2="28.4" y2="28.4" stroke="#a78bfa" stroke-width="1"/>
+      </svg>
+      NEXUS<span class="badge" id="badge-nexus">0</span>
+    </button>
+
+    <div class="sidebar-label" style="margin-top:.5rem">Quick tasks</div>
+    <button class="agent-btn" onclick="quickPrompt('I need a business intelligence briefing. Analyze the current market opportunity for [your industry/niche] and give me the top 3 actionable opportunities with specific numbers.')">
+      <span style="font-size:.8rem">📊</span>Market brief
+    </button>
+    <button class="agent-btn" onclick="quickPrompt('What are the top 3 risks to closing a new client this week, and what is the exact cost of each if ignored?')">
+      <span style="font-size:.8rem">⚠️</span>Risk check
+    </button>
+    <button class="agent-btn" onclick="quickPrompt('What are the 3 highest-priority actions I should take in the next 48 hours to move the business forward? Be specific: WHO does WHAT by WHEN.')">
+      <span style="font-size:.8rem">🎯</span>48hr plan
+    </button>
+    <button class="agent-btn" onclick="sendPhiQuick()" style="border-color:rgba(245,158,11,.25);color:var(--gold)" title="Phi-3.5-mini — fast local response, no Ollama needed">
+      <span style="font-size:.8rem">⚡</span>Phi Quick
+    </button>
+    <button class="agent-btn" onclick="clearChat()" style="margin-top:auto;color:var(--muted)">
+      <span style="font-size:.8rem">🗑</span>Clear chat
+    </button>
+  </div>
+
+  <!-- CONTENT AREA -->
+  <div class="content">
+
+    <!-- ── CHAT TAB ── -->
+    <div id="tab-chat" class="content" style="display:flex;flex-direction:column">
+      <div class="messages" id="messages">
+        <div class="msg system-msg">Aethyro Agent Console · Pipeline connected · Auto-route ON · Skills loaded · Vision ready</div>
+      </div>
+      <div class="input-bar">
+        <button class="tools-toggle" id="toolsToggle" onclick="toggleTools()" title="Enable file/HTTP tool access for ORACLE & FORGE">🔧 Tools</button>
+        <button class="mic-btn" id="micBtn" onclick="toggleVoice()" title="Voice input — Whisper on :8111">🎤</button>
+        <textarea id="chatInput" placeholder="Ask your agents anything..." rows="1"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"
+          oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendChat()">Send</button>
+      </div>
+    </div>
+
+    <!-- ── FULL BOARD TAB ── -->
+    <div id="tab-board" class="codex-panel hidden">
+      <div>
+        <div style="font-size:.9rem;font-weight:600;color:var(--text);margin-bottom:.3rem">⚡ Full Board Pipeline</div>
+        <div style="font-size:.8rem;color:var(--muted);margin-bottom:.75rem">One query → ORACLE analyzes → FORGE finds what Oracle missed → NEXUS delivers the action plan. Three expert perspectives in sequence. Each agent sees the prior output.</div>
+        <textarea class="codex-task-input" id="boardQuery" placeholder="Ask anything that needs deep analysis...&#10;&#10;e.g. Should we price Aethyro at $500 or $800/mo for CPA firms?&#10;e.g. Gary Massey CPA hasn't replied in 2 days — what's the move?&#10;e.g. What's the biggest risk to us closing our first client this month?"></textarea>
+      </div>
+      <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+        <button class="run-btn" id="boardRunBtn" onclick="runFullBoard()" style="background:linear-gradient(135deg,#3b82f6,#a78bfa)">⚡ Run Full Board</button>
+        <div style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted)">
+          Model:
+          <select id="boardModel" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:.2rem .5rem;font-size:.8rem">
+            <option value="gemma3:12b" selected>gemma3:12b — deep analysis (recommended)</option>
+            <option value="deepseek-r1:7b">deepseek-r1:7b — reasoning, thinks step-by-step</option>
+            <option value="qwen2.5:7b">qwen2.5:7b — fastest</option>
+            <option value="phi-3.5-mini">phi-3.5-mini — instant ~1s, all three agents</option>
+            <option value="avery-sovereign">avery-sovereign — your fine-tuned 7B</option>
+          </select>
+        </div>
+        <span id="boardStatus" style="font-size:.8rem;color:var(--muted)"></span>
+      </div>
+
+      <!-- Results -->
+      <div id="boardResults" class="hidden" style="display:flex;flex-direction:column;gap:.75rem">
+        <!-- ORACLE -->
+        <div style="background:var(--card);border:1px solid rgba(6,182,212,.3);border-radius:12px;overflow:hidden">
+          <div style="padding:.6rem 1rem;background:rgba(6,182,212,.08);display:flex;align-items:center;gap:.6rem;border-bottom:1px solid rgba(6,182,212,.15)">
+            <svg class="avatar avatar-oracle" style="width:22px;height:22px" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="17" fill="rgba(6,182,212,0.15)" stroke="#06b6d4" stroke-width="1.5"/><circle cx="20" cy="20" r="9" fill="none" stroke="#06b6d4" stroke-width="1.5"/><circle cx="20" cy="20" r="3.5" fill="#06b6d4"/><line x1="3" y1="20" x2="11" y2="20" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/><line x1="29" y1="20" x2="37" y2="20" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/><line x1="20" y1="3" x2="20" y2="11" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/><line x1="20" y1="29" x2="20" y2="37" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <span style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--oracle)">ORACLE — Analysis</span>
+            <span id="oracleTime" style="margin-left:auto;font-size:.7rem;color:var(--muted)"></span>
+          </div>
+          <div id="oracleOut" style="padding:1rem;font-size:.88rem;line-height:1.7;white-space:pre-wrap"></div>
+        </div>
+        <!-- FORGE -->
+        <div style="background:var(--card);border:1px solid rgba(239,68,68,.3);border-radius:12px;overflow:hidden">
+          <div style="padding:.6rem 1rem;background:rgba(239,68,68,.08);display:flex;align-items:center;gap:.6rem;border-bottom:1px solid rgba(239,68,68,.15)">
+            <svg class="avatar avatar-forge" style="width:22px;height:22px" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><polygon points="20,2 38,11 38,29 20,38 2,29 2,11" fill="rgba(239,68,68,0.15)" stroke="#ef4444" stroke-width="1.5"/><line x1="20" y1="12" x2="20" y2="28" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/><line x1="12" y1="20" x2="28" y2="20" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/><circle cx="20" cy="20" r="2.5" fill="#ef4444"/></svg>
+            <span style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--forge)">FORGE — Risk Assessment</span>
+            <span id="forgeTime" style="margin-left:auto;font-size:.7rem;color:var(--muted)"></span>
+          </div>
+          <div id="forgeOut" style="padding:1rem;font-size:.88rem;line-height:1.7;white-space:pre-wrap"></div>
+        </div>
+        <!-- NEXUS -->
+        <div style="background:var(--card);border:1px solid rgba(167,139,250,.3);border-radius:12px;overflow:hidden">
+          <div style="padding:.6rem 1rem;background:rgba(167,139,250,.08);display:flex;align-items:center;gap:.6rem;border-bottom:1px solid rgba(167,139,250,.15)">
+            <svg class="avatar avatar-nexus" style="width:22px;height:22px" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="17" fill="rgba(167,139,250,0.12)" stroke="#a78bfa" stroke-width="1.5"/><circle cx="20" cy="20" r="4.5" fill="#a78bfa"/><circle cx="20" cy="6" r="2" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/><circle cx="20" cy="34" r="2" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/><circle cx="6" cy="20" r="2" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/><circle cx="34" cy="20" r="2" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/><line x1="20" y1="15.5" x2="20" y2="8" stroke="#a78bfa" stroke-width="1.2"/><line x1="20" y1="24.5" x2="20" y2="32" stroke="#a78bfa" stroke-width="1.2"/><line x1="15.5" y1="20" x2="8" y2="20" stroke="#a78bfa" stroke-width="1.2"/><line x1="24.5" y1="20" x2="32" y2="20" stroke="#a78bfa" stroke-width="1.2"/></svg>
+            <span style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--nexus)">NEXUS — Action Plan</span>
+            <span id="nexusTime" style="margin-left:auto;font-size:.7rem;color:var(--muted)"></span>
+          </div>
+          <div id="nexusOut" style="padding:1rem;font-size:.88rem;line-height:1.7;white-space:pre-wrap"></div>
+        </div>
+        <div id="boardTotal" style="font-size:.75rem;color:var(--muted);text-align:right"></div>
+      </div>
+    </div>
+
+    <!-- ── CODEX RUN TAB ── -->
+    <div id="tab-codex" class="codex-panel hidden">
+      <div>
+        <div style="font-size:.82rem;color:var(--muted);margin-bottom:.5rem">Give CODEX a real task — it will read files, write code, and run commands until done.</div>
+        <textarea class="codex-task-input" id="codexTask" placeholder="e.g. Read pipeline_backend.py and tell me how many endpoints it has and what they do&#10;e.g. Check if all GH05T3 services are running and report their status&#10;e.g. List all Python files in the agent-economy/services/phases folder and summarize each phase"></textarea>
+      </div>
+      <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+        <button class="run-btn" id="codexRunBtn" onclick="runCodex()">▶ Run CODEX</button>
+        <div style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted)">
+          Max turns:
+          <select id="maxTurns" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:.2rem .4rem;font-size:.8rem">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="15">15</option>
+          </select>
+        </div>
+        <span id="codexStatus" style="font-size:.8rem;color:var(--muted)"></span>
+      </div>
+      <div id="codexToolLog" class="tool-log hidden">
+        <div class="tool-log-title">Tool execution log</div>
+        <div id="toolLogEntries"></div>
+      </div>
+      <div id="codexResponse" class="codex-response hidden"></div>
+    </div>
+
+    <!-- ── VISION TAB ── -->
+    <div id="tab-vision" class="vision-panel hidden">
+      <div style="font-size:.82rem;color:var(--muted)">Paste or drag a screenshot/chart — any agent will analyze it.</div>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
+        ondragover="event.preventDefault();this.classList.add('drag')"
+        ondragleave="this.classList.remove('drag')"
+        ondrop="handleDrop(event)">
+        <div id="dropText">📸 Click to upload or drag & drop an image<br><span style="font-size:.78rem;opacity:.6">PNG, JPG, WebP supported</span></div>
+        <img id="previewImg" style="display:none" alt="preview"/>
+      </div>
+      <input type="file" id="fileInput" accept="image/*" style="display:none" onchange="handleFileInput(event)"/>
+      <textarea class="vision-query" id="visionQuery" placeholder="What should the agent analyze in this image?">Describe what you see and identify any key insights, risks, or data points.</textarea>
+      <div class="vision-agent-row">
+        <span style="font-size:.78rem;color:var(--muted)">Analyze as:</span>
+        <button class="v-agent-btn active" data-vagent="" onclick="selectVAgent(this, '')">Auto</button>
+        <button class="v-agent-btn" data-vagent="oracle" onclick="selectVAgent(this, 'oracle')">ORACLE</button>
+        <button class="v-agent-btn" data-vagent="forge" onclick="selectVAgent(this, 'forge')">FORGE</button>
+        <button class="v-agent-btn" data-vagent="nexus" onclick="selectVAgent(this, 'nexus')">NEXUS</button>
+      </div>
+      <div style="display:flex;gap:.75rem;align-items:center">
+        <button class="run-btn" id="visionRunBtn" onclick="runVision()">🔍 Analyze Image</button>
+        <span id="visionStatus" style="font-size:.8rem;color:var(--muted)"></span>
+      </div>
+      <div id="visionResult" class="vision-result hidden"></div>
+    </div>
+
+    <!-- ── SKILLS TAB ── -->
+    <div id="tab-skills" class="skills-panel hidden">
+      <div style="display:flex;align-items:center;gap:.75rem">
+        <div style="font-size:.88rem;color:var(--muted)">Accumulated knowledge across all agents. Grows automatically after each task.</div>
+        <button class="refresh-btn" onclick="loadSkills()">↻ Refresh</button>
+      </div>
+      <div id="skillsContent">Loading skills...</div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<script>
+const API = 'http://localhost:8099';
+let autoRoute = true;
+let selectedAgent = null;
+let useTools = false;
+let visionAgent = '';
+let currentImageB64 = null;
+let isLoading = false;
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+
+async function init() {
+  await checkHealth();
+  setInterval(checkHealth, 15000);
+}
+
+async function checkHealth() {
+  try {
+    const r = await fetch(`${API}/health`, {signal: AbortSignal.timeout(4000)});
+    const d = await r.json();
+    const ok = d.status === 'ok';
+    document.getElementById('statusDot').className = 'status-dot ' + (ok ? 'ok' : 'err');
+    document.getElementById('statusText').textContent = ok
+      ? `Ollama OK · Vision ${d.vision_ready ? '✓' : '✗'} · NPU ${d.intent_ready ? '✓' : '✗'} · Phi ${d.phi_ready ? '✓' : '✗'}`
+      : 'Pipeline degraded';
+
+    // Update skill badges
+    if (d.skills) {
+      let total = 0;
+      for (const [agent, count] of Object.entries(d.skills)) {
+        const badge = document.getElementById('badge-' + agent);
+        if (badge) badge.textContent = count;
+        total += count;
+      }
+      document.getElementById('totalSkills').textContent = total + ' skill' + (total !== 1 ? 's' : '');
+    }
+  } catch {
+    document.getElementById('statusDot').className = 'status-dot err';
+    document.getElementById('statusText').textContent = 'Pipeline offline';
+  }
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    const name = t.dataset.tab;
+    ['chat','board','codex','vision','skills'].forEach(tab => {
+      const el = document.getElementById('tab-' + tab);
+      if (el) el.classList.toggle('hidden', tab !== name);
+    });
+    if (name === 'skills') loadSkills();
+  });
+});
+
+// ── AGENT SELECTION ───────────────────────────────────────────────────────
+
+function selectAgent(agent) {
+  selectedAgent = (selectedAgent === agent) ? null : agent;
+  document.querySelectorAll('.agent-btn[data-agent]').forEach(b => {
+    b.classList.toggle('active', b.dataset.agent === selectedAgent);
+  });
+  if (selectedAgent) {
+    autoRoute = false;
+    document.getElementById('autoRouteBtn').classList.remove('active');
+    document.getElementById('autoRouteBtn').textContent = '⚡ Auto-Route OFF';
+  }
+}
+
+function toggleAutoRoute() {
+  autoRoute = !autoRoute;
+  const btn = document.getElementById('autoRouteBtn');
+  btn.classList.toggle('active', autoRoute);
+  btn.textContent = autoRoute ? '⚡ Auto-Route ON' : '⚡ Auto-Route OFF';
+  if (autoRoute) {
+    selectedAgent = null;
+    document.querySelectorAll('.agent-btn[data-agent]').forEach(b => b.classList.remove('active'));
+  }
+}
+
+function toggleTools() {
+  useTools = !useTools;
+  const btn = document.getElementById('toolsToggle');
+  btn.classList.toggle('active', useTools);
+  btn.title = useTools ? 'Tool access ON (file/http reads for ORACLE & FORGE)' : 'Enable file/HTTP tool access';
+}
+
+// ── CHAT ──────────────────────────────────────────────────────────────────
+
+const history = [];
+
+function appendMsg(role, content, agent, meta) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + (role === 'user' ? 'user' : 'assistant');
+
+  if (role === 'assistant' && agent) {
+    const tag = document.createElement('div');
+    tag.className = 'agent-tag tag-' + (agent === 'auto' ? 'auto' : agent);
+    tag.style.cssText = 'display:flex;align-items:center;gap:.4rem';
+    const svgs = {
+      oracle: `<svg class="msg-avatar avatar-oracle" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="17" fill="rgba(6,182,212,0.15)" stroke="#06b6d4" stroke-width="1.5"/><circle cx="20" cy="20" r="9" fill="none" stroke="#06b6d4" stroke-width="1.5"/><circle cx="20" cy="20" r="3.5" fill="#06b6d4"/><line x1="3" y1="20" x2="11" y2="20" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/><line x1="29" y1="20" x2="37" y2="20" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/><line x1="20" y1="3" x2="20" y2="11" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/><line x1="20" y1="29" x2="20" y2="37" stroke="#06b6d4" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+      forge:  `<svg class="msg-avatar avatar-forge"  viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><polygon points="20,2 38,11 38,29 20,38 2,29 2,11" fill="rgba(239,68,68,0.15)" stroke="#ef4444" stroke-width="1.5"/><line x1="20" y1="12" x2="20" y2="28" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/><line x1="12" y1="20" x2="28" y2="20" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round"/><circle cx="20" cy="20" r="2.5" fill="#ef4444"/></svg>`,
+      codex:  `<svg class="msg-avatar avatar-codex"  viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="2" width="36" height="36" rx="7" fill="rgba(34,197,94,0.12)" stroke="#22c55e" stroke-width="1.5"/><polyline points="10,19 5,24 10,29" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><polyline points="30,19 35,24 30,29" fill="none" stroke="#22c55e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="16" y1="30" x2="24" y2="18" stroke="#22c55e" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+      nexus:  `<svg class="msg-avatar avatar-nexus"  viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg"><circle cx="20" cy="20" r="17" fill="rgba(167,139,250,0.12)" stroke="#a78bfa" stroke-width="1.5"/><circle cx="20" cy="20" r="4.5" fill="#a78bfa"/><circle cx="20" cy="6" r="2" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/><circle cx="20" cy="34" r="2" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/><circle cx="6" cy="20" r="2" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/><circle cx="34" cy="20" r="2" fill="rgba(167,139,250,0.7)" stroke="#a78bfa" stroke-width="1"/><line x1="20" y1="15.5" x2="20" y2="8" stroke="#a78bfa" stroke-width="1.2"/><line x1="20" y1="24.5" x2="20" y2="32" stroke="#a78bfa" stroke-width="1.2"/><line x1="15.5" y1="20" x2="8" y2="20" stroke="#a78bfa" stroke-width="1.2"/><line x1="24.5" y1="20" x2="32" y2="20" stroke="#a78bfa" stroke-width="1.2"/></svg>`,
+    };
+    tag.innerHTML = (svgs[agent] || '') + (agent === 'auto' ? '⚡ AUTO' : agent.toUpperCase());
+    el.appendChild(tag);
+  }
+
+  // Render markdown-ish: code blocks
+  const formatted = content
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+
+  const body = document.createElement('div');
+  body.innerHTML = formatted;
+  el.appendChild(body);
+
+  if (meta) {
+    const m = document.createElement('div');
+    m.className = 'msg-meta';
+    m.textContent = meta;
+    el.appendChild(m);
+  }
+
+  document.getElementById('messages').appendChild(el);
+  scrollBottom();
+  return el;
+}
+
+function appendSystem(text) {
+  const el = document.createElement('div');
+  el.className = 'msg system-msg';
+  el.textContent = text;
+  document.getElementById('messages').appendChild(el);
+  scrollBottom();
+}
+
+function scrollBottom() {
+  const m = document.getElementById('messages');
+  m.scrollTop = m.scrollHeight;
+}
+
+function quickPrompt(text) {
+  document.getElementById('chatInput').value = text;
+  // Switch to chat tab
+  document.querySelector('.tab[data-tab="chat"]').click();
+  sendChat();
+}
+
+async function sendChat() {
+  if (isLoading) return;
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  isLoading = true;
+  input.value = '';
+  input.style.height = '44px';
+  document.getElementById('sendBtn').disabled = true;
+
+  appendMsg('user', text);
+  history.push({role: 'user', content: text});
+
+  // Typing indicator
+  const typingEl = document.createElement('div');
+  typingEl.className = 'msg assistant';
+  typingEl.innerHTML = '<span class="spinner"></span><span class="typing">Thinking...</span>';
+  document.getElementById('messages').appendChild(typingEl);
+  scrollBottom();
+
+  try {
+    const body = {
+      model: 'qwen2.5:7b',
+      messages: history.slice(-12),
+      max_tokens: 1000,
+      auto_route: autoRoute,
+      use_tools: useTools,
+    };
+
+    if (!autoRoute && selectedAgent) {
+      const prompts = {
+        oracle: "You are ORACLE — precision business intelligence analyst. Lead with the single most important insight. No filler.",
+        forge: "You are FORGE — risk intelligence specialist. Uncover hidden risks Oracle missed. Quantify each. No false reassurance.",
+        codex: "You are CODEX — senior technical architect. Production-ready code only. Include error handling.",
+        nexus: "You are NEXUS — strategic synthesis engine. 48-hour actions first. WHO does WHAT by WHEN.",
+      };
+      body.system = prompts[selectedAgent] || '';
+      body.auto_route = false;
+    }
+
+    const r = await fetch(`${API}/chat`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+
+    typingEl.remove();
+
+    if (d.error) {
+      appendSystem('Error: ' + d.error);
+    } else {
+      const content = d.message?.content || '';
+      const agent = d.routed_to || (selectedAgent ? selectedAgent : null);
+      const meta = [
+        agent ? '' : '',
+        d.tok_per_sec ? `${d.tok_per_sec} tok/s` : '',
+        d.elapsed_seconds ? `${d.elapsed_seconds}s` : '',
+        d.tool_log?.length ? `${d.tool_log.length} tool calls` : '',
+        d.turns_used > 1 ? `${d.turns_used} turns` : '',
+      ].filter(Boolean).join(' · ');
+
+      appendMsg('assistant', content, agent, meta);
+      history.push({role: 'assistant', content});
+
+      // Check if new skills were created (refresh badge after short delay)
+      setTimeout(checkHealth, 3000);
+    }
+  } catch (e) {
+    typingEl.remove();
+    appendSystem('Connection error: ' + e.message);
+  }
+
+  isLoading = false;
+  document.getElementById('sendBtn').disabled = false;
+  input.focus();
+}
+
+function clearChat() {
+  history.length = 0;
+  const m = document.getElementById('messages');
+  m.innerHTML = '<div class="msg system-msg">Chat cleared</div>';
+}
+
+// ── VOICE INPUT (Whisper via npu_embedding_service :8111) ─────────────────
+
+let _mediaRecorder = null;
+let _audioChunks = [];
+let _recording = false;
+
+async function toggleVoice() {
+  if (_recording) stopVoice(); else startVoice();
+}
+
+async function startVoice() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: false});
+    _audioChunks = [];
+    _mediaRecorder = new MediaRecorder(stream);
+    _mediaRecorder.ondataavailable = e => { if (e.data.size > 0) _audioChunks.push(e.data); };
+    _mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(_audioChunks, {type: _mediaRecorder.mimeType || 'audio/webm'});
+      transcribeBlob(blob);
+    };
+    _mediaRecorder.start(100);
+    _recording = true;
+    const btn = document.getElementById('micBtn');
+    btn.classList.add('recording');
+    btn.textContent = '⏺';
+    btn.title = 'Recording — click to stop';
+  } catch(e) {
+    appendSystem('Mic error: ' + e.message + ' (check browser microphone permissions)');
+  }
+}
+
+function stopVoice() {
+  if (_mediaRecorder && _mediaRecorder.state !== 'inactive') _mediaRecorder.stop();
+  _recording = false;
+  const btn = document.getElementById('micBtn');
+  btn.classList.remove('recording');
+  btn.textContent = '⏳';
+  btn.title = 'Transcribing...';
+}
+
+async function transcribeBlob(blob) {
+  const btn = document.getElementById('micBtn');
+  try {
+    const ext = blob.type.includes('ogg') ? '.ogg' : '.webm';
+    const fd = new FormData();
+    fd.append('file', blob, 'audio' + ext);
+    const r = await fetch('http://127.0.0.1:8111/transcribe', {method: 'POST', body: fd});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const text = (d.text || '').trim();
+    if (text) {
+      const inp = document.getElementById('chatInput');
+      inp.value = text;
+      autoResize(inp);
+      inp.focus();
+      appendSystem(`Voice: "${text.slice(0,80)}${text.length > 80 ? '...' : ''}" (${Math.round(d.latency_ms)}ms)`);
+    } else {
+      appendSystem('Voice: no speech detected — try again');
+    }
+  } catch(e) {
+    appendSystem('Transcription failed: ' + e.message + ' — is npu_embedding_service running on :8111?');
+  }
+  btn.textContent = '🎤';
+  btn.title = 'Voice input — Whisper transcription';
+}
+
+// ── PHI-3.5-MINI QUICK CHAT (phi_service :8112 via pipeline_backend /phi/chat) ──
+
+async function sendPhiQuick() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim() ||
+    'Give me a concise executive summary: what is my single most important business action right now?';
+  if (isLoading) return;
+
+  document.querySelector('.tab[data-tab="chat"]').click();
+  isLoading = true;
+  input.value = '';
+  input.style.height = '44px';
+  document.getElementById('sendBtn').disabled = true;
+
+  appendMsg('user', text);
+  history.push({role: 'user', content: text});
+
+  const typingEl = document.createElement('div');
+  typingEl.className = 'msg assistant';
+  typingEl.innerHTML = '<span class="spinner"></span><span class="typing">Phi thinking (instant)...</span>';
+  document.getElementById('messages').appendChild(typingEl);
+  scrollBottom();
+
+  try {
+    const r = await fetch(`${API}/phi/chat`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: text, max_tokens: 120}),
+    });
+    const d = await r.json();
+    typingEl.remove();
+    if (d.error) {
+      appendSystem('Phi error: ' + d.error);
+    } else {
+      const content = d.response || '';
+      const meta = [
+        d.tok_per_sec ? `${d.tok_per_sec} tok/s` : '',
+        d.latency_ms ? `${Math.round(d.latency_ms)}ms` : '',
+        'phi-3.5-mini',
+      ].filter(Boolean).join(' · ');
+      appendMsg('assistant', content, null, meta);
+      history.push({role: 'assistant', content});
+    }
+  } catch(e) {
+    typingEl.remove();
+    appendSystem('Phi error: ' + e.message + ' — start phi_service.py on :8112');
+  }
+
+  isLoading = false;
+  document.getElementById('sendBtn').disabled = false;
+}
+
+function autoResize(el) {
+  el.style.height = '44px';
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+}
+
+// ── FULL BOARD ────────────────────────────────────────────────────────────
+
+async function runFullBoard() {
+  const query = document.getElementById('boardQuery').value.trim();
+  if (!query) return;
+
+  const btn      = document.getElementById('boardRunBtn');
+  const statusEl = document.getElementById('boardStatus');
+  const resultsEl = document.getElementById('boardResults');
+  const model    = document.getElementById('boardModel').value;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Running board...';
+  resultsEl.classList.add('hidden');
+  statusEl.textContent = 'ORACLE thinking...';
+
+  // Pre-clear outputs
+  ['oracle','forge','nexus'].forEach(a => {
+    document.getElementById(a + 'Out').textContent = '';
+    document.getElementById(a + 'Time').textContent = '';
+  });
+
+  try {
+    const r = await fetch(`${API}/pipeline/full`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query, model, max_tokens: 800}),
+    });
+    const d = await r.json();
+
+    if (d.error) {
+      statusEl.textContent = 'Error: ' + d.error;
+    } else {
+      resultsEl.classList.remove('hidden');
+      resultsEl.style.display = 'flex';
+
+      if (d.oracle) {
+        document.getElementById('oracleOut').textContent = d.oracle.content || '';
+        document.getElementById('oracleTime').textContent = `${d.oracle.elapsed_seconds}s · ${d.oracle.tok_per_sec || ''}tok/s`;
+      }
+      if (d.forge) {
+        document.getElementById('forgeOut').textContent = d.forge.content || '';
+        document.getElementById('forgeTime').textContent = `${d.forge.elapsed_seconds}s · ${d.forge.tok_per_sec || ''}tok/s`;
+      }
+      if (d.nexus) {
+        document.getElementById('nexusOut').textContent = d.nexus.content || '';
+        document.getElementById('nexusTime').textContent = `${d.nexus.elapsed_seconds}s · ${d.nexus.tok_per_sec || ''}tok/s`;
+      }
+
+      document.getElementById('boardTotal').textContent =
+        `Total: ${d.total_elapsed_seconds}s · Model: ${d.model}`;
+      statusEl.textContent = `Done · ${d.total_elapsed_seconds}s total`;
+      setTimeout(checkHealth, 5000);
+    }
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '⚡ Run Full Board';
+}
+
+
+// ── CODEX RUN ─────────────────────────────────────────────────────────────
+
+async function runCodex() {
+  const task = document.getElementById('codexTask').value.trim();
+  if (!task) return;
+
+  const btn = document.getElementById('codexRunBtn');
+  const statusEl = document.getElementById('codexStatus');
+  const logEl = document.getElementById('codexToolLog');
+  const entriesEl = document.getElementById('toolLogEntries');
+  const responseEl = document.getElementById('codexResponse');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Running...';
+  statusEl.textContent = 'CODEX is working...';
+  logEl.classList.add('hidden');
+  responseEl.classList.add('hidden');
+  entriesEl.innerHTML = '';
+
+  try {
+    const r = await fetch(`${API}/codex/run`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        task,
+        model: 'qwen2.5:7b',
+        max_turns: parseInt(document.getElementById('maxTurns').value),
+        max_tokens: 1500,
+      }),
+    });
+    const d = await r.json();
+
+    if (d.error) {
+      statusEl.textContent = 'Error: ' + d.error;
+    } else {
+      // Show tool log
+      if (d.tool_log?.length) {
+        logEl.classList.remove('hidden');
+        d.tool_log.forEach(t => {
+          const entry = document.createElement('div');
+          entry.className = 'tool-entry';
+          const paramsStr = Object.entries(t.params || {}).map(([k,v]) => `${k}=${v}`).join(', ');
+          entry.innerHTML = `<span class="tool-name">${t.tool}</span><span class="tool-result">${paramsStr} → ${t.result}</span>`;
+          entriesEl.appendChild(entry);
+        });
+      }
+
+      // Show response
+      responseEl.classList.remove('hidden');
+      responseEl.textContent = d.message?.content || '(no output)';
+
+      const stats = [
+        `${d.turns_used} turn${d.turns_used !== 1 ? 's' : ''}`,
+        d.elapsed_seconds ? `${d.elapsed_seconds}s` : '',
+        d.tok_per_sec ? `${d.tok_per_sec} tok/s` : '',
+        d.warning ? `⚠ ${d.warning}` : '',
+      ].filter(Boolean).join(' · ');
+
+      const statsEl = document.createElement('div');
+      statsEl.className = 'codex-stats';
+      statsEl.textContent = stats;
+      responseEl.appendChild(statsEl);
+
+      statusEl.textContent = `Done · ${stats}`;
+      setTimeout(checkHealth, 3000);
+    }
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Run CODEX';
+}
+
+// ── VISION ────────────────────────────────────────────────────────────────
+
+function selectVAgent(btn, agent) {
+  document.querySelectorAll('.v-agent-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  visionAgent = agent;
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) loadImageFile(file);
+}
+
+function handleFileInput(e) {
+  const file = e.target.files[0];
+  if (file) loadImageFile(file);
+}
+
+function loadImageFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const dataUrl = ev.target.result;
+    // Strip prefix to get pure base64
+    currentImageB64 = dataUrl.split(',')[1];
+    const img = document.getElementById('previewImg');
+    img.src = dataUrl;
+    img.style.display = 'block';
+    document.getElementById('dropText').style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function runVision() {
+  if (!currentImageB64) {
+    alert('Please upload an image first.');
+    return;
+  }
+  const query = document.getElementById('visionQuery').value.trim() || 'Describe this image.';
+  const btn = document.getElementById('visionRunBtn');
+  const statusEl = document.getElementById('visionStatus');
+  const resultEl = document.getElementById('visionResult');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Analyzing...';
+  statusEl.textContent = 'Sending to moondream...';
+  resultEl.classList.add('hidden');
+
+  try {
+    const body = {image_b64: currentImageB64, query, model: 'moondream'};
+    if (visionAgent) body.agent = visionAgent;
+
+    const r = await fetch(`${API}/vision`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+
+    resultEl.classList.remove('hidden');
+    if (d.error) {
+      resultEl.textContent = 'Error: ' + d.error;
+    } else {
+      resultEl.textContent = d.message?.content || '(no response)';
+      statusEl.textContent = `Done · ${d.elapsed_seconds}s · ${d.model}`;
+    }
+  } catch (e) {
+    resultEl.classList.remove('hidden');
+    resultEl.textContent = 'Error: ' + e.message;
+    statusEl.textContent = 'Failed';
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔍 Analyze Image';
+}
+
+// ── SKILLS ────────────────────────────────────────────────────────────────
+
+const agentColors = {oracle:'var(--oracle)', forge:'var(--forge)', codex:'var(--codex)', nexus:'var(--nexus)'};
+
+async function loadSkills() {
+  const el = document.getElementById('skillsContent');
+  el.textContent = 'Loading...';
+  try {
+    const r = await fetch(`${API}/skills`);
+    const d = await r.json();
+    el.innerHTML = '';
+
+    for (const [agent, skills] of Object.entries(d.skills || {})) {
+      const section = document.createElement('div');
+      section.className = 'skill-agent-section';
+
+      const header = document.createElement('div');
+      header.className = 'skill-agent-header';
+      header.innerHTML = `
+        <span class="dot dot-${agent}"></span>
+        <span class="skill-agent-name" style="color:${agentColors[agent]}">${agent.toUpperCase()}</span>
+        <span class="skill-count-badge">${skills.length} skill${skills.length !== 1 ? 's' : ''}</span>`;
+      section.appendChild(header);
+
+      if (skills.length === 0) {
+        const empty = document.createElement('div');
+        empty.style = 'padding:.65rem 1rem;font-size:.8rem;color:var(--muted)';
+        empty.textContent = 'No skills yet — they accumulate automatically after tasks.';
+        section.appendChild(empty);
+      } else {
+        skills.forEach(skill => {
+          const item = document.createElement('div');
+          item.className = 'skill-item';
+
+          const detail = document.createElement('div');
+          detail.className = 'skill-detail';
+
+          item.innerHTML = `
+            <div class="skill-name">${skill.name.replace(/_/g, ' ')}</div>
+            <div class="skill-desc">${skill.description}</div>`;
+          item.appendChild(detail);
+
+          item.onclick = async () => {
+            const isOpen = detail.classList.contains('open');
+            // Close all others
+            document.querySelectorAll('.skill-detail.open').forEach(d => d.classList.remove('open'));
+            if (!isOpen) {
+              detail.textContent = 'Loading...';
+              detail.classList.add('open');
+              try {
+                const r = await fetch(`${API}/skills/${agent}`);
+                // For full content we'd need a separate endpoint — show desc for now
+                detail.textContent = `Loading skill content...\n\nName: ${skill.name}\nDescription: ${skill.description}`;
+                // Fetch via codex info
+              } catch { detail.textContent = skill.description; }
+            }
+          };
+
+          section.appendChild(item);
+        });
+      }
+      el.appendChild(section);
+    }
+  } catch (e) {
+    el.textContent = 'Error loading skills: ' + e.message;
+  }
+}
+
+// ── KEYBOARD PASTE (vision) ───────────────────────────────────────────────
+
+document.addEventListener('paste', e => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (file) {
+        // Auto-switch to vision tab
+        document.querySelector('.tab[data-tab="vision"]').click();
+        loadImageFile(file);
+      }
+    }
+  }
+});
+
+// ── START ─────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

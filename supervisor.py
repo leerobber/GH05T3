@@ -55,6 +55,14 @@ ECO_PY = _find_py(
 SYS_PY = _find_py(
     r"C:\Users\leer4\AppData\Local\Programs\Python\Python312\python.exe",
 )
+# RyzenAI conda env — has onnxruntime_genai, sentence_transformers, BGE ONNX
+NPU_PY = _find_py(
+    r"C:\Users\leer4\.conda\envs\ryzen-ai-1.7.0\python.exe",
+)
+# Phi env — onnxruntime-genai-cuda + nvidia-*-cu12 for Phi-3.5-mini on RTX 5050
+PHI_PY = _find_py(
+    r"C:\Users\leer4\phi_dml_env\Scripts\python.exe",
+)
 
 STATUS_PORT = 8090
 
@@ -76,7 +84,8 @@ log.info("Economy Python: %s", ECO_PY)
 SERVICES = [
     {
         "name":    "economy-api",
-        "cmd":     [str(ECO_PY), "start.py"],
+        "cmd":     [str(SYS_PY), "-m", "uvicorn", "main:app",
+                    "--host", "0.0.0.0", "--port", "8081", "--log-level", "info"],
         "cwd":     str(ECO_DIR),
         "port":    8081,
         "health":  "http://localhost:8081/",           # /health is slow; root / is fast
@@ -84,28 +93,21 @@ SERVICES = [
         "restart": True,
     },
     {
-        "name":    "auto-runner",
-        "cmd":     [str(ECO_PY), "auto_runner.py", "--batch", "10",
-                    "--interval", "0.5", "--export-every", "50"],
-        "cwd":     str(ECO_DIR),
-        "port":    None,
-        "health":  None,
-        "timeout": 3,
-        "restart": False,   # auto_runner.py not yet created — disable until ready
-    },
-    {
         "name":    "mongo",
         "cmd":     ["mongod", "--dbpath", str(ROOT / "mongo-data"),
                     "--port", "27017", "--bind_ip", "127.0.0.1"],
         "cwd":     str(ROOT),
         "port":    27017,
-        "health":  None,           # TCP check
-        "timeout": 10,
+        "health":  None,           # TCP check on 27017
+        "timeout": 20,
         "restart": True,
+        # kill_port=False: if Windows MongoDB service is running on 27017, skip start.
+        # If port is free, supervisor starts its own mongod and manages it.
+        "kill_port": False,
     },
     {
         "name":    "backend",
-        "cmd":     [str(GH_PY), "-m", "uvicorn", "server:app",
+        "cmd":     [str(SYS_PY), "-m", "uvicorn", "server:app",
                     "--host", "0.0.0.0", "--port", "8001"],
         "cwd":     str(ROOT / "backend"),
         "port":    8001,
@@ -115,7 +117,7 @@ SERVICES = [
     },
     {
         "name":    "gateway",
-        "cmd":     [str(GH_PY), "-m", "uvicorn", "gateway_v3:app",
+        "cmd":     [str(SYS_PY), "-m", "uvicorn", "gateway_v3:app",
                     "--host", "0.0.0.0", "--port", "8002"],
         "cwd":     str(ROOT / "backend"),
         "port":    8002,
@@ -125,7 +127,7 @@ SERVICES = [
     },
     {
         "name":    "frontend",
-        "cmd":     [str(GH_PY), "-m", "http.server", "3210",
+        "cmd":     [str(SYS_PY), "-m", "http.server", "3210",
                     "--directory", str(ROOT / "frontend" / "build")],
         "cwd":     str(ROOT),
         "port":    3210,
@@ -136,7 +138,7 @@ SERVICES = [
     # ── GH05T3 learning pipeline ───────────────────────────────────────────────
     {
         "name":    "continuous-learner",
-        "cmd":     [str(GH_PY), "continuous_learner.py"],
+        "cmd":     [str(SYS_PY), "continuous_learner.py"],
         "cwd":     str(ROOT),
         "port":    None,
         "health":  None,        # uses heartbeat file check below
@@ -147,7 +149,7 @@ SERVICES = [
     },
     {
         "name":    "cmd-listener",
-        "cmd":     [str(GH_PY), "cmd_listener.py"],
+        "cmd":     [str(SYS_PY), "cmd_listener.py"],
         "cwd":     str(ROOT),
         "port":    None,
         "health":  None,
@@ -156,7 +158,7 @@ SERVICES = [
     },
     {
         "name":    "amplifier",
-        "cmd":     [str(GH_PY), "amplifier.py", "--variants", "5"],
+        "cmd":     [str(SYS_PY), "amplifier.py", "--variants", "5"],
         "cwd":     str(ROOT),
         "port":    None,
         "health":  None,
@@ -184,6 +186,16 @@ SERVICES = [
         "timeout": 15,
         "restart": True,
     },
+    # ── Phi-3.5-mini GPU inference service (phi_dml_env, RTX 5050 CUDA EP) ──────
+    {
+        "name":    "phi",
+        "cmd":     [str(PHI_PY), "phi_service.py"],
+        "cwd":     str(ROOT / "sovereignnation"),
+        "port":    8112,
+        "health":  "http://127.0.0.1:8112/health",  # 200 once uvicorn is up; model loads ~5s after
+        "timeout": 60,
+        "restart": True,
+    },
     # ── Agent pipeline CORS proxy (48hr_poc_agent_pipeline.html -> Ollama) ──────
     {
         "name":    "pipeline-backend",
@@ -193,6 +205,17 @@ SERVICES = [
         "port":    8099,
         "health":  "http://localhost:8099/health",
         "timeout": 15,
+        "restart": True,
+    },
+    # ── NPU Embedding Service (RyzenAI ryzen-ai-1.7.0 env, BGE-large ONNX) ──────
+    {
+        "name":    "npu-embed",
+        "cmd":     [str(NPU_PY), "-m", "uvicorn", "npu_embedding_service:app",
+                    "--host", "127.0.0.1", "--port", "8111", "--log-level", "warning"],
+        "cwd":     str(ROOT / "sovereignnation"),
+        "port":    8111,
+        "health":  "http://localhost:8111/health",
+        "timeout": 300,  # BGE-large ONNX + MiniLM cold-load takes 2-3min on first run
         "restart": True,
     },
     # ── Landing page static server ─────────────────────────────────────────────
@@ -334,6 +357,17 @@ def _kill_port(port: int):
         pass
 
 
+def _kill_tree(pid: int):
+    """Kill a process and all its descendants (Windows taskkill /T)."""
+    try:
+        subprocess.run(
+            f"taskkill /F /T /PID {pid}",
+            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+
 def _start_proc(svc: dict) -> subprocess.Popen:
     """Spawn a service, redirect output to its log file."""
     log_file = open(_log_path(svc["name"]), "a", encoding="utf-8", buffering=1)
@@ -357,8 +391,25 @@ def start_service(svc: dict, wait: bool = True):
     name = svc["name"]
     st   = _state[name]
 
-    # clear port if occupied
-    if svc.get("port"):
+    # If kill_port=False and port is already occupied → externally managed, skip start
+    if svc.get("port") and not svc.get("kill_port", True):
+        if _tcp_open(svc["port"]):
+            log.info("%-18s  port %d already occupied (external service) — skipping start",
+                     name, svc["port"])
+            st["status"]       = "running"
+            st["last_healthy"] = time.time()
+            return
+
+    # Run optional pre-start hook (e.g. clear stale lock files)
+    pre_start = svc.get("pre_start")
+    if pre_start:
+        try:
+            pre_start()
+        except Exception as e:
+            log.warning("%-18s  pre_start hook error: %s", name, e)
+
+    # Clear port if occupied — skip for services that flag kill_port=False
+    if svc.get("port") and svc.get("kill_port", True):
         _kill_port(svc["port"])
 
     log.info("Starting %-18s ...", name)
@@ -409,11 +460,11 @@ def stop_all():
         proc = _procs.get(name)
         if proc and proc.poll() is None:
             log.info("  Stopping %s (pid=%d)", name, proc.pid)
+            _kill_tree(proc.pid)   # kill entire subprocess tree, not just direct child
             try:
-                proc.terminate()
-                proc.wait(timeout=5)
+                proc.wait(timeout=3)
             except Exception:
-                proc.kill()
+                pass
         if svc.get("port"):
             _kill_port(svc["port"])
         _state[name]["status"] = "stopped"
@@ -438,6 +489,19 @@ def _monitor():
                 continue
 
             proc = _procs.get(name)
+
+            # Externally managed: kill_port=False + no proc we started.
+            # Skip process-death check; just do a health/port check.
+            if not svc.get("kill_port", True) and proc is None:
+                if _is_healthy(svc):
+                    st["status"]       = "running"
+                    st["last_healthy"] = time.time()
+                else:
+                    age = time.time() - st["last_healthy"]
+                    if age > 30:
+                        st["status"] = "degraded"
+                continue
+
             dead = (proc is None or proc.poll() is not None)
 
             if dead:
@@ -471,10 +535,7 @@ def _monitor():
                                 svc["name"], hb_max * 2)
                     p = _procs.get(svc["name"])
                     if p and p.poll() is None:
-                        try:
-                            p.kill()
-                        except Exception:
-                            pass
+                        _kill_tree(p.pid)  # kill entire subprocess tree
       except Exception as exc:
           log.error("Monitor loop error (will retry): %s", exc, exc_info=True)
 
@@ -532,8 +593,8 @@ def _acquire_lock() -> bool:
             if "supervisor.py" in cmdline:
                 log.warning("Supervisor already running (pid=%d) — exiting.", existing_pid)
                 return False
-        except (ValueError, OSError, ImportError):
-            pass  # stale pidfile or psutil not available — proceed
+        except Exception:
+            pass  # stale pidfile, dead PID, psutil.NoSuchProcess, etc — proceed
     PIDFILE.write_text(str(os.getpid()))
     return True
 
