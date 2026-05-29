@@ -65,8 +65,8 @@ class FallbackLLMClient:
             "llama_cpu": True,
         }
 
-    async def set_bus(self, bus):
-        """Wire in SwarmBus for logging."""
+    def set_bus(self, bus):
+        """Wire in SwarmBus for logging. Sync — pure assignment, no event loop needed."""
         self._bus = bus
 
     async def call(

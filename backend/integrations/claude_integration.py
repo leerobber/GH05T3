@@ -85,7 +85,7 @@ class ClaudeClient:
         self._client = httpx.AsyncClient(timeout=60.0)
         self._bus    = SwarmBus.instance()
         self._fallback = FallbackLLMClient()
-        asyncio.create_task(self._fallback.set_bus(self._bus))
+        self._fallback.set_bus(self._bus)
 
     async def call(self, system: str, user: str, max_tokens: int = 1024,
                    role_label: str = "claude", task_label: str = "") -> tuple[str, ClaudeUsage]:
