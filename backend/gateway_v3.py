@@ -19,6 +19,20 @@ Extends the original with:
 Mount at the same port as the original (8000).
 """
 
+# ── Aethyro license gate — GH05T3 will not start without an active trial/subscription ──
+import os as _aeos
+if _aeos.environ.get("AETHYRO_SKIP_LICENSE") != "1":
+    try:
+        from aethyro_license import gate as _ae_gate
+    except Exception:
+        try:
+            from backend.aethyro_license import gate as _ae_gate
+        except Exception:
+            _ae_gate = None
+    if _ae_gate:
+        _ae_gate()
+# ──────────────────────────────────────────
+
 import asyncio
 import json
 import logging
