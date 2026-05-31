@@ -39,8 +39,16 @@ SUPABASE_ANON = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
                  "ImV4cCI6MjA5MTI2MDE5OH0.BwNVBJCbw9SG-ge7PfmoIW8q_33k-ZQlqpDHa2HrvHI")
 
 CACHE = Path.home() / ".aethyro" / "license.json"
-_PEM = Path(__file__).parent / "license_public_key.pem"
-PUBKEY = _PEM.read_text() if _PEM.exists() else None
+PUBKEY = """-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmi4c+Noeb6ZmRNwzJoyz
+1Ven4NgBs3F5jP+ZgniEWStQvIzrpCYK5XcldZ83r/L4whQYEQ2ZTqBq2CE6tjVG
+GxTHlXDFeQzvzizzGXJRd6jZNtpaOpobTqEPpzDv4C9UblUtYwpiT6yQSdJ1XSIW
+TNIAtyUl3dcVFSbylPfr9LScw+U7k/imyisJHt+s6lkNYX9AMJzFH1cOsL7nz5qJ
+v8BnHyXM1TffN1Je0xgkdjbrHraJYeGyOPYeoVf7iZQKVZPxdsLoGuiaVs3ACKt2
+FGtnglWssjriVIjrLg+ZDwCJ8KCLjHx50Ze6nhKamDEsO7sKcruPW7kY9qivkWAV
+EQIDAQAB
+-----END PUBLIC KEY-----
+"""  # public key — safe to ship; verifies license tokens offline
 
 
 class LicenseError(Exception):
