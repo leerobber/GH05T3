@@ -335,12 +335,37 @@ class GhostRecall:
         Store a memory in Explicit Long-Term layer.
         Returns the memory ID.
         """
-        from memory.iron_dome import dome_write  # avoid circular import
-
         now     = time.time()
         mem_id  = str(uuid.uuid4())
         tags_s  = json.dumps(tags or [])
         invalid = (now + valid_duration_s) if valid_duration_s else None
+
+        # ── IBAC QuorumGate ────────────────────────────────────────────────────
+        # 2-of-3 quorum (ACL + RateLimit sufficient; no pre-computed MAC on
+        # memory writes so SignatureChecker contributes one optional FAIL).
+        # Runs BEFORE the SQLite insert so a denied write leaves nothing behind.
+        try:
+            from sovereignnation.access_control import (
+                WriteClass, WriteContext, memory_gate,
+            )
+            ibac_ctx = WriteContext(
+                agent_id    = agent_id,
+                proposal_id = mem_id,
+                write_class = WriteClass.GHOST_RECALL,
+                target_path = f"memory/{agent_id}",
+                payload_summary = (summary or content)[:120],
+                metadata    = {},  # no MAC for memory writes — SignatureChecker fails,
+                                   # but ACL + RateLimit still satisfy the 2-of-3 quorum
+            )
+            await memory_gate.enforce_async(ibac_ctx)
+        except PermissionError:
+            raise  # propagate — legitimate enforcement block, caller must handle
+        except ImportError:
+            LOG.debug("[GhostRecall] access_control unavailable — skipping IBAC gate")
+        except Exception as exc:
+            LOG.warning("[GhostRecall] IBAC gate error (allowing store): %s", exc)
+
+        from memory.iron_dome import dome_write  # avoid circular import (keep late)
 
         with _conn() as c:
             c.execute(

@@ -64,58 +64,12 @@ _LOG_PATH   = _DATA_DIR / "ibac_events.jsonl"
 RATE_LIMIT_WINDOW_S = 60
 RATE_LIMIT_MAX      = 20  # max IBAC requests per agent per minute
 
-# ── Capability Policy ─────────────────────────────────────────────────────────
-# Defines what each agent ROLE is allowed to do.
-# Actions not listed here are denied by default.
+# ── Capability Policy + Protected Paths ──────────────────────────────────────
+# Canonical source of truth lives in ibac_policy.py (shared with
+# access_control.py's in-process macro checkers).  Import from there so
+# the two enforcement layers can never drift out of sync.
 
-CAPABILITY_POLICY: Dict[str, List[str]] = {
-    "avery-sovereign": [
-        "read_memory", "write_belief", "plan_strategy", "emit_swarm_message"
-    ],
-    "forge-sovereign": [
-        "read_memory", "write_file", "run_python_sandbox", "git_commit", "emit_swarm_message"
-    ],
-    "oracle-sovereign": [
-        "read_memory", "read_file", "semantic_search", "emit_swarm_message"
-    ],
-    "sentinel-sovereign": [
-        "read_memory", "read_file", "audit_code", "block_agent",
-        "emit_swarm_message", "write_iron_dome"
-    ],
-    "nexus-sovereign": [
-        "read_memory", "route_task", "emit_swarm_message", "propagate_update", "git_commit"
-    ],
-    "codex-sovereign": [
-        "read_memory", "read_file", "write_file", "emit_swarm_message"
-    ],
-    "SAGE": [
-        "read_memory", "write_memory", "read_file", "write_file", "git_commit",
-        "emit_swarm_message", "write_iron_dome", "run_python_sandbox", "write_belief"
-    ],
-    "GitOpsMutator": [
-        "write_file", "git_commit", "write_iron_dome"
-    ],
-    "GhostRecall": [
-        "write_memory", "write_iron_dome", "read_file"
-    ],
-    "TriageGovernor": [
-        "write_memory", "write_iron_dome", "read_memory"
-    ],
-    "system": [
-        "read_memory", "read_file", "emit_swarm_message"
-    ],
-}
-
-# Paths that NO agent can modify (except SAGE with explicit override)
-PROTECTED_PATHS = [
-    "kairos/gitops_mutator.py",
-    "kairos/verification.py",
-    "memory/iron_dome.py",
-    ".env",
-    "supervisor.py",
-    "START_ALL.bat",
-    "sovereignnation/ibac_daemon.py",
-]
+from sovereignnation.ibac_policy import CAPABILITY_POLICY, PROTECTED_PATHS  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -287,6 +287,38 @@ class GitOpsMutator:
         signature = _sign(sign_payload)
         result.signature = signature[:16] + "…"  # truncated for display
 
+        # ── Stage 3.5: IBAC QuorumGate ───────────────────────────────────────────
+        # All 3 checkers (RateLimit + Signature + ACL) must pass before any
+        # file is touched.  Runs in parallel thread-pool (~0.2 ms overhead).
+        result.stage = "ibac"
+        try:
+            from sovereignnation.access_control import (
+                WriteClass, WriteContext, gitops_gate,
+            )
+            ibac_ctx = WriteContext(
+                agent_id    = "GitOpsMutator",
+                proposal_id = proposal_id,
+                write_class = WriteClass.GITOPS_MUTATION,
+                target_path = file_path,
+                payload_summary = (description or file_path)[:120],
+                metadata = {
+                    "mac_payload": sign_payload,
+                    "mac":         signature,   # full 64-hex HMAC-SHA256
+                },
+            )
+            await gitops_gate.enforce_async(ibac_ctx)
+        except PermissionError as exc:
+            result.reason = f"IBAC denied: {exc}"
+            self._log_mutation(result)
+            LOG.warning("[GitOps] IBAC QuorumGate blocked mutation %s: %s", mut_id, exc)
+            return result
+        except ImportError:
+            # access_control not installed yet — log and allow through
+            LOG.debug("[GitOps] access_control unavailable — skipping IBAC gate")
+        except Exception as exc:
+            # Unexpected checker error — fail-open: log warning, don't block
+            LOG.warning("[GitOps] IBAC gate error (allowing through): %s", exc)
+
         # ── Stage 4: WRITE ────────────────────────────────────────────────────
         result.stage = "write"
         # Record existence BEFORE writing so rollback can distinguish new-file
