@@ -218,6 +218,17 @@ SERVICES = [
         "timeout": 300,  # BGE-large ONNX + MiniLM cold-load takes 2-3min on first run
         "restart": True,
     },
+    # ── SAGE / KAIROS Self-Improvement Engine ────────────────────────────────────
+    {
+        "name":    "sage-engine",
+        "cmd":     [str(SYS_PY), "-m", "uvicorn", "start_sage:app",
+                    "--host", "0.0.0.0", "--port", "8098", "--log-level", "warning"],
+        "cwd":     str(ROOT),
+        "port":    8098,
+        "health":  "http://localhost:8098/health",
+        "timeout": 20,
+        "restart": True,
+    },
     # ── Landing page static server ─────────────────────────────────────────────
     {
         "name":    "landing-server",
