@@ -11,6 +11,7 @@ import json
 import time
 import hmac
 import hashlib
+import threading
 import urllib.request
 import urllib.error
 from typing import Dict, List, Tuple, Any, Optional
@@ -53,8 +54,9 @@ class IBACEngine:
     Identity-Based Access Control (IBAC) Daemon & Handshake Engine.
     Enforces inter-agent verification using a shared core symmetric seed.
     """
-    def __init__(self, system_secret: str = "AethyroSystemMasterKeySecret2026"):
-        self.secret = system_secret.encode('utf-8')
+    def __init__(self, system_secret: Optional[str] = None):
+        secret_str = system_secret or os.environ.get("AETHYRO_SYSTEM_SECRET", "AethyroSystemMasterKeySecret2026")
+        self.secret = secret_str.encode('utf-8')
 
     def generate_token(self, sender: str, receiver: str, payload_hash: str) -> str:
         """Generates an ephemeral signature for task routing validation."""
@@ -94,54 +96,57 @@ class IronDomeLedger:
     Ensures that adversarial state drift is cryptographically audited.
     """
     def __init__(self):
+        self._lock = threading.Lock()
         self.chain: List[Dict[str, Any]] = []
         # Initialize Genesis Block
         self.append_block("GENESIS", "System Initialization Complete", "0" * 64)
 
     def append_block(self, event_type: str, message: str, previous_hash: Optional[str] = None) -> str:
-        if not previous_hash:
-            previous_hash = self.chain[-1]["current_hash"] if self.chain else "0" * 64
+        with self._lock:
+            if not previous_hash:
+                previous_hash = self.chain[-1]["current_hash"] if self.chain else "0" * 64
 
-        timestamp = time.time()
-        block_data = {
-            "index": len(self.chain),
-            "timestamp": timestamp,
-            "event_type": event_type,
-            "message": message,
-            "previous_hash": previous_hash
-        }
+            timestamp = time.time()
+            block_data = {
+                "index": len(self.chain),
+                "timestamp": timestamp,
+                "event_type": event_type,
+                "message": message,
+                "previous_hash": previous_hash
+            }
 
-        # Calculate Current Block Hash
-        serialized = json.dumps(block_data, sort_keys=True).encode('utf-8')
-        current_hash = hashlib.sha256(serialized).hexdigest()
-        block_data["current_hash"] = current_hash
+            # Calculate Current Block Hash
+            serialized = json.dumps(block_data, sort_keys=True).encode('utf-8')
+            current_hash = hashlib.sha256(serialized).hexdigest()
+            block_data["current_hash"] = current_hash
 
-        self.chain.append(block_data)
-        return current_hash
+            self.chain.append(block_data)
+            return current_hash
 
     def audit_integrity(self) -> bool:
         """Validates the complete chain from the genesis block up to the head."""
-        for i in range(1, len(self.chain)):
-            current = self.chain[i]
-            previous = self.chain[i-1]
+        with self._lock:
+            for i in range(1, len(self.chain)):
+                current = self.chain[i]
+                previous = self.chain[i-1]
 
-            # Recalculate previous check
-            if current["previous_hash"] != previous["current_hash"]:
-                return False
+                # Recalculate previous check
+                if current["previous_hash"] != previous["current_hash"]:
+                    return False
 
-            # Verify self hash
-            verification_dict = {
-                "index": current["index"],
-                "timestamp": current["timestamp"],
-                "event_type": current["event_type"],
-                "message": current["message"],
-                "previous_hash": current["previous_hash"]
-            }
-            serialized = json.dumps(verification_dict, sort_keys=True).encode('utf-8')
-            recalculated_hash = hashlib.sha256(serialized).hexdigest()
-            if current["current_hash"] != recalculated_hash:
-                return False
-        return True
+                # Verify self hash
+                verification_dict = {
+                    "index": current["index"],
+                    "timestamp": current["timestamp"],
+                    "event_type": current["event_type"],
+                    "message": current["message"],
+                    "previous_hash": current["previous_hash"]
+                }
+                serialized = json.dumps(verification_dict, sort_keys=True).encode('utf-8')
+                recalculated_hash = hashlib.sha256(serialized).hexdigest()
+                if current["current_hash"] != recalculated_hash:
+                    return False
+            return True
 
 
 # ==========================================
@@ -222,12 +227,21 @@ class GeminiConnector:
                 with urllib.request.urlopen(req) as response:
                     res_bytes = response.read()
                     res_json = json.loads(res_bytes.decode('utf-8'))
-                    return res_json['candidates'][0]['content']['parts'][0]['text']
+                    candidates = res_json.get('candidates')
+                    if candidates and len(candidates) > 0:
+                        parts = candidates[0].get('content', {}).get('parts')
+                        if parts and len(parts) > 0:
+                            return parts[0].get('text')
+                    print("[GEMINI CONNECTOR] Unexpected API response structure.")
+                    return None
             except urllib.error.URLError:
                 if attempt == len(delays) - 1:
                     print("[GEMINI CONNECTOR] All retry iterations exhausted. Aborting operation.")
                     return None
                 time.sleep(delay)
+            except json.JSONDecodeError:
+                print("[GEMINI CONNECTOR] Failed to decode JSON response.")
+                return None
         return None
 
 
@@ -257,9 +271,8 @@ class SAGEEngine:
         print("[SAGE-GATE 2] Bootstrapping transient Firecracker staging MicroVM...")
         # Simulating isolated syntax and logic execution trace
         try:
-            # We construct a mock safety scope validation
-            exec_scope = {}
-            exec("def run_patch(): pass", exec_scope)
+            # Verify syntax of the proposed code without executing it
+            compile(proposed_code, "<string>", "exec")
             time.sleep(0.05)  # Simulate VM scheduling overhead
             return 0.96
         except Exception as e:
