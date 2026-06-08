@@ -1,0 +1,19 @@
+{
+  "agent_id": "agent_sage_core",
+  "description": "SAGE core reasoning agent — same full access as SAGE, elevated rate limits for batch improvement runs",
+  "allowed_write_classes": ["GITOPS_MUTATION", "GHOST_RECALL", "DOME_APPEND"],
+  "path_rules": [
+    {
+      "prefix": "*",
+      "allow_gitops": true,
+      "allow_dome":   true,
+      "allow_ghost":  true,
+      "comment": "Full access — acts as SAGE core"
+    }
+  ],
+  "rate_limits": {
+    "GITOPS_MUTATION": {"max_per_minute": 20},
+    "GHOST_RECALL":    {"max_per_minute": 200},
+    "DOME_APPEND":     {"max_per_minute": 500}
+  }
+}

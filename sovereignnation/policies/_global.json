@@ -1,0 +1,10 @@
+{
+  "_comment": "Global default policy — merged with every per-agent policy. Per-agent values override these.",
+  "default_allowed_write_classes": [],
+  "default_path_rules": [],
+  "default_rate_limits": {
+    "GITOPS_MUTATION": {"max_per_minute": 10},
+    "GHOST_RECALL":    {"max_per_minute": 100},
+    "DOME_APPEND":     {"max_per_minute": 500}
+  }
+}

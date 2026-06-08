@@ -1,0 +1,18 @@
+{
+  "agent_id": "GitOpsMutator",
+  "description": "GitOps mutation pipeline — file writes and git commits across all project paths",
+  "allowed_write_classes": ["GITOPS_MUTATION", "DOME_APPEND"],
+  "path_rules": [
+    {"prefix": "kairos/",          "allow_gitops": true,  "comment": "KAIROS engine"},
+    {"prefix": "sovereignnation/", "allow_gitops": true,  "comment": "SovereignNation services"},
+    {"prefix": "memory/",          "allow_gitops": true,  "comment": "Memory module"},
+    {"prefix": "backend/",         "allow_gitops": true,  "comment": "Backend services"},
+    {"prefix": "swarm/",           "allow_gitops": true,  "comment": "Swarm agents"},
+    {"prefix": "bridge/",          "allow_gitops": true,  "comment": "Bridge module"},
+    {"prefix": "iron_dome_chain",  "allow_dome":   true,  "comment": "Iron Dome audit record"}
+  ],
+  "rate_limits": {
+    "GITOPS_MUTATION": {"max_per_minute": 10},
+    "DOME_APPEND":     {"max_per_minute": 100}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "agent_id": "SAGE",
+  "description": "SAGE self-improvement engine — full write access with elevated rate limits",
+  "allowed_write_classes": ["GITOPS_MUTATION", "GHOST_RECALL", "DOME_APPEND"],
+  "path_rules": [
+    {
+      "prefix": "*",
+      "allow_gitops": true,
+      "allow_dome": true,
+      "allow_ghost": true,
+      "comment": "Full access — wildcard prefix matches every path"
+    }
+  ],
+  "rate_limits": {
+    "GITOPS_MUTATION": {"max_per_minute": 15},
+    "GHOST_RECALL":    {"max_per_minute": 200},
+    "DOME_APPEND":     {"max_per_minute": 500}
+  }
+}

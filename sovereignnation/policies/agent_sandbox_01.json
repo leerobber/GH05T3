@@ -1,0 +1,15 @@
+{
+  "agent_id": "agent_sandbox_01",
+  "description": "Sandbox agent — heavily restricted, isolated namespace only, no git or dome access",
+  "allowed_write_classes": ["GHOST_RECALL"],
+  "path_rules": [
+    {
+      "prefix": "memory/sandbox/agent_sandbox_01/",
+      "allow_ghost": true,
+      "comment": "Fully isolated sandbox namespace — cannot touch any shared memory"
+    }
+  ],
+  "rate_limits": {
+    "GHOST_RECALL": {"max_per_minute": 10}
+  }
+}

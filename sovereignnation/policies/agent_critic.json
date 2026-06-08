@@ -1,0 +1,21 @@
+{
+  "agent_id": "agent_critic",
+  "description": "Critic / adversarial agent — read-heavy, minimal write access: own memory namespace + audit only",
+  "allowed_write_classes": ["GHOST_RECALL", "DOME_APPEND"],
+  "path_rules": [
+    {
+      "prefix": "memory/critic/",
+      "allow_ghost": true,
+      "comment": "Own memory namespace only — cannot write other agents' memories"
+    },
+    {
+      "prefix": "iron_dome_chain",
+      "allow_dome": true,
+      "comment": "Audit log entries only"
+    }
+  ],
+  "rate_limits": {
+    "GHOST_RECALL": {"max_per_minute": 30},
+    "DOME_APPEND":  {"max_per_minute": 50}
+  }
+}

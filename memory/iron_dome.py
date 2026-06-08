@@ -255,6 +255,42 @@ class IronDome:
             for r in rows
         ]
 
+    def count_writes(
+        self,
+        agent_id: str,
+        since_ts: float,
+        event_type: str | None = None,
+    ) -> int:
+        """
+        Count chain records for a given actor in a recent time window.
+
+        Intended for rate-limit auditing and dashboards.  NOT used as the
+        primary rate-limit enforcer (Iron Dome records the subsystem actor
+        like "GhostRecall", not the calling-agent like "SAGE"; see
+        sovereignnation/checkers/rate_limit_checker.py for the in-memory
+        sliding window approach that avoids this actor-mismatch).
+
+        Args:
+            agent_id:   Actor field to filter on (e.g. "GitOpsMutator")
+            since_ts:   Unix timestamp lower bound (e.g. time.time() - 60)
+            event_type: Optional event_type filter (e.g. "mutation_deployed")
+
+        Returns:
+            Count of matching chain_ledger rows in [since_ts, now]
+        """
+        with self._conn() as c:
+            if event_type:
+                return c.execute(
+                    "SELECT COUNT(*) FROM chain_ledger "
+                    "WHERE actor=? AND created_at>=? AND event_type=?",
+                    (agent_id, since_ts, event_type),
+                ).fetchone()[0]
+            return c.execute(
+                "SELECT COUNT(*) FROM chain_ledger "
+                "WHERE actor=? AND created_at>=?",
+                (agent_id, since_ts),
+            ).fetchone()[0]
+
     def stats(self) -> Dict:
         with self._conn() as c:
             total = c.execute("SELECT COUNT(*) FROM chain_ledger").fetchone()[0]
