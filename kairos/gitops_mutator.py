@@ -218,12 +218,13 @@ class GitOpsMutator:
         patch_content: str,      # full new file content (not a diff)
         description: str = "",
         run_regression: bool = False,
+        capability: Optional[Dict] = None,  # IBAC capability token from CapabilityClient
     ) -> MutationResult:
         """
         Apply a mutation to a file in the local git repo.
 
         Stages:
-          STAGE → LINT → SIGN → COMMIT → VERIFY → DEPLOY → (ROLLBACK if failed)
+          STAGE → LINT → SIGN → IBAC → COMMIT → VERIFY → DEPLOY → (ROLLBACK if failed)
 
         Args:
             proposal_id:     SAGE proposal ID
@@ -231,6 +232,11 @@ class GitOpsMutator:
             patch_content:   Complete new file content
             description:     Human-readable description of the change
             run_regression:  If True, run regression test after deploy
+            capability:      Optional IBAC capability token obtained from
+                             CapabilityClient.request() — if provided, the
+                             SignatureChecker validates it as the primary
+                             authorization credential.  If absent, falls
+                             back to the GitOpsMutator's own HMAC signature.
 
         Returns:
             MutationResult
@@ -292,19 +298,24 @@ class GitOpsMutator:
         # file is touched.  Runs in parallel thread-pool (~0.2 ms overhead).
         result.stage = "ibac"
         try:
-            from sovereignnation.access_control import (
+            from sovereignnation.gates import (
                 WriteClass, WriteContext, gitops_gate,
             )
+            _meta: Dict = {
+                "mac_payload": sign_payload,
+                "mac":         signature,   # full 64-hex HMAC-SHA256
+            }
+            if capability:
+                # Capability token takes priority in SignatureChecker Path 1.
+                # Both are included so the audit trail captures both credentials.
+                _meta["capability"] = capability
             ibac_ctx = WriteContext(
                 agent_id    = "GitOpsMutator",
                 proposal_id = proposal_id,
                 write_class = WriteClass.GITOPS_MUTATION,
                 target_path = file_path,
                 payload_summary = (description or file_path)[:120],
-                metadata = {
-                    "mac_payload": sign_payload,
-                    "mac":         signature,   # full 64-hex HMAC-SHA256
-                },
+                metadata    = _meta,
             )
             await gitops_gate.enforce_async(ibac_ctx)
         except PermissionError as exc:

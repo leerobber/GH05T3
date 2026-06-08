@@ -330,10 +330,17 @@ class GhostRecall:
         importance: float = 0.5,
         summary: str = "",
         valid_duration_s: float | None = None,  # None = permanent
+        capability: Optional[Dict] | None = None,  # IBAC capability token
     ) -> str:
         """
         Store a memory in Explicit Long-Term layer.
         Returns the memory ID.
+
+        Args:
+            capability: Optional IBAC capability token from CapabilityClient.
+                        If provided, SignatureChecker validates it as Path 1
+                        (IBAC token).  If absent, memory_gate uses 2-of-3
+                        quorum — ACL + RateLimit pass without the HMAC.
         """
         now     = time.time()
         mem_id  = str(uuid.uuid4())
@@ -341,21 +348,25 @@ class GhostRecall:
         invalid = (now + valid_duration_s) if valid_duration_s else None
 
         # ── IBAC QuorumGate ────────────────────────────────────────────────────
-        # 2-of-3 quorum (ACL + RateLimit sufficient; no pre-computed MAC on
-        # memory writes so SignatureChecker contributes one optional FAIL).
+        # 2-of-3 quorum minimum.  With a capability token, SignatureChecker
+        # validates it (Path 1) → all 3 can pass.  Without a capability token,
+        # SignatureChecker FAILs, but ACL + RateLimit together satisfy the 2-of-3
+        # threshold — enforcement still holds.
         # Runs BEFORE the SQLite insert so a denied write leaves nothing behind.
         try:
-            from sovereignnation.access_control import (
+            from sovereignnation.gates import (
                 WriteClass, WriteContext, memory_gate,
             )
+            _meta: Dict = {}
+            if capability:
+                _meta["capability"] = capability   # SignatureChecker Path 1
             ibac_ctx = WriteContext(
                 agent_id    = agent_id,
                 proposal_id = mem_id,
                 write_class = WriteClass.GHOST_RECALL,
                 target_path = f"memory/{agent_id}",
                 payload_summary = (summary or content)[:120],
-                metadata    = {},  # no MAC for memory writes — SignatureChecker fails,
-                                   # but ACL + RateLimit still satisfy the 2-of-3 quorum
+                metadata    = _meta,
             )
             await memory_gate.enforce_async(ibac_ctx)
         except PermissionError:
