@@ -364,13 +364,14 @@ class SAGELoop:
         Execute a single SAGE improvement cycle.
         Returns a cycle report dict.
         Always writes a cycle report to sage_history.jsonl, even on crash.
+        _cycle_running is always cleared via try/finally — no permanent deadlock.
         """
-        from memory.iron_dome import dome_write
+        from memory.iron_dome import dome_write_async
 
         self._cycle_number += 1
-        cycle_id = str(uuid.uuid4())[:8]
+        cycle_id  = str(uuid.uuid4())[:8]
         cycle_num = self._cycle_number
-        t0 = time.time()
+        t0        = time.time()
         self._cycle_running = True   # cycle-level guard
 
         if not goal:
@@ -392,191 +393,215 @@ class SAGELoop:
             "common_failures":     [],
             "meta_rewrite":        False,
         }
-
-        # ── Step 1: State Assessment ──────────────────────────────────────────
-        LOG.info("[SAGE] Step 1: State assessment")
-        self._broadcast({"event": "step", "step": 1, "name": "state_assessment", "cycle": cycle_num})
-        state = await _assess_state()
-        report["state"] = {k: str(v)[:100] for k, v in state.items()}
-
-        # ── Step 2: Strategic Mapping (KAIROS quick plan) ─────────────────────
-        LOG.info("[SAGE] Step 2: Strategic mapping (KAIROS)")
-        self._broadcast({"event": "step", "step": 2, "name": "strategic_mapping", "cycle": cycle_num})
-        kairos_plan = await self.kairos.quick_plan(
-            goal,
-            phases=[KAIROSPhase.KICKOFF, KAIROSPhase.ALIGN, KAIROSPhase.IMPLEMENT],
-        )
-        strategic_context = kairos_plan.to_markdown()[:800]
-
-        # ── Step 3: Parallel Proposal Generation ─────────────────────────────
-        LOG.info("[SAGE] Step 3: Generating %d proposals in parallel", PROPOSERS_PER_CYCLE)
-        self._broadcast({"event": "step", "step": 3, "name": "proposal_generation",
-                         "cycle": cycle_num, "count": PROPOSERS_PER_CYCLE})
-        proposals = await _generate_proposals(state, cycle_num, strategic_context)
-        report["proposals_generated"] = len(proposals)
-
-        # ── Step 4: Group Evolution (Adversarial Critique) ────────────────────
-        LOG.info("[SAGE] Step 4: Adversarial critique of %d proposals", len(proposals))
-        self._broadcast({"event": "step", "step": 4, "name": "group_evolution", "cycle": cycle_num})
-        critique_tasks = [_critique_proposal(p) for p in proposals]
-        critiqued = await asyncio.gather(*critique_tasks, return_exceptions=True)
-        proposals = [c for c in critiqued if not isinstance(c, Exception)]
-
-        # Sort by critique score descending
-        proposals.sort(key=lambda p: p.get("critique_score", 0), reverse=True)
-        # Take top 3 for verification
-        elite_proposals = [p for p in proposals if p.get("critique_score", 0) >= 0.65][:3]
-
-        # ── Step 5: Verification Gate ─────────────────────────────────────────
-        LOG.info("[SAGE] Step 5: Verification gate for %d elite proposals", len(elite_proposals))
-        self._broadcast({"event": "step", "step": 5, "name": "verification",
-                         "cycle": cycle_num, "candidates": len(elite_proposals)})
-
-        scores = []
-        deployed = []
-        failures = []
-
-        for proposal in elite_proposals:
-            prop_id = proposal["proposal_id"]
-            prop_text = (
-                f"Title: {proposal.get('title', proposal.get('TITLE', ''))}\n"
-                f"Description: {proposal.get('description', proposal.get('DESCRIPTION', ''))}\n"
-                f"File: {proposal.get('file', proposal.get('FILE', 'none'))}\n"
-                f"Expected: {proposal.get('expected_improvement', '')}\n"
-                f"Risk: {proposal.get('risk', '')}\n"
-            )
-            if proposal.get("code_block"):
-                prop_text += f"\n```python\n{proposal['code_block'][:800]}\n```"
-
-            # Hard 3-minute timeout per proposal to prevent Windows asyncio hang
-            try:
-                vr = await asyncio.wait_for(
-                    self.verifier.verify(
-                        proposal_text=prop_text,
-                        proposal_id=prop_id,
-                        code_block=proposal.get("code_block"),
-                        goal=goal,
-                    ),
-                    timeout=180.0,
-                )
-            except asyncio.TimeoutError:
-                LOG.warning("[SAGE] Proposal %s verification timed out (180s) -- skipping", prop_id)
-                from .verification import VerificationResult
-                vr = VerificationResult(
-                    proposal_id=prop_id, passed=False, final_score=0.0, blocked_at="timeout"
-                )
-                failures.append(f"verify_timeout:{prop_id}")
-            except Exception as exc:
-                LOG.error("[SAGE] Proposal %s verification error: %s", prop_id, exc)
-                from .verification import VerificationResult
-                vr = VerificationResult(
-                    proposal_id=prop_id, passed=False, final_score=0.0, blocked_at="exception"
-                )
-                failures.append(f"verify_error:{prop_id}")
-
-            scores.append(vr.final_score)
-            proposal["verification_score"] = vr.final_score
-            proposal["verification_passed"] = vr.passed
-
-            self._broadcast({
-                "event":       "proposal_scored",
-                "cycle":       cycle_num,
-                "proposal_id": prop_id,
-                "score":       vr.final_score,
-                "passed":      vr.passed,
-                "summary":     vr.summary(),
-            })
-
-            if vr.passed:
-                report["proposals_approved"] += 1
-
-                # ── Step 6: Swarm Propagation (GitOps) ──────────────────────
-                target_file = proposal.get("file", proposal.get("FILE", ""))
-                if (target_file and target_file.lower() not in ("none", "n/a", "")
-                        and proposal.get("code_block")):
-                    LOG.info("[SAGE] Step 6: Deploying via GitOps: %s", target_file)
-                    self._broadcast({"event": "step", "step": 6, "name": "swarm_propagation",
-                                     "cycle": cycle_num, "file": target_file})
-                    try:
-                        mut = await asyncio.wait_for(
-                            self.mutator.mutate(
-                                proposal_id=prop_id,
-                                file_path=target_file,
-                                patch_content=proposal["code_block"],
-                                description=proposal.get("title", "SAGE improvement"),
-                            ),
-                            timeout=60.0,
-                        )
-                        if mut.success:
-                            report["proposals_deployed"] += 1
-                            self._total_deployed += 1
-                            deployed.append({
-                                "proposal_id": prop_id,
-                                "file": target_file,
-                                "commit": mut.commit_hash,
-                            })
-                            LOG.info("[SAGE] DEPLOYED: %s commit=%s", target_file, mut.commit_hash)
-                            self._broadcast({
-                                "event": "deployed",
-                                "cycle": cycle_num,
-                                "file": target_file,
-                                "commit": mut.commit_hash,
-                            })
-                        else:
-                            failures.append(f"deploy_failed:{target_file}")
-                    except Exception as mut_err:
-                        LOG.warning("[SAGE] GitOps deploy error: %s", mut_err)
-                        failures.append(f"deploy_error:{target_file}")
-                else:
-                    # Approved but no deployable code — record as knowledge
-                    LOG.info("[SAGE] APPROVED (no-code): %s", proposal.get("title", ""))
-                    deployed.append({"proposal_id": prop_id, "type": "knowledge"})
-            else:
-                report["proposals_failed"] += 1
-                failures.append(f"verify_failed:{vr.blocked_at or 'final_score'}")
-
-        report["avg_score"]       = round(sum(scores) / max(1, len(scores)), 3)
-        report["common_failures"] = list(set(failures))[:5]
-        report["deployed"]        = deployed
-
-        # ── Step 7: Meta-Agent ────────────────────────────────────────────────
-        LOG.info("[SAGE] Step 7: Checking Meta-Agent trigger (cycle=%d)", cycle_num)
-        self._broadcast({"event": "step", "step": 7, "name": "meta_agent", "cycle": cycle_num})
-        self._cycle_reports.append(report)
+        _report_registered = False  # track whether step 7 appended to _cycle_reports
 
         try:
-            new_rules = await asyncio.wait_for(
-                self.meta.maybe_rewrite(cycle_num, self._cycle_reports),
-                timeout=120.0,
-            )
-            if new_rules:
-                report["meta_rewrite"] = True
-                self.kairos.reload_rules()
-                self._broadcast({
-                    "event":         "meta_rewrite",
-                    "cycle":         cycle_num,
-                    "rules_version": new_rules.get("version", "?"),
-                    "rules_count":   len(new_rules.get("rules", [])),
-                    "insights":      new_rules.get("last_insights", []),
-                })
-                LOG.info("[SAGE] Meta-Agent rewrote rules -> version=%d", new_rules.get("version", 0))
-        except asyncio.TimeoutError:
-            LOG.warning("[SAGE] Meta-Agent timed out (120s) -- skipping this cycle")
-        except Exception as meta_err:
-            LOG.warning("[SAGE] Meta-Agent error: %s", meta_err)
+            # ── Step 1: State Assessment ──────────────────────────────────────
+            LOG.info("[SAGE] Step 1: State assessment")
+            self._broadcast({"event": "step", "step": 1, "name": "state_assessment", "cycle": cycle_num})
+            state = await _assess_state()
+            report["state"] = {k: str(v)[:100] for k, v in state.items()}
 
-        # ── Finalise (always runs, even after partial failures) ───────────────
+            # ── Step 2: Strategic Mapping (KAIROS quick plan) ─────────────────
+            LOG.info("[SAGE] Step 2: Strategic mapping (KAIROS)")
+            self._broadcast({"event": "step", "step": 2, "name": "strategic_mapping", "cycle": cycle_num})
+            try:
+                kairos_plan = await self.kairos.quick_plan(
+                    goal,
+                    phases=[KAIROSPhase.KICKOFF, KAIROSPhase.ALIGN, KAIROSPhase.IMPLEMENT],
+                )
+                strategic_context = kairos_plan.to_markdown()[:800]
+            except Exception as exc:
+                LOG.warning("[SAGE] Step 2 KAIROS error — falling back to goal text: %s", exc)
+                strategic_context = goal  # safe fallback keeps cycle alive
+
+            # ── Step 3: Parallel Proposal Generation ─────────────────────────
+            LOG.info("[SAGE] Step 3: Generating %d proposals in parallel", PROPOSERS_PER_CYCLE)
+            self._broadcast({"event": "step", "step": 3, "name": "proposal_generation",
+                             "cycle": cycle_num, "count": PROPOSERS_PER_CYCLE})
+            proposals = await _generate_proposals(state, cycle_num, strategic_context)
+            report["proposals_generated"] = len(proposals)
+
+            # ── Step 4: Group Evolution (Adversarial Critique) ────────────────
+            LOG.info("[SAGE] Step 4: Adversarial critique of %d proposals", len(proposals))
+            self._broadcast({"event": "step", "step": 4, "name": "group_evolution", "cycle": cycle_num})
+            critique_tasks = [_critique_proposal(p) for p in proposals]
+            critiqued = await asyncio.gather(*critique_tasks, return_exceptions=True)
+            proposals = [c for c in critiqued if not isinstance(c, Exception)]
+
+            # Sort by critique score descending; take top 3 for verification
+            proposals.sort(key=lambda p: p.get("critique_score", 0), reverse=True)
+            elite_proposals = [p for p in proposals if p.get("critique_score", 0) >= 0.65][:3]
+
+            # ── Step 5: Verification Gate ─────────────────────────────────────
+            LOG.info("[SAGE] Step 5: Verification gate for %d elite proposals", len(elite_proposals))
+            self._broadcast({"event": "step", "step": 5, "name": "verification",
+                             "cycle": cycle_num, "candidates": len(elite_proposals)})
+
+            scores:   list = []
+            deployed: list = []
+            failures: list = []
+
+            for proposal in elite_proposals:
+                prop_id   = proposal["proposal_id"]
+                prop_text = (
+                    f"Title: {proposal.get('title', proposal.get('TITLE', ''))}\n"
+                    f"Description: {proposal.get('description', proposal.get('DESCRIPTION', ''))}\n"
+                    f"File: {proposal.get('file', proposal.get('FILE', 'none'))}\n"
+                    f"Expected: {proposal.get('expected_improvement', '')}\n"
+                    f"Risk: {proposal.get('risk', '')}\n"
+                )
+                if proposal.get("code_block"):
+                    prop_text += f"\n```python\n{proposal['code_block'][:800]}\n```"
+
+                # Hard 3-minute timeout per proposal — prevents Windows asyncio hang
+                try:
+                    vr = await asyncio.wait_for(
+                        self.verifier.verify(
+                            proposal_text=prop_text,
+                            proposal_id=prop_id,
+                            code_block=proposal.get("code_block"),
+                            goal=goal,
+                        ),
+                        timeout=180.0,
+                    )
+                except asyncio.TimeoutError:
+                    LOG.warning("[SAGE] Proposal %s verification timed out (180s) -- skipping", prop_id)
+                    from .verification import VerificationResult
+                    vr = VerificationResult(
+                        proposal_id=prop_id, passed=False, final_score=0.0, blocked_at="timeout"
+                    )
+                    failures.append(f"verify_timeout:{prop_id}")
+                except Exception as exc:
+                    LOG.error("[SAGE] Proposal %s verification error: %s", prop_id, exc)
+                    from .verification import VerificationResult
+                    vr = VerificationResult(
+                        proposal_id=prop_id, passed=False, final_score=0.0, blocked_at="exception"
+                    )
+                    failures.append(f"verify_error:{prop_id}")
+
+                scores.append(vr.final_score)
+                proposal["verification_score"]  = vr.final_score
+                proposal["verification_passed"] = vr.passed
+
+                self._broadcast({
+                    "event":       "proposal_scored",
+                    "cycle":       cycle_num,
+                    "proposal_id": prop_id,
+                    "score":       vr.final_score,
+                    "passed":      vr.passed,
+                    "summary":     vr.summary(),
+                })
+
+                if vr.passed:
+                    report["proposals_approved"] += 1
+
+                    # ── Step 6: Swarm Propagation (GitOps) ──────────────────
+                    target_file = proposal.get("file", proposal.get("FILE", ""))
+                    if (target_file and target_file.lower() not in ("none", "n/a", "")
+                            and proposal.get("code_block")):
+                        LOG.info("[SAGE] Step 6: Deploying via GitOps: %s", target_file)
+                        self._broadcast({"event": "step", "step": 6, "name": "swarm_propagation",
+                                         "cycle": cycle_num, "file": target_file})
+                        try:
+                            mut = await asyncio.wait_for(
+                                self.mutator.mutate(
+                                    proposal_id=prop_id,
+                                    file_path=target_file,
+                                    patch_content=proposal["code_block"],
+                                    description=proposal.get("title", "SAGE improvement"),
+                                ),
+                                timeout=60.0,
+                            )
+                            if mut.success:
+                                report["proposals_deployed"] += 1
+                                self._total_deployed += 1
+                                deployed.append({
+                                    "proposal_id": prop_id,
+                                    "file": target_file,
+                                    "commit": mut.commit_hash,
+                                })
+                                LOG.info("[SAGE] DEPLOYED: %s commit=%s", target_file, mut.commit_hash)
+                                self._broadcast({
+                                    "event": "deployed",
+                                    "cycle": cycle_num,
+                                    "file": target_file,
+                                    "commit": mut.commit_hash,
+                                })
+                            else:
+                                failures.append(f"deploy_failed:{target_file}")
+                        except Exception as mut_err:
+                            LOG.warning("[SAGE] GitOps deploy error: %s", mut_err)
+                            failures.append(f"deploy_error:{target_file}")
+                    else:
+                        # Approved but no deployable code — record as knowledge
+                        LOG.info("[SAGE] APPROVED (no-code): %s", proposal.get("title", ""))
+                        deployed.append({"proposal_id": prop_id, "type": "knowledge"})
+                else:
+                    report["proposals_failed"] += 1
+                    failures.append(f"verify_failed:{vr.blocked_at or 'final_score'}")
+
+            report["avg_score"]       = round(sum(scores) / max(1, len(scores)), 3)
+            report["common_failures"] = list(set(failures))[:5]
+            report["deployed"]        = deployed
+
+            # ── Step 7: Meta-Agent ────────────────────────────────────────────
+            LOG.info("[SAGE] Step 7: Checking Meta-Agent trigger (cycle=%d)", cycle_num)
+            self._broadcast({"event": "step", "step": 7, "name": "meta_agent", "cycle": cycle_num})
+            # Append before meta-agent so it sees the current cycle's data
+            self._cycle_reports.append(report)
+            _report_registered = True
+            # Cap in-memory history — prevents OOM and slow Meta-Agent JSON serialisation
+            if len(self._cycle_reports) > 30:
+                self._cycle_reports = self._cycle_reports[-30:]
+
+            try:
+                new_rules = await asyncio.wait_for(
+                    self.meta.maybe_rewrite(cycle_num, self._cycle_reports),
+                    timeout=120.0,
+                )
+                if new_rules:
+                    report["meta_rewrite"] = True
+                    self.kairos.reload_rules()
+                    self._broadcast({
+                        "event":         "meta_rewrite",
+                        "cycle":         cycle_num,
+                        "rules_version": new_rules.get("version", "?"),
+                        "rules_count":   len(new_rules.get("rules", [])),
+                        "insights":      new_rules.get("last_insights", []),
+                    })
+                    LOG.info("[SAGE] Meta-Agent rewrote rules -> version=%d", new_rules.get("version", 0))
+            except asyncio.TimeoutError:
+                LOG.warning("[SAGE] Meta-Agent timed out (120s) -- skipping this cycle")
+            except Exception as meta_err:
+                LOG.warning("[SAGE] Meta-Agent error: %s", meta_err)
+
+        except Exception as crash:
+            # Catch anything that escaped the per-step handlers
+            LOG.error("[SAGE] Cycle %d unexpected crash: %s", cycle_num, crash, exc_info=True)
+            report["error"] = str(crash)
+
+        finally:
+            # ALWAYS clear cycle flag regardless of crash path
+            self._cycle_running = False
+
+        # ── Finalise (always executes — try/finally above ensures we get here) ──
         elapsed = round(time.time() - t0, 2)
         report["elapsed_s"]   = elapsed
         report["finished_at"] = time.time()
-        self._cycle_running   = False
+
+        # Ensure report is registered (handles crash-before-step-7 path)
+        if not _report_registered:
+            self._cycle_reports.append(report)
+            if len(self._cycle_reports) > 30:
+                self._cycle_reports = self._cycle_reports[-30:]
 
         try:
-            dome_write("SAGE", "cycle_complete", {
+            await dome_write_async("SAGE", "cycle_complete", {
                 "cycle_id":     cycle_id,
                 "cycle_number": cycle_num,
-                "deployed":     report["proposals_deployed"],
-                "avg_score":    report["avg_score"],
+                "deployed":     report.get("proposals_deployed", 0),
+                "avg_score":    report.get("avg_score", 0.0),
                 "elapsed_s":    elapsed,
             })
         except Exception as e:
@@ -588,18 +613,20 @@ class SAGELoop:
             LOG.error("[SAGE] Failed to save cycle report: %s", e)
 
         self._broadcast({
-            "event":    "cycle_complete",
-            "cycle":    cycle_num,
+            "event":     "cycle_complete",
+            "cycle":     cycle_num,
             "elapsed_s": elapsed,
-            "deployed":  report["proposals_deployed"],
-            "approved":  report["proposals_approved"],
-            "avg_score": report["avg_score"],
+            "deployed":  report.get("proposals_deployed", 0),
+            "approved":  report.get("proposals_approved", 0),
+            "avg_score": report.get("avg_score", 0.0),
         })
 
         LOG.info(
             "[SAGE] == Cycle %d complete == %.1fs | approved=%d deployed=%d avg_score=%.3f",
-            cycle_num, elapsed, report["proposals_approved"],
-            report["proposals_deployed"], report["avg_score"],
+            cycle_num, elapsed,
+            report.get("proposals_approved", 0),
+            report.get("proposals_deployed", 0),
+            report.get("avg_score", 0.0),
         )
         return report
 
@@ -607,31 +634,35 @@ class SAGELoop:
         """
         Run a full nightly session of `cycles` SAGE cycles.
         Returns list of cycle reports.
+        _running is always cleared via try/finally — no permanent deadlock.
         """
         if self._running:
             LOG.warning("[SAGE] Session already running — skipping")
             return []
 
         self._running = True
-        reports = []
+        reports: list = []
         LOG.info("[SAGE] ==== Starting nightly session (%d cycles) ====", cycles)
         self._broadcast({"event": "session_start", "cycles": cycles, "ts": time.time()})
 
-        for i in range(cycles):
-            try:
-                report = await self.run_cycle(
-                    goal=f"Improve Aethyro system performance and reliability — cycle {self._cycle_number + 1}"
-                )
-                reports.append(report)
-                # Brief pause between cycles to let Ollama breathe
-                await asyncio.sleep(5)
-            except Exception as e:
-                LOG.error("[SAGE] Cycle %d error: %s", i + 1, e)
-                reports.append({"error": str(e), "cycle": i + 1})
+        try:
+            for i in range(cycles):
+                try:
+                    report = await self.run_cycle(
+                        goal=f"Improve Aethyro system performance and reliability — cycle {self._cycle_number + 1}"
+                    )
+                    reports.append(report)
+                    # Brief pause between cycles to let Ollama breathe
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    LOG.error("[SAGE] Cycle %d error: %s", i + 1, e)
+                    reports.append({"error": str(e), "cycle": i + 1})
+        finally:
+            # ALWAYS clear session flag — prevents permanent deadlock
+            self._running = False
+            LOG.info("[SAGE] ==== Nightly session complete (%d cycles) ====", len(reports))
+            self._broadcast({"event": "session_complete", "cycles_run": len(reports), "ts": time.time()})
 
-        self._running = False
-        LOG.info("[SAGE] ==== Nightly session complete (%d cycles) ====", cycles)
-        self._broadcast({"event": "session_complete", "cycles_run": len(reports), "ts": time.time()})
         return reports
 
     def _seconds_until_3am(self) -> float:

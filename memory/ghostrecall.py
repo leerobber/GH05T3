@@ -375,8 +375,9 @@ class GhostRecall:
             except Exception as e:
                 LOG.warning("[GhostRecall] ChromaDB index failed: %s", e)
 
-        # Log to Iron Dome
-        dome_write("GhostRecall", "memory_write", {
+        # Log to Iron Dome (async wrapper avoids blocking the event loop)
+        from memory.iron_dome import dome_write_async
+        await dome_write_async("GhostRecall", "memory_write", {
             "mem_id": mem_id, "agent_id": agent_id, "importance": importance,
         })
 
@@ -418,16 +419,27 @@ class GhostRecall:
                     else:
                         chroma_where = {"$and": where_conds}
 
+                    # Guard n_results against empty collection (ChromaDB raises
+                    # if n_results > number of documents in the collection).
+                    col_count = _chroma_col.count()
+                    if col_count == 0:
+                        raise ValueError("ChromaDB collection is empty — skip to SQLite fallback")
                     chroma_results = _chroma_col.query(
                         query_embeddings=[emb],
-                        n_results=min(top_k * 2, 20),
+                        n_results=min(top_k * 2, 20, col_count),
                         where=chroma_where,
                     )
-                    for i, doc_id in enumerate(chroma_results["ids"][0]):
+                    # Safe indexing: ChromaDB can return empty lists when all
+                    # results are filtered out by the where clause.
+                    raw_ids   = chroma_results.get("ids")   or []
+                    raw_dists = chroma_results.get("distances") or []
+                    ids_list  = raw_ids[0]   if raw_ids   else []
+                    dists_list = raw_dists[0] if raw_dists else []
+                    for i, doc_id in enumerate(ids_list):
                         row = self._get_explicit(doc_id)
                         if row and (not row["invalid_at"] or row["invalid_at"] > now):
                             if row["importance"] >= min_importance:
-                                dist = chroma_results["distances"][0][i]
+                                dist  = dists_list[i] if i < len(dists_list) else 1.0
                                 score = 1.0 - dist  # cosine distance → similarity
                                 results.append({**row, "relevance": round(score, 4)})
             except Exception as e:
@@ -593,8 +605,18 @@ class GhostRecall:
             try:
                 emb = await _embed(query)
                 if emb:
-                    res = _engram_col.query(query_embeddings=[emb], n_results=top_k)
-                    for i, eng_id in enumerate(res["ids"][0]):
+                    eng_count = _engram_col.count()
+                    if eng_count == 0:
+                        return results
+                    res = _engram_col.query(
+                        query_embeddings=[emb],
+                        n_results=min(top_k, eng_count),
+                    )
+                    raw_ids   = res.get("ids")       or []
+                    raw_dists = res.get("distances") or []
+                    ids_list  = raw_ids[0]   if raw_ids   else []
+                    dists_list = raw_dists[0] if raw_dists else []
+                    for i, eng_id in enumerate(ids_list):
                         with _conn() as c:
                             row = c.execute(
                                 "SELECT * FROM engram_vault WHERE id=?", (eng_id,)
@@ -605,7 +627,7 @@ class GhostRecall:
                                     (time.time(), eng_id),
                                 )
                         if row:
-                            dist = res["distances"][0][i]
+                            dist = dists_list[i] if i < len(dists_list) else 1.0
                             results.append({
                                 "id": row["id"],
                                 "content": row["neural_trace"],

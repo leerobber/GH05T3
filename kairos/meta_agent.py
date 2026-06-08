@@ -238,10 +238,10 @@ Be specific. Focus on what actually changes agent behaviour."""
         # Save to disk
         self._save_rules(new_rules)
 
-        # Log to Iron Dome
+        # Log to Iron Dome (async wrapper avoids blocking the event loop)
         try:
-            from memory.iron_dome import dome_write
-            dome_write("MetaAgent", "rules_rewritten", {
+            from memory.iron_dome import dome_write_async
+            await dome_write_async("MetaAgent", "rules_rewritten", {
                 "meta_rewrite_number": self._rewrites,
                 "cycle_number":        cycle_number,
                 "new_version":         new_rules["version"],

@@ -206,6 +206,12 @@ async def sage_run(req: ManualRunRequest, background_tasks: BackgroundTasks):
     if sage._running or sage._cycle_running:
         return {"error": "SAGE is already running", "cycle": sage._cycle_number}
 
+    # Claim the slot SYNCHRONOUSLY before scheduling the background task.
+    # Without this, two concurrent POST /sage/run requests both pass the guard
+    # above (asyncio is single-threaded but both requests are handled before
+    # either background task starts), spawning two concurrent SAGE cycles.
+    sage._cycle_running = True
+
     goal = req.goal or f"Manual SAGE trigger - {time.strftime('%Y-%m-%d %H:%M')}"
 
     async def _run():
@@ -216,7 +222,10 @@ async def sage_run(req: ManualRunRequest, background_tasks: BackgroundTasks):
                 await sage.run_session(cycles=min(req.cycles, CYCLES_PER_SESSION))
         except Exception as exc:
             LOG.error("[SAGE] Background run error: %s", exc, exc_info=True)
-            sage._cycle_running = False  # ensure flag is cleared
+        finally:
+            # Belt-and-suspenders: run_cycle/run_session clear their own flags
+            # via try/finally, but clear here too in case something weird happens
+            sage._cycle_running = False
 
     background_tasks.add_task(_run)
     return {

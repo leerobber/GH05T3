@@ -19,10 +19,12 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import sqlite3
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -34,6 +36,12 @@ _DATA_DIR = Path(__file__).parent / "data"
 _DB_PATH  = _DATA_DIR / "iron_dome.db"
 
 GENESIS_HASH = "0" * 64  # Genesis block — no previous hash
+
+# Serialise all writes so seq/prev_hash reads and INSERT are one atomic unit.
+# Without this lock, two concurrent dome_write() calls can read the same seq
+# and both insert records with identical seq values, silently corrupting the
+# hash chain.  threading.Lock works across asyncio tasks on the same thread.
+_write_lock = threading.Lock()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,19 +119,12 @@ class IronDome:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _last_record(self) -> Optional[sqlite3.Row]:
+        """Return the most recent chain record (used by verify_chain / stats)."""
         with self._conn() as c:
             row = c.execute(
                 "SELECT * FROM chain_ledger ORDER BY seq DESC LIMIT 1"
             ).fetchone()
         return row
-
-    def _next_seq(self) -> int:
-        row = self._last_record()
-        return (row["seq"] + 1) if row else 1
-
-    def _prev_hash(self) -> str:
-        row = self._last_record()
-        return row["record_hash"] if row else GENESIS_HASH
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -136,6 +137,10 @@ class IronDome:
         """
         Append a record to the chain. Returns the new record's ID.
 
+        THREAD SAFETY: _write_lock serialises the SELECT-seq / compute-hash /
+        INSERT sequence so concurrent callers cannot produce duplicate seq values
+        or break the prev_hash linkage.
+
         Args:
             actor:      Who generated this event (e.g. "SAGE", "FORGE", "NEXUS")
             event_type: Category string (e.g. "proposal_deployed", "memory_write")
@@ -145,27 +150,31 @@ class IronDome:
             record_id (str)
         """
         payload_str = json.dumps(payload or {}, sort_keys=True)
-        seq = self._next_seq()
-        prev_hash = self._prev_hash()
-        created_at = time.time()
-        record_hash = _compute_hash(
-            seq, actor, event_type, payload_str, prev_hash, created_at
-        )
-        rec_id = str(uuid.uuid4())
+        created_at  = time.time()
+        rec_id      = str(uuid.uuid4())
 
-        with self._conn() as c:
-            c.execute(
-                """
-                INSERT INTO chain_ledger
-                    (id, seq, actor, event_type, payload, prev_hash, record_hash, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (rec_id, seq, actor, event_type, payload_str,
-                 prev_hash, record_hash, created_at),
-            )
+        with _write_lock:  # atomic: read-last / compute-hash / insert
+            with self._conn() as c:
+                last = c.execute(
+                    "SELECT seq, record_hash FROM chain_ledger ORDER BY seq DESC LIMIT 1"
+                ).fetchone()
+                seq       = (last["seq"] + 1)         if last else 1
+                prev_hash = last["record_hash"]        if last else GENESIS_HASH
+                record_hash = _compute_hash(
+                    seq, actor, event_type, payload_str, prev_hash, created_at
+                )
+                c.execute(
+                    """
+                    INSERT INTO chain_ledger
+                        (id, seq, actor, event_type, payload, prev_hash, record_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (rec_id, seq, actor, event_type, payload_str,
+                     prev_hash, record_hash, created_at),
+                )
 
         LOG.debug(
-            "[IronDome] #%d  %s/%s  hash=%.12s…", seq, actor, event_type, record_hash
+            "[IronDome] #%d  %s/%s  hash=%.12s...", seq, actor, event_type, record_hash
         )
         return rec_id
 
@@ -269,8 +278,19 @@ _dome = IronDome.instance()
 
 def dome_write(actor: str, event_type: str,
                payload: Dict | None = None) -> str:
-    """Module-level shortcut for IronDome.write()."""
+    """Module-level shortcut for IronDome.write() — sync, thread-safe."""
     return _dome.write(actor, event_type, payload)
+
+
+async def dome_write_async(actor: str, event_type: str,
+                           payload: Dict | None = None) -> str:
+    """
+    Async-safe wrapper for dome_write.
+    Use this inside async functions to avoid blocking the event loop —
+    SQLite I/O can take 5-20ms and will stall all coroutines if called
+    directly from an async context.
+    """
+    return await asyncio.to_thread(dome_write, actor, event_type, payload)
 
 
 def dome_verify() -> Tuple[bool, List[str]]:

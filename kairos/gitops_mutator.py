@@ -34,6 +34,7 @@ Usage:
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import hmac
 import json
@@ -272,7 +273,7 @@ class GitOpsMutator:
             if not lint_ok:
                 result.reason = f"Lint failed: {lint_msg}"
                 self._log_mutation(result)
-                dome_write("GitOpsMutator", "mutation_lint_failed", {
+                await asyncio.to_thread(dome_write, "GitOpsMutator", "mutation_lint_failed", {
                     "mutation_id": mut_id, "reason": lint_msg,
                 })
                 LOG.warning("[GitOps] Lint failed for %s: %s", file_path, lint_msg)
@@ -288,6 +289,9 @@ class GitOpsMutator:
 
         # ── Stage 4: WRITE ────────────────────────────────────────────────────
         result.stage = "write"
+        # Record existence BEFORE writing so rollback can distinguish new-file
+        # from existing-file mutations (fixes inverted rollback fallback condition)
+        file_existed_before = target.exists()
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(patch_content, encoding="utf-8")
@@ -341,7 +345,7 @@ class GitOpsMutator:
         result.stage = "verify"
         if not _verify_sig(sign_payload, signature):
             result.reason = "Signature verification failed — rolling back."
-            await self._rollback(result, prev_hash, target, patch_content)
+            await self._rollback(result, prev_hash, target, file_existed_before)
             self._log_mutation(result)
             return result
 
@@ -355,7 +359,7 @@ class GitOpsMutator:
                 )
                 if proc.returncode != 0:
                     result.reason = f"Regression failed: {proc.stderr[:200]}"
-                    await self._rollback(result, prev_hash, target, patch_content)
+                    await self._rollback(result, prev_hash, target, file_existed_before)
                     self._log_mutation(result)
                     return result
             except Exception as e:
@@ -366,7 +370,7 @@ class GitOpsMutator:
         result.stage   = "deployed"
         self._total_successful += 1
 
-        dome_write("GitOpsMutator", "mutation_deployed", {
+        await asyncio.to_thread(dome_write, "GitOpsMutator", "mutation_deployed", {
             "mutation_id": mut_id,
             "proposal_id": proposal_id,
             "file_path":   file_path,
@@ -385,9 +389,17 @@ class GitOpsMutator:
         result: MutationResult,
         prev_hash: str,
         target: Path,
-        original_content: str,
+        file_existed_before: bool,
     ) -> None:
-        """Roll back a failed mutation."""
+        """
+        Roll back a failed mutation.
+
+        Args:
+            file_existed_before: True if the target file existed BEFORE this
+                mutation wrote to it.  Used in the git-reset fallback: if git
+                reset fails AND the file is new (didn't exist before), we can
+                safely unlink it to restore the pre-mutation state.
+        """
         self._total_rollbacks += 1
         result.success = False
         result.stage   = "rolled_back"
@@ -405,10 +417,13 @@ class GitOpsMutator:
             except Exception as e:
                 LOG.warning("[GitOps] Rollback git error: %s", e)
 
-        # Fallback: remove the written file if it wasn't there before
+        # Fallback: remove the written file only if it's a NEW file that didn't
+        # exist before the mutation (the old code used `not original_content`
+        # which is always False for real mutations — this was an inverted bug).
         try:
-            if target.exists() and not original_content:
+            if target.exists() and not file_existed_before:
                 target.unlink()
+                LOG.info("[GitOps] Removed new file on rollback: %s", target)
         except Exception:
             pass
 
