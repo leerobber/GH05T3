@@ -31,12 +31,14 @@ export default function InferenceBadge() {
 
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_INFERENCE_URL ?? "http://localhost:8010";
+    let active = true;
 
     const poll = async () => {
       try {
         const r = await fetch(`${base}/health`, {
           signal: AbortSignal.timeout(2500),
         });
+        if (!active) return;
         if (r.ok) {
           const data = await r.json() as InferenceHealth;
           setHealth(data);
@@ -45,13 +47,16 @@ export default function InferenceBadge() {
           setOnline(false);
         }
       } catch {
-        setOnline(false);
+        if (active) setOnline(false);
       }
     };
 
     poll();
     const id = setInterval(poll, POLL_MS);
-    return () => clearInterval(id);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
   }, []);
 
   if (!online || !health) {

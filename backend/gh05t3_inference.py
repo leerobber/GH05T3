@@ -85,6 +85,7 @@ _backend      = "hf"   # "vllm" | "hf"
 _quant_type   = "none" # "nvfp4" | "fp8" | "nf4" | "none"
 _tok_s_ema    = 0.0    # exponential moving avg of tokens/sec
 _has_adapter  = False
+_hf_lock      = None   # asyncio.Lock — serialize HF generation to prevent CUDA OOM
 
 
 def _update_tok_s(new_val: float) -> None:
@@ -249,26 +250,30 @@ def _inject_system(messages: list[dict]) -> list[dict]:
 
 # ── vLLM generation ─────────────────────────────────────────────────────────────
 async def _vllm_stream_tokens(prompt: str, max_tokens: int, temperature: float, req_id: str):
-    """Async-yield raw text tokens from vLLM."""
+    """Async-yield raw text tokens from vLLM. Aborts the request on cancellation."""
     lora = LoRARequest("gh05t3", 1, ADAPTER_PATH) if _has_adapter else None
     prev = ""
-    async for out in _vllm_engine.generate(
-        prompt,
-        SamplingParams(
-            temperature      = max(temperature, 0.0),
-            top_p            = 0.9 if temperature > 0 else 1.0,
-            max_tokens       = max_tokens,
-            repetition_penalty = 1.1,
-        ),
-        req_id,
-        lora_request=lora,
-    ):
-        if out.outputs:
-            text  = out.outputs[0].text
-            delta = text[len(prev):]
-            prev  = text
-            if delta:
-                yield delta
+    try:
+        async for out in _vllm_engine.generate(
+            prompt,
+            SamplingParams(
+                temperature        = max(temperature, 0.0),
+                top_p              = 0.9 if temperature > 0 else 1.0,
+                max_tokens         = max_tokens,
+                repetition_penalty = 1.1,
+            ),
+            req_id,
+            lora_request=lora,
+        ):
+            if out.outputs:
+                text  = out.outputs[0].text
+                delta = text[len(prev):]
+                prev  = text
+                if delta:
+                    yield delta
+    finally:
+        # Free GPU resources if the client disconnects mid-stream
+        await _vllm_engine.abort(req_id)
 
 
 async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float
@@ -276,21 +281,24 @@ async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float
     req_id = str(uuid.uuid4())
     full_text = ""
     p_toks = c_toks = 0
-    async for out in _vllm_engine.generate(
-        prompt,
-        SamplingParams(
-            temperature      = max(temperature, 0.0),
-            top_p            = 0.9 if temperature > 0 else 1.0,
-            max_tokens       = max_tokens,
-            repetition_penalty = 1.1,
-        ),
-        req_id,
-        lora_request=LoRARequest("gh05t3", 1, ADAPTER_PATH) if _has_adapter else None,
-    ):
-        if out.finished and out.outputs:
-            full_text = out.outputs[0].text.strip()
-            c_toks    = len(out.outputs[0].token_ids)
-            p_toks    = len(out.prompt_token_ids) if out.prompt_token_ids else 0
+    try:
+        async for out in _vllm_engine.generate(
+            prompt,
+            SamplingParams(
+                temperature        = max(temperature, 0.0),
+                top_p              = 0.9 if temperature > 0 else 1.0,
+                max_tokens         = max_tokens,
+                repetition_penalty = 1.1,
+            ),
+            req_id,
+            lora_request=LoRARequest("gh05t3", 1, ADAPTER_PATH) if _has_adapter else None,
+        ):
+            if out.finished and out.outputs:
+                full_text = out.outputs[0].text.strip()
+                c_toks    = len(out.outputs[0].token_ids)
+                p_toks    = len(out.prompt_token_ids) if out.prompt_token_ids else 0
+    finally:
+        await _vllm_engine.abort(req_id)
     return full_text, p_toks, c_toks
 
 
@@ -313,24 +321,35 @@ def _hf_generate_sync(messages: list[dict], max_tokens: int, temperature: float
 
 
 async def _hf_stream_tokens(messages: list[dict], max_tokens: int, temperature: float):
-    """Async-yield raw text tokens from HF via TextIteratorStreamer."""
-    from transformers import TextIteratorStreamer
+    """Async-yield raw text tokens from HF via TextIteratorStreamer.
 
-    prompt   = _build_chatml(_inject_system(messages))
-    inputs   = _tokenizer(prompt, return_tensors="pt").to(DEVICE)
-    streamer = TextIteratorStreamer(_tokenizer, skip_prompt=True, skip_special_tokens=True)
-    gen_kw   = dict(**inputs, max_new_tokens=max_tokens,
-                    repetition_penalty=1.1, pad_token_id=_tokenizer.eos_token_id,
-                    streamer=streamer)
+    Three robustness properties:
+    - Unbounded queue: avoids QueueFull crash from call_soon_threadsafe
+    - streamer.end() in finally: unblocks the reader thread even on OOM/exception
+    - stop_event: signals the generation thread to exit early on client disconnect
+    """
+    from transformers import StoppingCriteria, TextIteratorStreamer
+
+    class _StopOnEvent(StoppingCriteria):
+        def __init__(self, event: threading.Event) -> None:
+            self._event = event
+        def __call__(self, input_ids, scores, **kwargs) -> bool:
+            return self._event.is_set()
+
+    prompt     = _build_chatml(_inject_system(messages))
+    inputs     = _tokenizer(prompt, return_tensors="pt").to(DEVICE)
+    stop_event = threading.Event()
+    streamer   = TextIteratorStreamer(_tokenizer, skip_prompt=True, skip_special_tokens=True)
+    gen_kw     = dict(**inputs, max_new_tokens=max_tokens,
+                      repetition_penalty=1.1, pad_token_id=_tokenizer.eos_token_id,
+                      streamer=streamer, stopping_criteria=[_StopOnEvent(stop_event)])
     if temperature > 0:
         gen_kw.update(do_sample=True, temperature=temperature, top_p=0.9)
     else:
         gen_kw.update(do_sample=False)
 
-    # Bridge: generate() in a thread feeds the streamer; we read tokens
-    # into an asyncio.Queue so the async generator doesn't block the event loop.
     loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
-    q: asyncio.Queue[str | None] = asyncio.Queue(maxsize=128)
+    q: asyncio.Queue[str | None]    = asyncio.Queue()  # unbounded — avoids QueueFull
 
     def _reader():
         for tok in streamer:
@@ -338,22 +357,29 @@ async def _hf_stream_tokens(messages: list[dict], max_tokens: int, temperature: 
         loop.call_soon_threadsafe(q.put_nowait, None)
 
     def _gen():
-        with torch.no_grad():
-            _hf_model.generate(**gen_kw)
+        try:
+            with torch.no_grad():
+                _hf_model.generate(**gen_kw)
+        except Exception as exc:
+            log.error("HF generation error: %s", exc)
+        finally:
+            streamer.end()  # unblocks _reader even if generate() raised
 
     gen_t  = threading.Thread(target=_gen,    daemon=True)
     read_t = threading.Thread(target=_reader, daemon=True)
     gen_t.start()
     read_t.start()
 
-    while True:
-        tok = await q.get()
-        if tok is None:
-            break
-        if tok:
-            yield tok
-
-    gen_t.join(timeout=120)
+    try:
+        while True:
+            tok = await q.get()
+            if tok is None:
+                break
+            if tok:
+                yield tok
+    finally:
+        stop_event.set()  # signal generate() to exit early if client disconnected
+        gen_t.join(timeout=5.0)
 
 
 # ── unified SSE response ────────────────────────────────────────────────────────
@@ -454,10 +480,14 @@ async def chat_completions(req: ChatRequest):
                 prompt, req.max_tokens, req.temperature
             )
         else:
-            loop = asyncio.get_event_loop()
-            text, p_toks, c_toks = await loop.run_in_executor(
-                None, _hf_generate_sync, messages, req.max_tokens, req.temperature,
-            )
+            global _hf_lock
+            if _hf_lock is None:
+                _hf_lock = asyncio.Lock()
+            async with _hf_lock:   # serialize HF requests — prevents CUDA OOM on 8 GB
+                loop = asyncio.get_event_loop()
+                text, p_toks, c_toks = await loop.run_in_executor(
+                    None, _hf_generate_sync, messages, req.max_tokens, req.temperature,
+                )
     except Exception as exc:
         log.error("Generation error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))

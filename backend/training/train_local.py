@@ -358,7 +358,7 @@ def main():
 
 
 def _try_awq_export(adapter_dir: Path, tokenizer) -> None:
-    """Merge adapter + export AWQ 4-bit for vLLM NVFP4 fast path.
+    """Merge LoRA adapter into base model, then AWQ-quantize for vLLM NVFP4.
 
     Requires: pip install autoawq
     Creates:  backend/models/gh05t3_lora_adapter-awq/
@@ -366,24 +366,55 @@ def _try_awq_export(adapter_dir: Path, tokenizer) -> None:
     """
     try:
         from awq import AutoAWQForCausalLM  # type: ignore
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM
     except ImportError:
         log.info("autoawq not installed — skipping AWQ export "
                  "(pip install autoawq to enable NVFP4-ready merged model)")
         return
 
-    awq_dir = adapter_dir.parent / (adapter_dir.name + "-awq")
+    import gc
+    import shutil
+
+    merged_dir = adapter_dir.parent / (adapter_dir.name + "-merged")
+    awq_dir    = adapter_dir.parent / (adapter_dir.name + "-awq")
     try:
-        log.info("AWQ export: merging adapter + quantizing → %s", awq_dir)
+        # Step 1: load base model on CPU, merge adapter, save merged model
+        log.info("AWQ export: loading %s on CPU to merge adapter...", MODEL_ID)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID, torch_dtype=torch.float16,
+            device_map="cpu", low_cpu_mem_usage=True,
+        )
+        peft_model   = PeftModel.from_pretrained(base_model, str(adapter_dir))
+        merged_model = peft_model.merge_and_unload()
+        merged_dir.mkdir(parents=True, exist_ok=True)
+        merged_model.save_pretrained(str(merged_dir))
+        tokenizer.save_pretrained(str(merged_dir))
+
+        # Free memory before quantization
+        del base_model, peft_model, merged_model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        # Step 2: AWQ quantize merged model; tokenizer required for calibration
+        log.info("AWQ export: quantizing merged model → %s", awq_dir)
         awq_dir.mkdir(parents=True, exist_ok=True)
-        awq_model = AutoAWQForCausalLM.from_pretrained(str(adapter_dir))
-        awq_model.quantize(quant_config={"w_bit": 4, "q_group_size": 128,
-                                          "zero_point": True, "version": "GEMM"})
+        awq_model = AutoAWQForCausalLM.from_pretrained(str(merged_dir))
+        awq_model.quantize(
+            tokenizer,
+            quant_config={"w_bit": 4, "q_group_size": 128,
+                          "zero_point": True, "version": "GEMM"},
+        )
         awq_model.save_quantized(str(awq_dir))
         tokenizer.save_pretrained(str(awq_dir))
         log.info("AWQ export complete → %s", awq_dir)
-        log.info("For max speed on RTX 5050: GH05T3_BASE_MODEL=%s GH05T3_ADAPTER_PATH=", awq_dir)
+        log.info("For max speed: GH05T3_BASE_MODEL=%s GH05T3_ADAPTER_PATH=", awq_dir)
     except Exception as exc:
         log.warning("AWQ export failed (non-fatal): %s", exc)
+    finally:
+        if merged_dir.exists():
+            shutil.rmtree(merged_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
