@@ -51,6 +51,7 @@ jobs:
         working-directory: backend
         env:
           PYTEST_ASYNCIO_MODE: auto
+          AETHYRO_SKIP_LICENSE: "1"
         run: pytest tests/ -v -m "not live and not integration"
 
       - name: Run root unit tests
