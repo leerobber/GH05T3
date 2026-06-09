@@ -34,6 +34,12 @@ dist
 .env
 .env.*
 !.env.example
+!.env.local.example
+
+# sovereign-ui Next.js build artifacts
+sovereign-ui/.next/
+sovereign-ui/out/
+sovereign-ui/next-env.d.ts
 
 *token.json*
 *credentials.json*
