@@ -11,28 +11,40 @@ interface TxState {
   tailscaleIp: string;
 }
 
+// Static initial state — no Math.random() to avoid SSR/client hydration mismatch
+const INITIAL_STATE: TxState = {
+  blockHeight: 21_400_000,
+  coreBalance: "0.0000",
+  lastTx:      "0x0000000000…",
+  kairosNode:  "offline",
+  tailscaleIp: "100.94.227.81",
+};
+
 function mockTxState(): TxState {
   return {
     blockHeight: 21_400_000 + Math.floor(Math.random() * 50000),
     coreBalance: (1337 + Math.random() * 100).toFixed(4),
     lastTx:      "0x" + Math.random().toString(16).slice(2, 12) + "…",
-    kairosNode:  "online",
+    kairosNode:  "offline",
     tailscaleIp: process.env.NEXT_PUBLIC_TAILSCALE_IP ?? "100.94.227.81",
   };
 }
 
 export default function TxPanel() {
-  const [state, setState] = useState<TxState>(mockTxState());
+  const [state, setState] = useState<TxState>(INITIAL_STATE);
 
-  // Poll gateway for real CORE balance / block height if available
+  // Seed with randomised mock on client only (avoids hydration mismatch)
+  useEffect(() => {
+    setState(mockTxState());
+  }, []);
+
+  // Poll gateway — update kairosNode based on actual response status
   useEffect(() => {
     const gw3 = process.env.NEXT_PUBLIC_GW3_URL ?? "http://localhost:8002";
     const poll = setInterval(async () => {
       try {
         const res = await fetch(`${gw3}/avery`, { signal: AbortSignal.timeout(3000) });
-        if (res.ok) {
-          setState((prev) => ({ ...prev, kairosNode: "online" }));
-        }
+        setState((prev) => ({ ...prev, kairosNode: res.ok ? "online" : "offline" }));
       } catch {
         setState((prev) => ({ ...prev, kairosNode: "offline" }));
       }

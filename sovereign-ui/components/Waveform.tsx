@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from "react";
 const BAR_COUNT = 32;
 
 export default function Waveform({ playing }: { playing: boolean }) {
+  // Flat initial state — no Math.random() to avoid SSR/client hydration mismatch
   const [bars, setBars] = useState(() =>
-    Array.from({ length: BAR_COUNT }, () => Math.random() * 20 + 4)
+    Array.from({ length: BAR_COUNT }, () => 4)
   );
   const rafRef = useRef<number>(0);
 

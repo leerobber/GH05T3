@@ -1,28 +1,31 @@
 import { createClient, RealtimeChannel } from "@supabase/supabase-js";
 
-const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl  = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseAnon, {
-  realtime: { params: { eventsPerSecond: 10 } },
-});
+export const supabase =
+  supabaseUrl && supabaseAnon
+    ? createClient(supabaseUrl, supabaseAnon, {
+        realtime: { params: { eventsPerSecond: 10 } },
+      })
+    : null;
 
 // ── Type shapes matching the Supabase tables ────────────────────────────────
 
 export interface TelemetryRow {
   id:           number;
-  cpu:          number;   // 0–100
-  temp:         number;   // celsius
-  latency:      number;   // ms
-  bandwidth:    number;   // Mbps
-  active_nodes: number;
+  cpu:          number | null;
+  temp:         number | null;
+  latency:      number | null;
+  bandwidth:    number | null;
+  active_nodes: number | null;
   inserted_at:  string;
 }
 
 export interface TranscriptRow {
-  id:         number;
-  speaker:    string;
-  text:       string;
+  id:          number;
+  speaker:     string;
+  text:        string;
   inserted_at: string;
 }
 
@@ -32,11 +35,15 @@ export interface UplinkLog {
   ts:      string;
 }
 
+// Minimal no-op channel returned when supabase is not configured
+const noopChannel = { unsubscribe: () => {} };
+
 // ── Channel factories ───────────────────────────────────────────────────────
 
 export function subscribeTelemetry(
   onRow: (row: TelemetryRow) => void
-): RealtimeChannel {
+): RealtimeChannel | typeof noopChannel {
+  if (!supabase) return noopChannel;
   return supabase
     .channel("telemetry-live")
     .on(
@@ -49,7 +56,8 @@ export function subscribeTelemetry(
 
 export function subscribeTranscripts(
   onRow: (row: TranscriptRow) => void
-): RealtimeChannel {
+): RealtimeChannel | typeof noopChannel {
+  if (!supabase) return noopChannel;
   return supabase
     .channel("transcripts-live")
     .on(
@@ -62,7 +70,8 @@ export function subscribeTranscripts(
 
 export function subscribeUplinkLogs(
   onLog: (log: UplinkLog) => void
-): RealtimeChannel {
+): RealtimeChannel | typeof noopChannel {
+  if (!supabase) return noopChannel;
   return supabase
     .channel("uplink-logs")
     .on("broadcast", { event: "new_log" }, (payload) =>

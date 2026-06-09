@@ -20,9 +20,9 @@ const config: Config = {
         },
       },
       fontFamily: {
-        serif: ["Cormorant Garamond", "Georgia", "serif"],
-        mono:  ["JetBrains Mono", "Fira Code", "monospace"],
-        sans:  ["IBM Plex Sans", "system-ui", "sans-serif"],
+        serif: ["var(--font-serif)", "Georgia", "serif"],
+        mono:  ["var(--font-mono)", "Fira Code", "monospace"],
+        sans:  ["var(--font-sans)", "system-ui", "sans-serif"],
       },
       animation: {
         "pulse-amber": "pulse-amber 2s ease-in-out infinite",

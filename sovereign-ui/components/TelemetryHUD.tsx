@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { subscribeTelemetry, type TelemetryRow } from "@/lib/supabase";
 
@@ -18,6 +18,10 @@ function mockTick(): TelemetryRow {
   };
 }
 
+const ZERO_ROW: TelemetryRow = {
+  id: 0, cpu: 0, temp: 0, latency: 0, bandwidth: 0, active_nodes: 0, inserted_at: "",
+};
+
 interface MetricBarProps {
   label: string;
   value: number;
@@ -27,8 +31,8 @@ interface MetricBarProps {
 }
 
 function MetricBar({ label, value, unit, max, warn }: MetricBarProps) {
-  const pct   = Math.min((value / max) * 100, 100);
-  const hot   = warn && value > warn;
+  const pct = Math.min((value / max) * 100, 100);
+  const hot = warn && value > warn;
 
   return (
     <div className="space-y-1">
@@ -50,26 +54,30 @@ function MetricBar({ label, value, unit, max, warn }: MetricBarProps) {
 }
 
 export default function TelemetryHUD() {
-  const [live, setLive] = useState<TelemetryRow>(mockTick());
+  // Zero initial state avoids SSR/client hydration mismatch from Math.random()
+  const [live, setLive]           = useState<TelemetryRow>(ZERO_ROW);
   const [realtimeOk, setRealtimeOk] = useState(false);
+  // Ref so the setInterval closure always sees the latest value without re-creating
+  const realtimeOkRef             = useRef(false);
 
   useEffect(() => {
-    // Supabase Realtime
+    // Seed with a mock tick on the client only
+    setLive(mockTick());
+
     const ch = subscribeTelemetry((row) => {
       setLive(row);
       setRealtimeOk(true);
+      realtimeOkRef.current = true;
     });
 
-    // Simulated fallback — keeps UI alive if no rows yet
     const timer = setInterval(() => {
-      setLive((prev) => (realtimeOk ? prev : mockTick()));
+      if (!realtimeOkRef.current) setLive(mockTick());
     }, FALLBACK_INTERVAL);
 
     return () => {
       ch.unsubscribe();
       clearInterval(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -95,10 +103,10 @@ export default function TelemetryHUD() {
         </AnimatePresence>
       </div>
 
-      <MetricBar label="CPU"       value={live.cpu}       max={100} unit="%" warn={80} />
-      <MetricBar label="Temp"      value={live.temp}      max={95}  unit="°C" warn={85} />
-      <MetricBar label="Latency"   value={live.latency}   max={200} unit="ms" warn={120} />
-      <MetricBar label="Bandwidth" value={live.bandwidth} max={1000} unit=" Mb" />
+      <MetricBar label="CPU"       value={live.cpu ?? 0}       max={100}  unit="%" warn={80} />
+      <MetricBar label="Temp"      value={live.temp ?? 0}      max={95}   unit="°C" warn={85} />
+      <MetricBar label="Latency"   value={live.latency ?? 0}   max={200}  unit="ms" warn={120} />
+      <MetricBar label="Bandwidth" value={live.bandwidth ?? 0} max={1000} unit=" Mb" />
 
       <div className="pt-1 flex items-center gap-2">
         <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-widest">
@@ -109,13 +117,13 @@ export default function TelemetryHUD() {
             <div
               key={i}
               className={`w-1.5 h-1.5 rounded-full transition-colors duration-500 ${
-                i < live.active_nodes ? "bg-ghost-amber" : "bg-white/10"
+                i < (live.active_nodes ?? 0) ? "bg-ghost-amber" : "bg-white/10"
               }`}
             />
           ))}
         </div>
         <span className="font-mono text-[10px] text-ghost-amber ml-auto">
-          {live.active_nodes}
+          {live.active_nodes ?? 0}
         </span>
       </div>
     </div>
