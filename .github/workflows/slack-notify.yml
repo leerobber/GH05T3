@@ -2,7 +2,7 @@ name: Slack Notify
 
 on:
   push:
-    branches: [main, master, claude/new-session-GYmE5]
+    branches: [main, master]
   pull_request:
     types: [opened, closed, merged]
   release:
