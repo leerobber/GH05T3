@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ghost-amber: #F59E0B;
+  --ghost-crimson: #E11D48;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #050505;
+  color: #FAFAFA;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(245,158,11,0.3); border-radius: 2px; }
+
+/* Scanline overlay — applied via .scanlines class on a fixed ::before */
+.scanlines::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0,0,0,0.03) 0px,
+    rgba(0,0,0,0.03) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Corner accent — top-left gold notch */
+.corner-accent::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  border-top: 1px solid rgba(245,158,11,0.6);
+  border-left: 1px solid rgba(245,158,11,0.6);
+  pointer-events: none;
+}
+
+/* Panel glassmorphism base */
+.glass-panel {
+  background: rgba(15,15,17,0.85);
+  border: 1px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(12px);
+  position: relative;
+}
+
+.glass-panel.active-border {
+  border-color: rgba(245,158,11,0.3);
+}
+
+/* Waveform bars */
+@keyframes wave {
+  0%, 100% { height: 4px; }
+  50%       { height: var(--h, 20px); }
+}
