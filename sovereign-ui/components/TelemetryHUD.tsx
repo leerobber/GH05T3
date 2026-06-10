@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { subscribeTelemetry, type TelemetryRow } from "@/lib/supabase";
+import InferenceBadge from "@/components/InferenceBadge";
 
 const FALLBACK_INTERVAL = 2200;
 
@@ -125,6 +126,10 @@ export default function TelemetryHUD() {
         <span className="font-mono text-[10px] text-ghost-amber ml-auto">
           {live.active_nodes ?? 0}
         </span>
+      </div>
+
+      <div className="pt-2 border-t border-white/5">
+        <InferenceBadge />
       </div>
     </div>
   );

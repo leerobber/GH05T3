@@ -47,7 +47,7 @@ MAX_STEPS   = 500
 LR          = 2e-5
 MAX_GRAD    = 0.3
 WARMUP      = 50
-MAX_SEQ_LEN = 512
+MAX_SEQ_LEN = 1024  # doubled: fills longer security-analysis examples; packing keeps VRAM flat
 BATCH       = 2    # reduce to 1 if OOM
 GRAD_ACCUM  = 4    # effective batch = 8
 
@@ -315,7 +315,7 @@ def main():
         train_dataset=dataset,
         dataset_text_field="text",
         max_seq_length=MAX_SEQ_LEN,
-        packing=False,
+        packing=True,   # concat examples to fill windows — ~2x training efficiency
         args=args,
     )
 
@@ -336,19 +336,85 @@ def main():
     tokenizer.save_pretrained(str(OUT_DIR))
     with open(OUT_DIR / "training_config.json", "w") as f:
         json.dump({
-            "model":        MODEL_ID,
-            "lora_rank":    LORA_RANK,
-            "steps":        stats.global_step,
-            "final_loss":   loss,
-            "dataset_size": len(dataset),
-            "gpu":          gpu.name,
-            "pytorch":      torch.__version__,
-            "quantized":    True,    # inference server reads this → loads 4-bit
+            "model":         MODEL_ID,
+            "lora_rank":     LORA_RANK,
+            "steps":         stats.global_step,
+            "final_loss":    loss,
+            "dataset_size":  len(dataset),
+            "max_seq_len":   MAX_SEQ_LEN,
+            "gpu":           gpu.name,
+            "sm":            f"{gpu.major}{gpu.minor}",
+            "pytorch":       torch.__version__,
+            "quantized":     True,    # inference server reads this → loads 4-bit
             "compute_dtype": "bf16" if use_bf16 else "fp16",
         }, f, indent=2)
 
     log.info("Adapter saved → %s", OUT_DIR)
     log.info("Add  LLM_PROVIDER=gh05t3  to backend/.env then start run.bat")
+
+    # ── optional AWQ export (Blackwell sm_120 + vLLM NVFP4 fast path) ─────────
+    if gpu.major >= 12:
+        _try_awq_export(OUT_DIR, tokenizer)
+
+
+def _try_awq_export(adapter_dir: Path, tokenizer) -> None:
+    """Merge LoRA adapter into base model, then AWQ-quantize for vLLM NVFP4.
+
+    Requires: pip install autoawq
+    Creates:  backend/models/gh05t3_lora_adapter-awq/
+    Then set: GH05T3_BASE_MODEL=<awq_dir>  GH05T3_ADAPTER_PATH=""
+    """
+    try:
+        from awq import AutoAWQForCausalLM  # type: ignore
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM
+    except ImportError:
+        log.info("autoawq not installed — skipping AWQ export "
+                 "(pip install autoawq to enable NVFP4-ready merged model)")
+        return
+
+    import gc
+    import shutil
+
+    merged_dir = adapter_dir.parent / (adapter_dir.name + "-merged")
+    awq_dir    = adapter_dir.parent / (adapter_dir.name + "-awq")
+    try:
+        # Step 1: load base model on CPU, merge adapter, save merged model
+        log.info("AWQ export: loading %s on CPU to merge adapter...", MODEL_ID)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID, torch_dtype=torch.float16,
+            device_map="cpu", low_cpu_mem_usage=True,
+        )
+        peft_model   = PeftModel.from_pretrained(base_model, str(adapter_dir))
+        merged_model = peft_model.merge_and_unload()
+        merged_dir.mkdir(parents=True, exist_ok=True)
+        merged_model.save_pretrained(str(merged_dir))
+        tokenizer.save_pretrained(str(merged_dir))
+
+        # Free memory before quantization
+        del base_model, peft_model, merged_model
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        # Step 2: AWQ quantize merged model; tokenizer required for calibration
+        log.info("AWQ export: quantizing merged model → %s", awq_dir)
+        awq_dir.mkdir(parents=True, exist_ok=True)
+        awq_model = AutoAWQForCausalLM.from_pretrained(str(merged_dir))
+        awq_model.quantize(
+            tokenizer,
+            quant_config={"w_bit": 4, "q_group_size": 128,
+                          "zero_point": True, "version": "GEMM"},
+        )
+        awq_model.save_quantized(str(awq_dir))
+        tokenizer.save_pretrained(str(awq_dir))
+        log.info("AWQ export complete → %s", awq_dir)
+        log.info("For max speed: GH05T3_BASE_MODEL=%s GH05T3_ADAPTER_PATH=", awq_dir)
+    except Exception as exc:
+        log.warning("AWQ export failed (non-fatal): %s", exc)
+    finally:
+        if merged_dir.exists():
+            shutil.rmtree(merged_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
