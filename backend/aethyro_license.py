@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import sys
 from pathlib import Path
@@ -145,6 +146,8 @@ def ensure_licensed(online: bool = True) -> dict:
 
 def gate() -> dict:
     """Hard gate for launchers. Exits the process if not licensed."""
+    if os.environ.get("AETHYRO_SKIP_LICENSE") == "1":
+        return {"plan": "ci", "expires": None}
     try:
         ent = ensure_licensed(online=True)
         print(f"[Aethyro] license OK — plan={ent['plan']} expires={ent['expires']}")

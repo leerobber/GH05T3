@@ -58,6 +58,7 @@ jobs:
         run: pytest tests/ -v
         env:
           PYTHONPATH: backend
+          AETHYRO_SKIP_LICENSE: "1"
 
   # ── Frontend build check ──────────────────────────────────────────────────────
   frontend:
