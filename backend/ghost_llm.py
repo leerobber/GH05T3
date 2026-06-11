@@ -81,6 +81,57 @@ def _is_rate_limit(exc: Exception) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# MoE-style task classifier — sparse routing without an extra model call
+# ---------------------------------------------------------------------------
+_SECURITY_KW = frozenset({
+    "exploit", "cve-", "cve_", "vulnerability", "payload", "shellcode", "reverse shell",
+    "privilege escalation", "pentest", "penetration test", "malware", "rootkit",
+    "lateral movement", "command injection", "sqli", "xss", "lfi", "rfi",
+    "buffer overflow", "zero-day", "zero day", "rop chain", "heap spray",
+})
+_CODE_KW = frozenset({
+    "def ", "async def ", "function ", "class ", "import ", "```python", "```js",
+    "```ts", "```rust", "```go", "implement", "refactor", "debug this", "fix this",
+    "type error", "traceback", "syntaxerror", "nameerror", "unit test", "unittest",
+})
+_RESEARCH_KW = frozenset({
+    "research", "analyze", "analyse", "compare", "survey", "explain in detail",
+    "comprehensive", "summarize", "summarise", "literature", "state of the art",
+    "how does", "why does", "what is the difference", "pros and cons",
+})
+
+
+def _classify_task(user: str, system: str = "") -> str:
+    """Classify a request into a routing tier — no extra model call required.
+
+    Returns one of: 'security' | 'code' | 'research' | 'quick' | 'default'
+
+    Routing intent:
+      security  → GH05T3 fine-tuned model (trained on CVEs, threat analysis)
+      code      → GH05T3 fine-tuned model (trained on reasoning + code datasets)
+      research  → large cloud model (Groq 70B / Anthropic — need broad knowledge)
+      quick     → smallest available local model (latency-first)
+      default   → standard cascade unchanged
+    """
+    combined = (user + " " + system).lower()
+
+    if any(kw in combined for kw in _SECURITY_KW):
+        return "security"
+
+    code_hits = sum(1 for kw in _CODE_KW if kw in combined)
+    if code_hits >= 2:
+        return "code"
+
+    if len(user.split()) < 15:
+        return "quick"
+
+    if any(kw in combined for kw in _RESEARCH_KW):
+        return "research"
+
+    return "default"
+
+
+# ---------------------------------------------------------------------------
 # Nightly config (persisted in Mongo, overridable via API)
 # ---------------------------------------------------------------------------
 _DB_REF: dict = {"db": None}
@@ -327,11 +378,15 @@ def _paid_llm_allowed() -> bool:
     return os.environ.get("ALLOW_PAID_LLM", "").strip().lower() in _TRUE_VALUES
 
 
-async def _call_ollama_preferred(system: str, user: str, role: str = "proposer") -> tuple[str, str]:
+async def _call_ollama_preferred(system: str, user: str, role: str = "proposer",
+                                 model_override: str | None = None) -> tuple[str, str]:
     if not await ollama_available():
         raise RuntimeError("Ollama is not reachable at OLLAMA_GATEWAY_URL")
     await ollama_ensure_model("qwen2.5:0.5b")
-    model = OLLAMA_PREFERRED.get(role) or OLLAMA_PREFERRED.get("proposer") or "qwen2.5:0.5b"
+    model = (model_override
+             or OLLAMA_PREFERRED.get(role)
+             or OLLAMA_PREFERRED.get("proposer")
+             or "qwen2.5:0.5b")
     text = await ollama_call(model, system, user)
     return text, f"ollama:{model}"
 
@@ -357,8 +412,21 @@ async def chat_once(session: str, system: str, user: str,
     cfg = await get_nightly_config()
     provider = _llm_provider()
 
+    # ── MoE task routing — classify before cascading ───────────────────────────
+    task = _classify_task(user, system)
+    LOG.debug("[moe] session=%s task=%s provider=%s", session, task, provider)
+
+    # security + code → prefer GH05T3 fine-tuned regardless of provider setting
+    _prefer_local = task in {"security", "code"}
+    # research → skip GH05T3 local, prefer large cloud models (need broad knowledge)
+    _prefer_cloud = task == "research"
+    # quick → use smallest available model (override model inside Ollama call)
+    _prefer_small = task == "quick"
+
     # ── Tier -1: GH05T3 fine-tuned local model (highest priority) ─────────────
-    if provider == "gh05t3" or (provider in {"auto"} and await gh05t3_available()):
+    if (provider == "gh05t3"
+            or (provider in {"auto"} and await gh05t3_available())
+            or (_prefer_local and not _prefer_cloud and await gh05t3_available())):
         try:
             text = await _call_gh05t3(system, user)
             return text, "gh05t3:local"
@@ -395,10 +463,17 @@ async def chat_once(session: str, system: str, user: str,
                         os.environ.get("SOVEREIGN_MODEL", "qwen2.5:0.5b"), session, _sov_exc)
 
     # ── Tier 0b: Ollama direct (local, always free, no network needed) ────────
+    # quick tasks bypass larger models and hit the smallest local model directly
     if _provider_ok("ollama") and await ollama_available():
         try:
-            await ollama_ensure_model("qwen2.5:0.5b")
-            return await _call_ollama_preferred(system, user, role)
+            if _prefer_small:
+                await ollama_ensure_model("qwen2.5:0.5b")
+                text = await _call_ollama_preferred(system, user, role,
+                                                    model_override="qwen2.5:0.5b")
+                return text, "ollama:qwen2.5:0.5b"
+            elif not _prefer_cloud:
+                await ollama_ensure_model("qwen2.5:0.5b")
+                return await _call_ollama_preferred(system, user, role)
         except Exception as e:
             if _is_rate_limit(e):
                 _mark_rl("ollama", 30)
@@ -411,6 +486,7 @@ async def chat_once(session: str, system: str, user: str,
                 ) from e
 
     # ── Tier 1: Groq free tier (key rotation — tries all configured keys) ────
+    # research tasks start here, skipping local models for broader knowledge
     if _provider_ok("groq"):
         groq_model = cfg.get("groq_model", "llama-3.3-70b-versatile")
         groq_keys  = _all_groq_keys() or ([cfg.get("groq_api_key")] if cfg.get("groq_api_key") else [])

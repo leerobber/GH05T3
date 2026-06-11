@@ -55,6 +55,8 @@ MAX_NEW_TOKENS = int(os.environ.get("GH05T3_MAX_TOKENS",  "1024"))
 LOAD_4BIT_ENV  = os.environ.get("GH05T3_LOAD_4BIT",       "auto")
 FORCE_HF       = os.environ.get("GH05T3_FORCE_HF",        "0") == "1"
 GPU_MEM_UTIL   = float(os.environ.get("GH05T3_GPU_MEMORY", "0.90"))
+MAX_CTX_LEN    = int(os.environ.get("GH05T3_MAX_CTX",     "32768"))   # extended context window
+MAX_SEQS       = int(os.environ.get("GH05T3_MAX_SEQS",    "16"))      # concurrent batch slots
 _BASE_MODEL_OVERRIDE = os.environ.get("GH05T3_BASE_MODEL", "")
 DEFAULT_BASE_MODEL   = "Qwen/Qwen2.5-7B-Instruct"
 
@@ -94,7 +96,7 @@ def _update_tok_s(new_val: float) -> None:
 
 
 def _pick_vllm_quant() -> str | None:
-    """Best quantization for the installed GPU."""
+    """Best weight quantization for the installed GPU."""
     if not torch.cuda.is_available():
         return None
     major = torch.cuda.get_device_properties(0).major
@@ -103,6 +105,23 @@ def _pick_vllm_quant() -> str | None:
     if major >= 9:
         return "fp8"    # Hopper  sm_90  — ~4 000 tok/s native
     return None         # Ampere and older — vLLM uses BF16
+
+
+def _pick_kv_cache_dtype() -> str:
+    """fp8 KV cache cuts memory ~2x vs fp16, enabling longer context on the same VRAM.
+
+    Blackwell (sm_120): fp8_e5m2 — native hardware support
+    Hopper   (sm_90):  fp8_e4m3 — hardware fp8 tensor cores
+    Older:             auto     — vLLM default (fp16)
+    """
+    if not torch.cuda.is_available():
+        return "auto"
+    major = torch.cuda.get_device_properties(0).major
+    if major >= 12:
+        return "fp8_e5m2"
+    if major >= 9:
+        return "fp8_e4m3"
+    return "auto"
 
 
 # ── model loading ──────────────────────────────────────────────────────────────
@@ -158,9 +177,15 @@ def _load_vllm(base_model: str, adapter_dir, training_cfg: dict) -> None:
                 enable_lora            = (adapter_dir is not None),
                 max_loras              = 8,
                 max_lora_rank          = 64,
-                enforce_eager          = False,   # enable CUDA graph compilation
+                enforce_eager          = False,        # CUDA graph compilation
                 trust_remote_code      = True,
                 disable_log_requests   = True,
+                # Extended context + memory efficiency
+                max_model_len          = MAX_CTX_LEN,  # 32K context (fp8 KV makes this free)
+                kv_cache_dtype         = _pick_kv_cache_dtype(),  # fp8 = ~2x KV memory reduction
+                max_num_seqs           = MAX_SEQS,     # concurrent sequences for batching
+                enable_chunked_prefill = True,         # efficient long-prompt processing
+                enable_prefix_caching  = True,         # reuse KV cache for shared prefixes
             )
             _vllm_engine = AsyncLLMEngine.from_engine_args(engine_args)
             _quant_type  = quant or "none"
