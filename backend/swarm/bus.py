@@ -357,18 +357,13 @@ class SwarmAgent:
         if msg.src == self.agent_id:
             return   # ignore own messages
         self._msg_count += 1
-        cb = get_breaker(self.agent_id)
-        if not cb.allow():
+        try:
+            async with get_breaker(self.agent_id):
+                await self.on_message(msg)
+        except CircuitBreakerOpen:
             log.warning("[%s] circuit OPEN — dropping message (type=%s)",
                         self.agent_id, msg.msg_type)
-            return
-        try:
-            await self.on_message(msg)
-            cb.success()
-        except CircuitBreakerOpen:
-            pass   # already logged above
         except Exception as e:
-            cb.failure(e)
             log.error(f"[{self.agent_id}] on_message error: {e}")
             await self.say(f"Error handling {msg.msg_type}: {e}",
                             channel="#broadcast", msg_type=MsgType.ERROR)

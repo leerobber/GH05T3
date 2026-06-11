@@ -67,10 +67,12 @@ async def _embed(text: str) -> list[float] | None:
 # ---------------------------------------------------------------------------
 # BM25 fallback scorer — no extra dependencies required
 # ---------------------------------------------------------------------------
-def _bm25_score(query_terms: set[str], doc: str, avg_len: float = 80.0,
+def _bm25_score(query_terms: set[str], words: list[str], avg_len: float = 80.0,
                 k1: float = 1.5, b: float = 0.75) -> float:
-    """Simplified BM25 relevance score for substring-fallback recall."""
-    words = doc.lower().split()
+    """Simplified BM25 relevance score for substring-fallback recall.
+
+    Accepts pre-split lowercase words to avoid redundant string operations.
+    """
     doc_len = len(words)
     if not words or not query_terms:
         return 0.0
@@ -226,19 +228,20 @@ class MemoryPalace:
         candidates = [
             s for s in self._shards
             if (room is None or s["room"] == room)
-            and (tags is None or any(t in s["tags"] for t in tags))
+            and (not tags or any(t in s["tags"] for t in tags))
         ]
 
         if not query_terms:
-            # No usable terms — return most recent
             return sorted(candidates, key=lambda x: x["timestamp"], reverse=True)[:top_k]
 
-        avg_len = (sum(len(s["content"].split()) for s in candidates) / len(candidates)
+        # Pre-split once — used both for avg_len and inside _bm25_score
+        candidate_words = [(s, s["content"].lower().split()) for s in candidates]
+        avg_len = (sum(len(w) for _, w in candidate_words) / len(candidates)
                    if candidates else 80.0)
 
         scored = [
-            (s, _bm25_score(query_terms, s["content"], avg_len))
-            for s in candidates
+            (s, _bm25_score(query_terms, w, avg_len))
+            for s, w in candidate_words
         ]
         scored = [(s, sc) for s, sc in scored if sc > 0]
         scored.sort(key=lambda x: x[1], reverse=True)

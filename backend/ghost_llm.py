@@ -122,7 +122,7 @@ def _classify_task(user: str, system: str = "") -> str:
     if code_hits >= 2:
         return "code"
 
-    if len(user.split()) < 15:
+    if len(user.split(maxsplit=15)) < 15:
         return "quick"
 
     if any(kw in combined for kw in _RESEARCH_KW):
@@ -467,12 +467,10 @@ async def chat_once(session: str, system: str, user: str,
     if _provider_ok("ollama") and await ollama_available():
         try:
             if _prefer_small:
-                await ollama_ensure_model("qwen2.5:0.5b")
                 text = await _call_ollama_preferred(system, user, role,
                                                     model_override="qwen2.5:0.5b")
                 return text, "ollama:qwen2.5:0.5b"
             elif not _prefer_cloud:
-                await ollama_ensure_model("qwen2.5:0.5b")
                 return await _call_ollama_preferred(system, user, role)
         except Exception as e:
             if _is_rate_limit(e):
