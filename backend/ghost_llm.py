@@ -122,11 +122,11 @@ def _classify_task(user: str, system: str = "") -> str:
     if code_hits >= 2:
         return "code"
 
-    if len(user.split(maxsplit=15)) < 15:
-        return "quick"
-
     if any(kw in combined for kw in _RESEARCH_KW):
         return "research"
+
+    if len(user.split(maxsplit=15)) < 15:
+        return "quick"
 
     return "default"
 

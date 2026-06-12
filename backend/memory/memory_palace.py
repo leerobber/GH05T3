@@ -245,7 +245,7 @@ class MemoryPalace:
         ]
         scored = [(s, sc) for s, sc in scored if sc > 0]
         scored.sort(key=lambda x: x[1], reverse=True)
-        return [s for s, _ in scored[:top_k]]
+        return [{**s, "score": sc} for s, sc in scored[:top_k]]
 
     def prune(self, max_shards: int = 5000) -> int:
         """Delete oldest shards to keep total at or below max_shards. Returns count removed."""
