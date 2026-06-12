@@ -164,6 +164,8 @@ class FaultInjector:
 
         t0 = time.monotonic()
         injected = False
+        error    = ""
+        passed   = True
         try:
             if not CHAOS_LOG_ONLY:
                 await sc.inject()
@@ -172,18 +174,19 @@ class FaultInjector:
             injected = True
             yield sc
         except Exception as e:
-            self._results.append(FaultResult(
-                scenario=name, injected=injected,
-                duration_ms=(time.monotonic() - t0) * 1000,
-                error=str(e), passed=False,
-            ))
+            error  = str(e)
+            passed = False
             raise
         finally:
             if injected and not CHAOS_LOG_ONLY:
                 await sc.restore()
+            # Append exactly once — tracks both success and failure paths
             self._results.append(FaultResult(
-                scenario=name, injected=injected,
-                duration_ms=(time.monotonic() - t0) * 1000,
+                scenario    = name,
+                injected    = injected,
+                duration_ms = (time.monotonic() - t0) * 1000,
+                error       = error,
+                passed      = passed,
             ))
 
     async def run_all(self, probe_fn: Callable[[], Awaitable[None]],

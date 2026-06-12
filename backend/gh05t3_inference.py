@@ -110,17 +110,15 @@ def _pick_vllm_quant() -> str | None:
 def _pick_kv_cache_dtype() -> str:
     """fp8 KV cache cuts memory ~2x vs fp16, enabling longer context on the same VRAM.
 
-    Blackwell (sm_120): fp8_e5m2 — native hardware support
-    Hopper   (sm_90):  fp8_e4m3 — hardware fp8 tensor cores
-    Older:             auto     — vLLM default (fp16)
+    vLLM only accepts 'auto' or 'fp8' — it selects the optimal fp8 sub-format
+    (e5m2 vs e4m3) internally based on hardware capability.
+    Hopper (sm_90+) and Blackwell (sm_120+) both support fp8 natively.
     """
     if not torch.cuda.is_available():
         return "auto"
     major = torch.cuda.get_device_properties(0).major
-    if major >= 12:
-        return "fp8_e5m2"
     if major >= 9:
-        return "fp8_e4m3"
+        return "fp8"   # Hopper + Blackwell — vLLM picks e4m3/e5m2 internally
     return "auto"
 
 

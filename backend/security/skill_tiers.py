@@ -108,8 +108,10 @@ class SkillRecord:
         if not self.permissions["shell"]:
             return False
         if self.tier == 3:
-            cmd_lower = command.lower()
-            return not any(blocked in cmd_lower for blocked in T3_SHELL_BLOCKLIST)
+            import re
+            # Normalize whitespace before matching — prevents `python   -c` bypass
+            cmd_normalized = re.sub(r"\s+", " ", command.lower().strip())
+            return not any(blocked in cmd_normalized for blocked in T3_SHELL_BLOCKLIST)
         return True  # T4 — unrestricted
 
     def to_dict(self) -> dict:

@@ -79,8 +79,23 @@ class EntropyDriftTracker:
 
     # ── DB setup ─────────────────────────────────────────────────────────────
 
-    def _conn(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._db)
+    def _conn(self):
+        """Context manager that commits/rolls back AND closes the connection."""
+        db_path = self._db
+
+        class _Ctx:
+            def __enter__(self):
+                self._c = sqlite3.connect(db_path)
+                self._c.__enter__()
+                return self._c
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                try:
+                    self._c.__exit__(exc_type, exc_val, exc_tb)
+                finally:
+                    self._c.close()
+
+        return _Ctx()
 
     def _init_db(self):
         with self._conn() as conn:
