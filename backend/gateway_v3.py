@@ -72,6 +72,9 @@ from integrations.story_editor import (
     story_editor_greeting, story_editor_turn,
     get_session, reset_session, list_sessions,
 )
+from agent_marketplace import (
+    JobQueue, ingest_github_event, ingest_stripe_event, ingest_cve_feed,
+)
 
 log = logging.getLogger("gh0st3.gateway_v3")
 
@@ -1025,6 +1028,12 @@ async def stripe_webhook(request: Request):
         )
         log.info("Stripe event processed: %s → %s", event_type, result.get("action"))
 
+    # Dispatch marketplace job for async agent processing
+    try:
+        await ingest_stripe_event(event_type, event)
+    except Exception:
+        pass
+
     return {"received": True, "event": event_type, "action": result.get("action") if result else "ignored"}
 
 
@@ -1038,6 +1047,54 @@ async def stripe_subscribers():
 async def stripe_subscribers_all():
     """Full subscriber list — internal use only, protect this behind auth in prod."""
     return {"subscribers": all_subscribers()}
+
+
+# ─────────────────────────────────────────────
+# MARKETPLACE — Agent Job Queue
+# ─────────────────────────────────────────────
+
+@app.get("/marketplace/stats")
+async def marketplace_stats():
+    """Job queue statistics — pending / claimed / completed counts."""
+    return JobQueue.instance().stats()
+
+
+class ManualJobRequest(BaseModel):
+    task: str
+    tags: list = []
+    reward: int = 20
+    posted_by: str = "api"
+
+
+@app.post("/marketplace/post")
+async def marketplace_post_job(req: ManualJobRequest):
+    """Manually post a job to the agent marketplace."""
+    job_id = await JobQueue.instance().post(
+        task=req.task, tags=req.tags,
+        reward=req.reward, posted_by=req.posted_by,
+    )
+    return {"job_id": job_id}
+
+
+@app.get("/marketplace/economy")
+async def marketplace_economy():
+    """Local credit ledger snapshot — agent balances and totals."""
+    try:
+        from economy.ledger import ledger_stats
+        return ledger_stats()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/sentinel/cve-feed")
+async def sentinel_cve_feed(request: Request):
+    """Accept CVE records and dispatch SENTINEL jobs. Body: {"cves": [...]}"""
+    body = await request.json()
+    cves = body.get("cves", [])
+    if not cves:
+        raise HTTPException(400, "No CVE records provided")
+    job_ids = await ingest_cve_feed(cves)
+    return {"jobs_posted": len(job_ids), "job_ids": job_ids}
 
 
 # ─────────────────────────────────────────────

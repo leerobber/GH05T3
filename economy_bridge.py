@@ -14,11 +14,23 @@ Rewards:
   Domain mastery (0.8+)→ domain agent earns
 """
 
+import sys, os as _os
 import requests
 from functools import lru_cache
 
 ECO_BASE = "http://localhost:8081"
 ENABLED  = True   # set False to disable without removing call sites
+
+# Local SQLite ledger — always records even when SovereignCore is offline
+_backend_dir = _os.path.join(_os.path.dirname(__file__), "backend")
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+try:
+    from economy.ledger import credit as _local_credit
+    _LOCAL_LEDGER = True
+except ImportError:
+    _local_credit = None
+    _LOCAL_LEDGER = False
 
 # ── Reward table (credits) ────────────────────────────────────────────────────
 REWARD = {
@@ -78,13 +90,22 @@ def _refresh_ids():
 def _seed(name: str, amount: int, reason: str) -> bool:
     if not ENABLED:
         return False
+
+    # Always record locally first — economy never goes dark
+    if _LOCAL_LEDGER and _local_credit:
+        try:
+            _local_credit(name, amount, reason, source="sovereign_core")
+        except Exception:
+            pass
+
+    # Then attempt SovereignCore
     ids = _get_agent_ids()
     agent_id = ids.get(name)
     if not agent_id:
         ids = _refresh_ids()
         agent_id = ids.get(name)
     if not agent_id:
-        return False
+        return _LOCAL_LEDGER  # local-only success if remote ID not found
     try:
         r = requests.post(
             f"{ECO_BASE}/creator/seed/{agent_id}",
@@ -96,7 +117,7 @@ def _seed(name: str, amount: int, reason: str) -> bool:
             return True
     except Exception:
         pass
-    return False
+    return _LOCAL_LEDGER  # local record still succeeded
 
 
 def complete_task_for(agent_name: str, title: str, reward: int):

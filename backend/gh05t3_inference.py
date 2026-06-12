@@ -124,6 +124,81 @@ def _pick_kv_cache_dtype() -> str:
     return "auto"
 
 
+# ── LoRA Farm — domain-specific adapter hot-swap ───────────────────────────────
+
+class LoRAFarm:
+    """Route generation requests to domain-specific LoRA adapters.
+
+    Each domain adapter is a separate fine-tune trained on domain-specific data:
+        security  → models/security_adapter     (CVE, exploit reasoning, OWASP)
+        code      → models/code_adapter         (code generation, refactoring)
+        research  → models/research_adapter     (knowledge synthesis, summarization)
+        ops       → models/ops_adapter          (workflow planning, orchestration)
+        default   → models/gh05t3_lora_adapter  (general-purpose fine-tune)
+
+    Adapters are ~150MB each. vLLM holds up to max_loras=8 in VRAM simultaneously,
+    swapping on LRU. Falls back gracefully to the default adapter when a domain
+    adapter hasn't been trained yet.
+    """
+
+    # Canonical domain → subdirectory under backend/models/
+    _DOMAIN_DIRS: dict[str, str] = {
+        "security": "security_adapter",
+        "code":     "code_adapter",
+        "research": "research_adapter",
+        "ops":      "ops_adapter",
+        "quick":    "gh05t3_lora_adapter",   # small queries use default (speed)
+        "default":  "gh05t3_lora_adapter",
+    }
+    # Stable integer IDs (1–8) reused across requests to avoid vLLM re-registration
+    _LORA_INT_IDS: dict[str, int] = {
+        "security": 1, "code": 2, "research": 3,
+        "ops": 4, "quick": 5, "default": 6,
+    }
+
+    def __init__(self, base_dir: Path = None):
+        self._base = base_dir or (Path(__file__).parent / "models")
+
+    def get_lora_request(self, task_domain: str) -> "Optional[LoRARequest]":
+        """Return a LoRARequest for the given task domain, or None if vLLM unavailable."""
+        if not _VLLM:
+            return None
+
+        domain = task_domain if task_domain in self._DOMAIN_DIRS else "default"
+        adapter_path = self._base / self._DOMAIN_DIRS[domain]
+
+        # Fall back to default adapter when domain-specific one isn't trained yet
+        if not (adapter_path / "adapter_config.json").exists():
+            adapter_path = self._base / "gh05t3_lora_adapter"
+
+        if not (adapter_path / "adapter_config.json").exists():
+            return None   # no adapter at all — vLLM serves base model
+
+        return LoRARequest(
+            lora_name     = domain,
+            lora_int_id   = self._LORA_INT_IDS.get(domain, 6),
+            lora_local_path = str(adapter_path),
+        )
+
+    def available_domains(self) -> dict[str, bool]:
+        """Report which domain adapters are present on disk."""
+        result: dict[str, bool] = {}
+        for domain, subdir in self._DOMAIN_DIRS.items():
+            result[domain] = (self._base / subdir / "adapter_config.json").exists()
+        return result
+
+
+# Module-level LoRAFarm singleton
+_lora_farm: "Optional[LoRAFarm]" = None
+
+
+def get_lora_farm() -> "LoRAFarm":
+    global _lora_farm
+    if _lora_farm is None:
+        _lora_farm = LoRAFarm()
+    return _lora_farm
+
+
 # ── model loading ──────────────────────────────────────────────────────────────
 def load_model() -> None:
     global _tokenizer, _ready, _model_id, _has_adapter
@@ -274,9 +349,10 @@ def _inject_system(messages: list[dict]) -> list[dict]:
 
 
 # ── vLLM generation ─────────────────────────────────────────────────────────────
-async def _vllm_stream_tokens(prompt: str, max_tokens: int, temperature: float, req_id: str):
+async def _vllm_stream_tokens(prompt: str, max_tokens: int, temperature: float,
+                               req_id: str, task_domain: str = "default"):
     """Async-yield raw text tokens from vLLM. Aborts the request on cancellation."""
-    lora = LoRARequest("gh05t3", 1, ADAPTER_PATH) if _has_adapter else None
+    lora = get_lora_farm().get_lora_request(task_domain) if _has_adapter else None
     prev = ""
     try:
         async for out in _vllm_engine.generate(
@@ -301,8 +377,8 @@ async def _vllm_stream_tokens(prompt: str, max_tokens: int, temperature: float, 
         await _vllm_engine.abort(req_id)
 
 
-async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float
-                               ) -> tuple[str, int, int]:
+async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float,
+                               task_domain: str = "default") -> tuple[str, int, int]:
     req_id = str(uuid.uuid4())
     full_text = ""
     p_toks = c_toks = 0
@@ -316,7 +392,7 @@ async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float
                 repetition_penalty = 1.1,
             ),
             req_id,
-            lora_request=LoRARequest("gh05t3", 1, ADAPTER_PATH) if _has_adapter else None,
+            lora_request=get_lora_farm().get_lora_request(task_domain) if _has_adapter else None,
         ):
             if out.finished and out.outputs:
                 full_text = out.outputs[0].text.strip()
@@ -408,7 +484,8 @@ async def _hf_stream_tokens(messages: list[dict], max_tokens: int, temperature: 
 
 
 # ── unified SSE response ────────────────────────────────────────────────────────
-async def _sse_stream(messages: list[dict], max_tokens: int, temperature: float):
+async def _sse_stream(messages: list[dict], max_tokens: int, temperature: float,
+                      task_domain: str = "default"):
     """Yield SSE data: lines for both vLLM and HF backends."""
     cid   = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     ts    = int(time.time())
@@ -419,7 +496,8 @@ async def _sse_stream(messages: list[dict], max_tokens: int, temperature: float)
 
     if _backend == "vllm":
         prompt = _build_chatml(_inject_system(messages))
-        source = _vllm_stream_tokens(prompt, max_tokens, temperature, str(uuid.uuid4()))
+        source = _vllm_stream_tokens(prompt, max_tokens, temperature,
+                                      str(uuid.uuid4()), task_domain)
     else:
         source = _hf_stream_tokens(messages, max_tokens, temperature)
 
@@ -455,17 +533,19 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens:  int   = MAX_NEW_TOKENS
     stream:      bool  = False
+    task_domain: str   = ""   # optional: "security"|"code"|"research"|"ops" — routes LoRAFarm
 
 
 @app.get("/health")
 async def health():
     return {
-        "status":  "ready" if _ready else "loading",
-        "model":   _model_id,
-        "adapter": ADAPTER_PATH,
-        "backend": _backend,
-        "quant":   _quant_type,
-        "tok_s":   round(_tok_s_ema, 1),
+        "status":        "ready" if _ready else "loading",
+        "model":         _model_id,
+        "adapter":       ADAPTER_PATH,
+        "backend":       _backend,
+        "quant":         _quant_type,
+        "tok_s":         round(_tok_s_ema, 1),
+        "lora_adapters": get_lora_farm().available_domains(),
     }
 
 
@@ -490,9 +570,19 @@ async def chat_completions(req: ChatRequest):
 
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
+    # Auto-classify task domain if not provided
+    domain = req.task_domain or "default"
+    if not req.task_domain:
+        try:
+            from ghost_llm import _classify_task
+            user_text = " ".join(m.content for m in req.messages if m.role == "user")
+            domain = _classify_task(user_text)
+        except Exception:
+            pass
+
     if req.stream:
         return StreamingResponse(
-            _sse_stream(messages, req.max_tokens, req.temperature),
+            _sse_stream(messages, req.max_tokens, req.temperature, domain),
             media_type="text/event-stream",
             headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
         )
@@ -502,7 +592,7 @@ async def chat_completions(req: ChatRequest):
         if _backend == "vllm":
             prompt = _build_chatml(_inject_system(messages))
             text, p_toks, c_toks = await _vllm_generate_full(
-                prompt, req.max_tokens, req.temperature
+                prompt, req.max_tokens, req.temperature, domain
             )
         else:
             global _hf_lock
