@@ -38,6 +38,8 @@ from pathlib import Path
 from typing import Callable, Awaitable, Any, Optional
 from enum import Enum
 
+from swarm.circuit_breaker import get_breaker, CircuitBreakerOpen
+
 log = logging.getLogger("gh0st3.swarm.bus")
 
 CHAT_LOG_PATH = Path("memory/conversations.jsonl")
@@ -297,12 +299,14 @@ class SwarmBus:
 
     @property
     def stats(self) -> dict:
+        from swarm.circuit_breaker import all_stats as cb_stats
         return {
-            "agents":       len(self._agents),
-            "active_agents": sum(1 for a in self._agents.values() if a.get("active")),
-            "channels":     list(self._subs.keys()),
-            "ws_clients":   len(self._ws_clients),
-            "log":          self.log.stats,
+            "agents":          len(self._agents),
+            "active_agents":   sum(1 for a in self._agents.values() if a.get("active")),
+            "channels":        list(self._subs.keys()),
+            "ws_clients":      len(self._ws_clients),
+            "log":             self.log.stats,
+            "circuit_breakers": cb_stats(),
         }
 
     async def direct(self, src: str, dst: str, content: str,
@@ -349,12 +353,16 @@ class SwarmAgent:
         self.bus.subscribe(f"#swarm/{self.agent_id}", self._handle)
 
     async def _handle(self, msg: SwarmMessage):
-        """Route inbound messages to on_message."""
+        """Route inbound messages to on_message, protected by a circuit breaker."""
         if msg.src == self.agent_id:
             return   # ignore own messages
         self._msg_count += 1
         try:
-            await self.on_message(msg)
+            async with get_breaker(self.agent_id):
+                await self.on_message(msg)
+        except CircuitBreakerOpen:
+            log.warning("[%s] circuit OPEN — dropping message (type=%s)",
+                        self.agent_id, msg.msg_type)
         except Exception as e:
             log.error(f"[{self.agent_id}] on_message error: {e}")
             await self.say(f"Error handling {msg.msg_type}: {e}",
