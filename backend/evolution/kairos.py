@@ -6,18 +6,22 @@ import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
-KAIROS_LOG       = Path("evolution/kairos_log.jsonl")
-ELITE_THRESHOLD  = float(os.environ.get("SAGE_ELITE_THRESHOLD", "0.90"))
+KAIROS_LOG      = Path("evolution/kairos_log.jsonl")
+ELITE_THRESHOLD = float(os.environ.get("SAGE_ELITE_THRESHOLD", "0.90"))
 
 
 @dataclass
 class KAIROSCycle:
-    id:         int
-    proposal:   str
-    verdict:    str
-    score:      float
-    timestamp:  float = field(default_factory=time.time)
-    is_elite:   bool  = False
+    id:                   int
+    proposal:             str
+    verdict:              str
+    score:                float
+    timestamp:            float = field(default_factory=time.time)
+    is_elite:             bool  = False
+    # Sentinel + entropy fields — populated when wired through OmegaLoop
+    sentinel_viability:   float = 0.0
+    entropy_drift:        float = 0.0
+    agent_id:             str   = "unknown"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -32,13 +36,24 @@ class KAIROS:
         self._elite:  list[KAIROSCycle] = []
         KAIROS_LOG.parent.mkdir(parents=True, exist_ok=True)
 
-    def record_cycle(self, proposal: str, verdict: str, score: float) -> KAIROSCycle:
+    def record_cycle(
+        self,
+        proposal:           str,
+        verdict:            str,
+        score:              float,
+        sentinel_viability: float = 0.0,
+        entropy_drift:      float = 0.0,
+        agent_id:           str   = "unknown",
+    ) -> KAIROSCycle:
         cycle = KAIROSCycle(
-            id=len(self._cycles) + 1,
-            proposal=proposal,
-            verdict=verdict,
-            score=score,
-            is_elite=score >= self.elite_threshold,
+            id                  = len(self._cycles) + 1,
+            proposal            = proposal,
+            verdict             = verdict,
+            score               = score,
+            is_elite            = score >= self.elite_threshold,
+            sentinel_viability  = sentinel_viability,
+            entropy_drift       = entropy_drift,
+            agent_id            = agent_id,
         )
         self._cycles.append(cycle)
         if cycle.is_elite:
@@ -51,11 +66,13 @@ class KAIROS:
         try:
             from integrations.wandb_logger import log_kairos_cycle
             log_kairos_cycle(
-                cycle_id=cycle.id,
-                score=cycle.score,
-                is_elite=cycle.is_elite,
-                total_cycles=len(self._cycles),
-                elite_cycles=len(self._elite),
+                cycle_id      = cycle.id,
+                score         = cycle.score,
+                is_elite      = cycle.is_elite,
+                total_cycles  = len(self._cycles),
+                elite_cycles  = len(self._elite),
+                sentinel_v    = cycle.sentinel_viability,
+                entropy_drift = cycle.entropy_drift,
             )
         except Exception:
             pass
@@ -70,7 +87,7 @@ class KAIROS:
                     loop.create_task(notify_elite_cycle(
                         cycle.id, cycle.score, cycle.proposal))
                 except RuntimeError:
-                    pass  # no event loop — skip notification
+                    pass
             except Exception:
                 pass
 
@@ -82,11 +99,16 @@ class KAIROS:
 
     @property
     def stats(self) -> dict:
-        scores = [c.score for c in self._cycles]
+        scores    = [c.score for c in self._cycles]
+        drifts    = [c.entropy_drift for c in self._cycles if c.entropy_drift > 0]
+        viabs     = [c.sentinel_viability for c in self._cycles if c.sentinel_viability > 0]
+        blocked   = [c for c in self._cycles if c.verdict == "SENTINEL_BLOCK"]
         return {
-            "total_cycles":     len(self._cycles),
-            "elite_cycles":     len(self._elite),
-            "elite_threshold":  self.elite_threshold,
-            "avg_score":        sum(scores) / len(scores) if scores else 0.0,
+            "total_cycles":       len(self._cycles),
+            "elite_cycles":       len(self._elite),
+            "sentinel_blocks":    len(blocked),
+            "elite_threshold":    self.elite_threshold,
+            "avg_score":          round(sum(scores) / len(scores), 4) if scores else 0.0,
+            "avg_sentinel_v":     round(sum(viabs)  / len(viabs),  4) if viabs  else 0.0,
+            "avg_entropy_drift":  round(sum(drifts) / len(drifts), 4) if drifts else 0.0,
         }
-
