@@ -88,14 +88,24 @@ class Job:
 # ---------------------------------------------------------------------------
 
 @contextmanager
-def _conn():
-    c = sqlite3.connect(_DB_PATH, timeout=10, check_same_thread=False)
+def _conn(immediate: bool = False):
+    """WAL-mode connection with explicit transaction management.
+
+    Use immediate=True for claim() to serialise the SELECT + UPDATE
+    so two workers cannot claim the same job concurrently.
+    """
+    c = sqlite3.connect(_DB_PATH, timeout=10, check_same_thread=False,
+                        isolation_level=None)
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
     try:
         yield c
-        c.commit()
+        c.execute("COMMIT")
     except Exception:
-        c.rollback()
+        try:
+            c.execute("ROLLBACK")
+        except Exception:
+            pass
         raise
     finally:
         c.close()
@@ -182,11 +192,23 @@ class JobQueue:
     # ── claiming ─────────────────────────────────────────────────────────────
 
     async def claim(self, agent_id: str, capability_tags: list[str]) -> Optional[Job]:
-        """Atomically claim the highest-reward matching pending job."""
-        with _conn() as c:
-            # Find best matching job: any tag intersection, sorted by reward DESC
-            tag_filter = " OR ".join(["tags LIKE ?" for _ in capability_tags]) if capability_tags else "1=1"
-            params = [f"%{t}%" for t in capability_tags] if capability_tags else []
+        """Atomically claim the highest-reward matching pending job.
+
+        Uses BEGIN IMMEDIATE so only one worker can execute the SELECT+UPDATE
+        at a time, preventing double-claims. Tag matching uses json_each for
+        exact token comparison instead of fragile LIKE substring matching.
+        """
+        with _conn(immediate=True) as c:
+            if capability_tags:
+                placeholders = ",".join("?" * len(capability_tags))
+                tag_filter = (
+                    f"EXISTS (SELECT 1 FROM json_each(tags) WHERE value IN ({placeholders}))"
+                )
+                params = list(capability_tags)
+            else:
+                tag_filter = "1=1"
+                params = []
+
             row = c.execute(
                 f"SELECT id, task, tags, reward, status, posted_by, claimed_by, "
                 f"created_at, claimed_at, completed_at, result, metadata "
@@ -200,10 +222,14 @@ class JobQueue:
                 return None
 
             now = time.time()
-            c.execute(
-                "UPDATE marketplace_jobs SET status=?, claimed_by=?, claimed_at=? WHERE id=?",
-                (JobStatus.CLAIMED.value, agent_id, now, row[0]),
-            )
+            updated = c.execute(
+                "UPDATE marketplace_jobs SET status=?, claimed_by=?, claimed_at=? "
+                "WHERE id=? AND status=?",
+                (JobStatus.CLAIMED.value, agent_id, now, row[0], JobStatus.PENDING.value),
+            ).rowcount
+
+            if not updated:
+                return None  # another worker claimed it between SELECT and UPDATE
 
         return Job(
             id=row[0], task=row[1], tags=json.loads(row[2]),
@@ -408,7 +434,10 @@ class AgentPool:
             c.execute("DELETE FROM marketplace_workers WHERE worker_id=?", (worker_id,))
 
     async def _autoscale_loop(self):
-        """Check queue depth every 5 seconds, scale workers up or down."""
+        """Check queue depth every 5 seconds, scale workers up or down.
+
+        Also re-spawns workers that have crashed to maintain min_workers.
+        """
         while self._running:
             await asyncio.sleep(5)
             try:
@@ -416,10 +445,18 @@ class AgentPool:
                 pending = stats["pending"]
 
                 for agent_type, cfg in self._configs.items():
-                    tasks   = self._workers.get(agent_type, [])
-                    active  = [t for t in tasks if not t.done()]
+                    tasks  = self._workers.get(agent_type, [])
+                    active = [t for t in tasks if not t.done()]
                     self._workers[agent_type] = active
 
+                    # Restore workers that have exited below minimum
+                    while len(active) < cfg.min_workers:
+                        t = await self._spawn(agent_type)
+                        active.append(t)
+                        LOG.info("[pool] autoscale RESTORE: %s → %d/%d workers",
+                                 agent_type, len(active), cfg.min_workers)
+
+                    # Scale up when queue backs up
                     if pending >= _SCALE_UP_AT and len(active) < cfg.max_workers:
                         await self._spawn(agent_type)
                         LOG.info("[pool] autoscale UP: %s → %d workers (queue=%d)",
@@ -539,7 +576,7 @@ async def ingest_cve_feed(cve_records: list[dict]) -> list[str]:
     q    = JobQueue.instance()
     jobs = []
     for cve in cve_records[:20]:   # cap at 20 per batch
-        severity = cve.get("severity", "UNKNOWN")
+        severity = (cve.get("severity") or "UNKNOWN").upper()
         reward   = {"CRITICAL": 80, "HIGH": 50, "MEDIUM": 30, "LOW": 15}.get(severity, 20)
         task     = (
             f"Analyze {cve.get('id', 'CVE-UNKNOWN')} ({severity}): "

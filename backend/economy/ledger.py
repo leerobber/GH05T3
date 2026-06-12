@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sqlite3
 import time
@@ -44,14 +45,24 @@ KNOWN_AGENTS = {
 # ---------------------------------------------------------------------------
 
 @contextmanager
-def _conn():
-    c = sqlite3.connect(_DB_PATH, timeout=10, check_same_thread=False)
+def _conn(immediate: bool = False):
+    """Open a WAL-mode connection with explicit transaction management.
+
+    Use immediate=True for read-modify-write ops to prevent concurrent
+    writes from interleaving between the SELECT and the INSERT/UPDATE.
+    """
+    c = sqlite3.connect(_DB_PATH, timeout=10, check_same_thread=False,
+                        isolation_level=None)
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
     try:
         yield c
-        c.commit()
+        c.execute("COMMIT")
     except Exception:
-        c.rollback()
+        try:
+            c.execute("ROLLBACK")
+        except Exception:
+            pass
         raise
     finally:
         c.close()
@@ -118,20 +129,20 @@ class Ledger:
     def credit(self, agent_id: str, amount: float, reason: str = "",
                source: str = "local") -> float:
         """Add credits. Returns new balance."""
-        if amount <= 0:
-            raise ValueError(f"Credit amount must be positive, got {amount}")
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError(f"Credit amount must be a positive finite number, got {amount}")
         return self._apply(agent_id, +amount, reason, source)
 
     def debit(self, agent_id: str, amount: float, reason: str = "",
               source: str = "local") -> float:
         """Subtract credits (will go negative — enforce limits at call site).
         Returns new balance."""
-        if amount <= 0:
-            raise ValueError(f"Debit amount must be positive, got {amount}")
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError(f"Debit amount must be a positive finite number, got {amount}")
         return self._apply(agent_id, -amount, reason, source)
 
     def _apply(self, agent_id: str, delta: float, reason: str, source: str) -> float:
-        with _conn() as c:
+        with _conn(immediate=True) as c:
             row = c.execute(
                 "SELECT balance FROM agent_credits WHERE agent_id=?", (agent_id,)
             ).fetchone()

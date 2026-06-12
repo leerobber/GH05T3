@@ -238,6 +238,7 @@ class MemoryPalace:
         candidate_words = [(s, s["content"].lower().split()) for s in candidates]
         avg_len = (sum(len(w) for _, w in candidate_words) / len(candidates)
                    if candidates else 80.0)
+        avg_len = max(avg_len, 1.0)  # guard: all-empty-content shards must not cause ZeroDivisionError
 
         scored = [
             (s, _bm25_score(query_terms, w, avg_len))
@@ -245,7 +246,7 @@ class MemoryPalace:
         ]
         scored = [(s, sc) for s, sc in scored if sc > 0]
         scored.sort(key=lambda x: x[1], reverse=True)
-        return [s for s, _ in scored[:top_k]]
+        return [{**s, "score": sc} for s, sc in scored[:top_k]]
 
     def prune(self, max_shards: int = 5000) -> int:
         """Delete oldest shards to keep total at or below max_shards. Returns count removed."""
