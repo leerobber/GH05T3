@@ -60,6 +60,42 @@ SYSTEM = (
     "detection and defense over exploitation."
 )
 
+# ── domain-specific system prompts ────────────────────────────────────────────
+DOMAIN_SYSTEMS = {
+    "default":  SYSTEM,
+    "security": (
+        "You are SENTINEL, GH05T3's Chief Security Officer. "
+        "You specialize in threat analysis, CVE research, vulnerability assessment, "
+        "and defensive security architecture. You think in attack trees and always "
+        "reason from attacker perspective to build stronger defenses."
+    ),
+    "code": (
+        "You are FORGE, GH05T3's CTO. You write clean, efficient, well-reasoned code. "
+        "You perform deep code reviews, architectural analysis, refactoring, and "
+        "debugging. You explain your reasoning step-by-step before writing code."
+    ),
+    "research": (
+        "You are ORACLE, GH05T3's Chief Research Officer. "
+        "You synthesize complex information, compare methodologies, survey literature, "
+        "and produce comprehensive, well-structured research summaries. "
+        "You cite sources, note uncertainty, and distinguish fact from inference."
+    ),
+    "ops": (
+        "You are NEXUS, GH05T3's COO. You manage infrastructure, deployments, "
+        "incident response, capacity planning, and operational excellence. "
+        "You think in systems, anticipate failure modes, and create runbooks."
+    ),
+}
+
+# ── domain → output directory ─────────────────────────────────────────────────
+DOMAIN_OUT_DIRS = {
+    "default":  REPO / "backend" / "models" / "gh05t3_lora_adapter",
+    "security": REPO / "backend" / "models" / "security_adapter",
+    "code":     REPO / "backend" / "models" / "code_adapter",
+    "research": REPO / "backend" / "models" / "research_adapter",
+    "ops":      REPO / "backend" / "models" / "ops_adapter",
+}
+
 
 # ── data ───────────────────────────────────────────────────────────────────────
 def ensure_data() -> Path:
@@ -193,9 +229,174 @@ def build_dataset(data_dir: Path):
     return Dataset.from_dict({"text": texts})
 
 
+def build_domain_dataset(domain: str, data_dir: Path):
+    """Build a domain-specific training dataset.
+
+    security → CVE/threat/bug-bounty data (all security JSONL files)
+    code     → reasoning chains + synthetic code review examples
+    research → sovereign_recall (quality>=3) + research synthesis templates
+    ops      → operational templates (generated inline, no external file needed)
+    default  → falls through to build_dataset()
+    """
+    from datasets import Dataset
+
+    if domain == "default":
+        return build_dataset(data_dir)
+
+    system = DOMAIN_SYSTEMS[domain]
+    texts  = []
+
+    if domain == "security":
+        for rec in read_jsonl(data_dir / "adversarial_defense.jsonl"):
+            t = rec.get("threat_vector", "")
+            if not t:
+                continue
+            texts.append(chatml([
+                {"role": "system",    "content": system},
+                {"role": "user",      "content": f"Analyze this threat vector:\n\n{t}"},
+                {"role": "assistant", "content":
+                    f"**Exploitation Method:** {rec.get('exploitation_method','N/A')}\n\n"
+                    f"**Detection Pattern:** {rec.get('detection_pattern','N/A')}\n\n"
+                    f"**Mitigation Strategy:** {rec.get('mitigation_strategy','N/A')}"},
+            ]))
+        for rec in read_jsonl(data_dir / "cve_patterns.jsonl"):
+            p = rec.get("vulnerability_pattern", "")
+            if not p:
+                continue
+            ind = rec.get("discovery_indicators", [])
+            texts.append(chatml([
+                {"role": "system",    "content": system},
+                {"role": "user",      "content": f"Assess {rec.get('source_cve','CVE-UNKNOWN')}."},
+                {"role": "assistant", "content":
+                    f"**Pattern:** {p}\n\n**Indicators:**\n" +
+                    ("\n".join(f"• {x}" for x in ind) if isinstance(ind, list) else str(ind)) +
+                    f"\n\n**Defensive Lessons:** {rec.get('defensive_lessons','N/A')}"},
+            ]))
+        for rec in read_jsonl(data_dir / "bug_bounty.jsonl"):
+            tgt  = rec.get("target_system", "")
+            vuln = rec.get("vulnerability_found", "")
+            if not tgt or not vuln:
+                continue
+            texts.append(chatml([
+                {"role": "system",    "content": system},
+                {"role": "user",      "content": f"Bug bounty report: {tgt} — {vuln}"},
+                {"role": "assistant", "content":
+                    f"**Recon Method:** {rec.get('recon_method','N/A')}\n\n"
+                    f"**Non-weaponized PoC:** {rec.get('non_weaponized_poc','N/A')}\n\n"
+                    f"**Remediation:** {rec.get('remediation','N/A')}"},
+            ]))
+
+    elif domain == "code":
+        for rec in read_jsonl(data_dir / "reasoning_chains.jsonl"):
+            q = rec.get("question", "")
+            s = rec.get("reasoning_steps", [])
+            if not q or not isinstance(s, list):
+                continue
+            texts.append(chatml([
+                {"role": "system",    "content": system},
+                {"role": "user",      "content": q},
+                {"role": "assistant", "content":
+                    "**Analysis:**\n" + "\n".join(f"{i+1}. {x}" for i, x in enumerate(s)) +
+                    f"\n\n**Implementation:** {rec.get('final_answer','N/A')}"},
+            ]))
+        # Synthetic code-review templates
+        _CODE_TEMPLATES = [
+            ("Review this Python function for correctness, edge cases, and style:\n\n```python\n{snippet}\n```",
+             "**Issues found:**\n1. No input validation\n2. Missing error handling\n\n**Improved version:**\n```python\n# validated, edge-cases handled\n{snippet}\n```\n\n**Style:** follows PEP 8. Add docstring explaining params and return value."),
+            ("Explain the time and space complexity of this algorithm:\n\n{snippet}",
+             "**Time complexity:** O(n log n) — sorting dominates\n**Space complexity:** O(n) — output list\n\n**Reasoning:** The outer loop runs n times. Inner binary search is O(log n). Combined: O(n log n)."),
+            ("What design pattern applies here and how would you refactor?\n\n{snippet}",
+             "**Pattern:** Strategy pattern — behaviour varies by type\n**Refactored:** Extract an interface, inject the concrete strategy\n\n**Before:** tight coupling via if/elif\n**After:** `handler = STRATEGY_MAP[type]; result = handler.execute(data)`"),
+        ]
+        snippets = ["def f(x): return x*2", "for i in range(n): arr.sort()", "if t=='a': doA()\nelif t=='b': doB()"]
+        for i, (q_tmpl, a_tmpl) in enumerate(_CODE_TEMPLATES * 30):
+            snippet = snippets[i % len(snippets)]
+            texts.append(chatml([
+                {"role": "system",    "content": system},
+                {"role": "user",      "content": q_tmpl.format(snippet=snippet)},
+                {"role": "assistant", "content": a_tmpl.format(snippet=snippet)},
+            ]))
+
+    elif domain == "research":
+        recall_file = REPO / "backend" / "data" / "training" / "sovereign_recall.jsonl"
+        for rec in read_jsonl(recall_file):
+            text    = rec.get("text", "")
+            quality = rec.get("quality", 0)
+            if not text or quality < 3:
+                continue
+            if "<|im_start|>user" not in text:
+                continue
+            texts.append(text)
+        # Research synthesis templates
+        _RESEARCH_Q = [
+            "Provide a comprehensive survey of transformer architecture improvements since 2020.",
+            "Compare BM25 vs dense retrieval for production RAG systems.",
+            "What are the state-of-the-art techniques for reducing LLM hallucinations?",
+            "Analyze the trade-offs between LoRA rank and adapter quality.",
+            "Summarize the literature on mixture-of-experts scaling laws.",
+        ]
+        _RESEARCH_A = [
+            "**Overview:** Transformer research has focused on efficiency, length extension, and reasoning.\n\n**Key advances:**\n1. Flash Attention (Dao et al., 2022) — IO-aware attention, 2-4× speedup\n2. RoPE positional encoding — length generalization\n3. Grouped-query attention — KV cache reduction\n\n**Current frontier:** sparse attention, state-space models (Mamba), hybrid architectures.",
+            "**BM25 strengths:** exact keyword match, no GPU needed, interpretable, fast\n**Dense retrieval strengths:** semantic similarity, handles paraphrase, recall on rare queries\n\n**Production recommendation:** hybrid (RRF fusion of BM25 + dense) consistently outperforms either alone. Use BM25 as initial filter, dense re-ranker on top-k.",
+            "**Techniques:**\n1. RAG — ground responses in retrieved evidence\n2. Constitutional AI — self-critique and revision\n3. Chain-of-thought prompting — forces reasoning before answer\n4. Calibration via RLHF — penalize confident wrong answers\n\n**Best practice:** combine RAG + CoT + refusal for unsupported claims.",
+            "**Higher rank:** more parameters, better expressiveness, slower training, more storage\n**Lower rank (r=4–8):** faster, smaller, often sufficient for narrow domains\n\n**Empirical finding:** r=16, alpha=32 is a reliable starting point. Diminishing returns above r=64 for most tasks.",
+            "**Key papers:** GShard (2021), Switch Transformer (2022), Mixtral (2024)\n\n**Scaling laws:** MoE models achieve same loss as dense models with ~3-4× fewer FLOPs per token. Routing collapse is the main failure mode. Load balancing loss is critical.",
+        ]
+        for q, a in zip(_RESEARCH_Q * 20, _RESEARCH_A * 20):
+            texts.append(chatml([
+                {"role": "system",    "content": system},
+                {"role": "user",      "content": q},
+                {"role": "assistant", "content": a},
+            ]))
+
+    elif domain == "ops":
+        _OPS = [
+            ("A service is returning 503 errors. Walk me through the incident response process.",
+             "**Triage (0–5 min):**\n1. Check dashboards — CPU, memory, error rate, latency\n2. Identify affected endpoints and % of traffic impacted\n3. Check recent deploys (last 30 min)\n\n**Containment:**\n4. If recent deploy → rollback immediately\n5. If traffic spike → check rate limits, enable circuit breaker\n\n**Root cause:**\n6. Pull logs: `kubectl logs -l app=svc --since=30m`\n7. Correlate with dependency health checks\n\n**Resolution:**\n8. Apply fix, canary deploy, watch error rate return to baseline\n9. Write postmortem within 24h"),
+            ("Design a deployment pipeline for a Python FastAPI service.",
+             "**Stages:**\n1. **CI** — lint (ruff), type-check (mypy), unit tests, security scan (bandit)\n2. **Build** — Docker multi-stage build, minimal image\n3. **Staging** — deploy to staging, run integration + smoke tests\n4. **Canary** — 5% traffic for 30 min, watch error rate + p99 latency\n5. **Production** — full rollout, auto-rollback on error rate > 1%\n\n**Key practices:** immutable tags, health check endpoint, graceful shutdown (SIGTERM handler), rolling update strategy"),
+            ("How do you capacity plan for 10× traffic growth?",
+             "**Step 1 — Baseline:** measure current p50/p95/p99 latency, CPU %, memory % at current load\n**Step 2 — Bottleneck analysis:** identify the first constraint (usually DB, then app tier)\n**Step 3 — Load test:** use locust to simulate 2×, 5×, 10× load. Find where error rate increases.\n**Step 4 — Horizontal scaling:** stateless app tier → add replicas behind LB\n**Step 5 — DB scaling:** read replicas for read-heavy, sharding or Postgres connection pooling\n**Step 6 — Caching:** Redis in front of expensive queries (cache hit rate target: 80%+)\n**Headroom rule:** provision for 3× peak, alert at 60% utilization"),
+            ("Write a runbook for rotating API keys in production.",
+             "**Runbook: API Key Rotation**\n\n**Pre-checks:**\n- [ ] Identify all services using the key\n- [ ] Ensure new key is generated and tested in staging\n\n**Steps:**\n1. Generate new key in provider console\n2. Add new key to secrets manager alongside old key\n3. Deploy services with dual-key support (accept both during transition)\n4. Update all consumers to use new key (gradual, verify each)\n5. Verify new key traffic in logs\n6. Revoke old key\n7. Remove old key from secrets manager\n\n**Rollback:** Re-enable old key (keep 24h after rotation before deletion)"),
+            ("Explain blue-green vs canary deployments and when to use each.",
+             "**Blue-Green:**\n- Two identical environments, switch DNS/LB instantly\n- Zero downtime, instant rollback by switching back\n- Cost: 2× infrastructure during transition\n- Best for: major releases, DB migrations where you need clean cutover\n\n**Canary:**\n- Gradual traffic shift (1% → 10% → 50% → 100%)\n- Real user traffic validates before full rollout\n- Detects issues at small scale before blast radius grows\n- Best for: high-traffic services, A/B testing, risky changes\n\n**Rule of thumb:** use canary by default; blue-green when you need instant rollback or schema changes"),
+        ]
+        for q, a in _OPS * 30:
+            texts.append(chatml([
+                {"role": "system",    "content": system},
+                {"role": "user",      "content": q},
+                {"role": "assistant", "content": a},
+            ]))
+
+    if not texts:
+        log.error("No training examples for domain=%s in %s", domain, data_dir)
+        sys.exit(1)
+
+    random.seed(42)
+    random.shuffle(texts)
+    log.info("Domain '%s' dataset: %d examples", domain, len(texts))
+    return Dataset.from_dict({"text": texts})
+
+
 # ── main ───────────────────────────────────────────────────────────────────────
 def main():
+    import argparse
     import torch
+
+    parser = argparse.ArgumentParser(description="GH05T3 LoRA trainer — default or domain-specific")
+    parser.add_argument("--domain", default="default",
+                        choices=["default", "security", "code", "research", "ops"],
+                        help="Domain adapter to train (default trains the base GH05T3 adapter)")
+    parser.add_argument("--output", default=None,
+                        help="Override output directory (default: backend/models/<domain>_adapter)")
+    parser.add_argument("--steps", type=int, default=MAX_STEPS,
+                        help=f"Training steps (default: {MAX_STEPS})")
+    cli = parser.parse_args()
+
+    domain  = cli.domain
+    out_dir = Path(cli.output) if cli.output else DOMAIN_OUT_DIRS.get(domain, OUT_DIR)
+    steps   = cli.steps
 
     if not torch.cuda.is_available():
         log.error("No CUDA GPU. Install: pip install torch --index-url https://download.pytorch.org/whl/cu128")
@@ -228,9 +429,11 @@ def main():
     # Adjust batch for tight VRAM
     batch = BATCH if vram >= 8 else 1
 
+    log.info("Domain: %s → %s", domain, out_dir)
+
     # ── data ──
     data_dir = ensure_data()
-    dataset  = build_dataset(data_dir)
+    dataset  = build_domain_dataset(domain, data_dir)
 
     # ── tokenizer ──
     log.info("Loading %s ...", MODEL_ID)
@@ -279,14 +482,15 @@ def main():
              f"{trainable:,}", f"{total:,}", 100 * trainable / total)
 
     # ── training ──────────────────────────────────────────────────────────────
-    CKPT_DIR.mkdir(parents=True, exist_ok=True)
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    ckpt_dir = CKPT_DIR / domain
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     grad_accum = GRAD_ACCUM if batch == BATCH else GRAD_ACCUM * 2
 
     args = TrainingArguments(
-        output_dir=str(CKPT_DIR),
-        max_steps=MAX_STEPS,
+        output_dir=str(ckpt_dir),
+        max_steps=steps,
         per_device_train_batch_size=batch,
         gradient_accumulation_steps=grad_accum,
         gradient_checkpointing=True,
@@ -319,24 +523,28 @@ def main():
         args=args,
     )
 
-    log.info("Training — steps=%d lr=%s batch=%d×%d=%d eff optim=paged_adamw_8bit",
-             MAX_STEPS, LR, batch, grad_accum, batch * grad_accum)
+    log.info("Training — domain=%s steps=%d lr=%s batch=%d×%d=%d eff optim=paged_adamw_8bit",
+             domain, steps, LR, batch, grad_accum, batch * grad_accum)
 
     stats = trainer.train()
     loss  = stats.training_loss
     log.info("Done — loss: %.4f | steps: %d", loss, stats.global_step)
 
-    if loss == 0.0 or loss > 100:
-        log.error("Training failed (loss=%.4f). Gradient collapse detected.", loss)
-        log.error("Verify: bitsandbytes >= 0.44, use_reentrant=False, lr <= 2e-5")
+    # RULE 3 — Collapse detection. Loss outside 0.3–10 means the adapter is useless.
+    # 0.0 = gradient collapse (NaN killed updates), >10 = diverged, never converged.
+    if not (0.3 < loss < 10):
+        log.error("Training failed (loss=%.4f). Expected 0.3 < loss < 10.", loss)
+        log.error("loss=0.0 → gradient collapse: check bitsandbytes>=0.44, use_reentrant=False")
+        log.error("loss>10  → diverged: lower lr, check dataset quality")
         sys.exit(1)
 
     # ── save ──────────────────────────────────────────────────────────────────
-    model.save_pretrained(str(OUT_DIR))
-    tokenizer.save_pretrained(str(OUT_DIR))
-    with open(OUT_DIR / "training_config.json", "w") as f:
+    model.save_pretrained(str(out_dir))
+    tokenizer.save_pretrained(str(out_dir))
+    with open(out_dir / "training_config.json", "w") as f:
         json.dump({
             "model":         MODEL_ID,
+            "domain":        domain,
             "lora_rank":     LORA_RANK,
             "steps":         stats.global_step,
             "final_loss":    loss,
@@ -349,12 +557,15 @@ def main():
             "compute_dtype": "bf16" if use_bf16 else "fp16",
         }, f, indent=2)
 
-    log.info("Adapter saved → %s", OUT_DIR)
-    log.info("Add  LLM_PROVIDER=gh05t3  to backend/.env then start run.bat")
+    log.info("Adapter saved → %s", out_dir)
+    if domain == "default":
+        log.info("Set LLM_PROVIDER=gh05t3 in backend/.env then run run.bat")
+    else:
+        log.info("Domain adapter ready — LoRAFarm will auto-load for '%s' tasks", domain)
 
     # ── optional AWQ export (Blackwell sm_120 + vLLM NVFP4 fast path) ─────────
     if gpu.major >= 12:
-        _try_awq_export(OUT_DIR, tokenizer)
+        _try_awq_export(out_dir, tokenizer)
 
 
 def _try_awq_export(adapter_dir: Path, tokenizer) -> None:
