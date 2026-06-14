@@ -114,6 +114,13 @@ def _conn(immediate: bool = False):
 
 def _init_db():
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure ledger tables (agent_credits, credit_transactions) exist in the
+    # same DB before complete() tries to write to them atomically.
+    try:
+        from economy.ledger import get_ledger as _get_ledger
+        _get_ledger()
+    except Exception:
+        pass
     with _conn() as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS marketplace_jobs (

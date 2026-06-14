@@ -54,12 +54,13 @@ class CircuitBreaker:
         self.success_threshold = success_threshold
         self._on_state_change  = on_state_change
 
-        self._state           = self._CLOSED
-        self._failures        = 0
-        self._successes       = 0
-        self._opened_at       = 0.0
-        self._last_failure    = ""
-        self._probe_in_flight = False  # enforces single probe in HALF_OPEN
+        self._state            = self._CLOSED
+        self._failures         = 0
+        self._successes        = 0
+        self._opened_at        = 0.0
+        self._last_failure     = ""
+        self._probe_in_flight  = False  # enforces single probe in HALF_OPEN
+        self._probe_started_at = 0.0   # wall-clock when probe was issued
 
     # ── state checks ──────────────────────────────────────────────────────────
 
@@ -75,15 +76,23 @@ class CircuitBreaker:
 
         In HALF_OPEN exactly one probe is allowed at a time — the flag is
         cleared by success(), failure(), or _transition() so the next
-        probe can proceed after the current one resolves.
+        probe can proceed after the current one resolves.  If success() /
+        failure() are never called (caller bypassed the context manager and
+        crashed), the probe token auto-releases after reset_timeout seconds.
         """
         s = self.state
         if s == self._CLOSED:
             return True
         if s == self._HALF_OPEN:
             if self._probe_in_flight:
-                return False  # another probe already in flight
-            self._probe_in_flight = True
+                # Stale probe: auto-release after reset_timeout so a new probe
+                # can be issued even if the previous caller never reported back.
+                if time.monotonic() - self._probe_started_at > self.reset_timeout:
+                    self._probe_in_flight = False
+                else:
+                    return False  # another probe already in flight
+            self._probe_in_flight  = True
+            self._probe_started_at = time.monotonic()
             return True
         return False      # OPEN — fast-fail
 
