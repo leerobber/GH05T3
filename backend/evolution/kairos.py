@@ -105,6 +105,26 @@ class KAIROS:
             except Exception:
                 pass
 
+        # Auto-PR on elite — best-effort GitHub draft PR with impl skeleton
+        if cycle.is_elite:
+            try:
+                import asyncio
+                from evolution.auto_pr import create_proposal_pr
+                async def _fire_pr():
+                    await create_proposal_pr(
+                        proposal=cycle.proposal,
+                        score=cycle.score,
+                        cycle_id=cycle.id,
+                        agent_id=cycle.agent_id,
+                    )
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(_fire_pr())
+                except RuntimeError:
+                    pass
+            except Exception:
+                pass
+
         return cycle
 
     @property
