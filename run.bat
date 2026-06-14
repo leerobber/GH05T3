@@ -64,11 +64,13 @@ REM Lemonade server starts automatically as a Windows service (installed by MSI)
 REM We just need to load the model into VRAM — runs in background, ready in ~30s.
 set LEMONADE_BIN=%LOCALAPPDATA%\lemonade_server\bin\lemonade.exe
 if exist "%LEMONADE_BIN%" (
-    echo Loading Lemonade model on 780M iGPU ^(background^)...
+    echo Loading Lemonade chat model on 780M iGPU ^(background^)...
     start "lemonade-load" /min "%LEMONADE_BIN%" load Gemma-4-E2B-it-GGUF
 ) else (
     echo   [SKIP] Lemonade not found - install from https://github.com/lemonade-sdk/lemonade
 )
+REM Note: max_loaded_models=1, so Lemonade auto-swaps models on demand
+REM (e.g. Whisper-Small loads for STT, Gemma reloads for next chat request)
 
 REM ── MongoDB ───────────────────────────────────────────────────────────────
 echo Starting MongoDB...

@@ -61,6 +61,9 @@ async def chat(system: str, user: str, model: str | None = None) -> str:
         return r.json()["choices"][0]["message"]["content"]
 
 
+_WHISPER_MODEL = os.environ.get("LEMONADE_WHISPER_MODEL", "Whisper-Small")
+
+
 async def transcribe(audio_bytes: bytes, filename: str = "audio.wav",
                      language: str = "en") -> str:
     """Speech-to-text via Whisper on Lemonade."""
@@ -68,7 +71,7 @@ async def transcribe(audio_bytes: bytes, filename: str = "audio.wav",
         r = await c.post(
             f"{LEMONADE_URL}/api/v1/audio/transcriptions",
             files={"file": (filename, io.BytesIO(audio_bytes), "audio/wav")},
-            data={"model": "whisper", "language": language},
+            data={"model": _WHISPER_MODEL, "language": language},
         )
         r.raise_for_status()
         return r.json().get("text", "")
