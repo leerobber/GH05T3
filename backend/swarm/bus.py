@@ -361,8 +361,16 @@ class SwarmAgent:
             async with get_breaker(self.agent_id):
                 await self.on_message(msg)
         except CircuitBreakerOpen:
-            log.warning("[%s] circuit OPEN — dropping message (type=%s)",
-                        self.agent_id, msg.msg_type)
+            log.warning("[%s] circuit OPEN — NACK to %s (type=%s)",
+                        self.agent_id, msg.src, msg.msg_type)
+            if msg.src and msg.src not in ("*", self.agent_id):
+                await self.bus.emit(
+                    src=self.agent_id,
+                    content=f"[NACK] {self.agent_id} circuit breaker open — message rejected",
+                    channel=f"#swarm/{msg.src}",
+                    msg_type=MsgType.ERROR,
+                    dst=msg.src,
+                )
         except Exception as e:
             log.error(f"[{self.agent_id}] on_message error: {e}")
             await self.say(f"Error handling {msg.msg_type}: {e}",

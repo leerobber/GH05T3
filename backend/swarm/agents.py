@@ -793,6 +793,8 @@ class GH05T3Swarm:
                                "script", "endpoint", "api", "module", "refactor"}),
                 ("CODEX",    {"review", "debug", "fix", "optimize", "lint", "test",
                                "analyze code", "check code", "improve code"}),
+                ("LEDGER",   {"billing", "stripe", "subscription", "invoice",
+                               "payment", "revenue", "refund", "charge"}),
                 ("ORACLE",   {"research", "find", "what is", "explain", "summarize",
                                "lookup", "retrieve", "history", "context", "who is"}),
             ]

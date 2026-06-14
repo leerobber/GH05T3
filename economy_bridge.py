@@ -91,10 +91,13 @@ def _seed(name: str, amount: int, reason: str) -> bool:
     if not ENABLED:
         return False
 
-    # Always record locally first — economy never goes dark
+    # Always record locally first — economy never goes dark.
+    # Track actual write success (not just whether the module imported).
+    local_seeded = False
     if _LOCAL_LEDGER and _local_credit:
         try:
             _local_credit(name, amount, reason, source="sovereign_core")
+            local_seeded = True
         except Exception:
             pass
 
@@ -105,7 +108,7 @@ def _seed(name: str, amount: int, reason: str) -> bool:
         ids = _refresh_ids()
         agent_id = ids.get(name)
     if not agent_id:
-        return _LOCAL_LEDGER  # local-only success if remote ID not found
+        return local_seeded  # remote ID not found; reflect actual local write result
     try:
         r = requests.post(
             f"{ECO_BASE}/creator/seed/{agent_id}",
@@ -117,7 +120,7 @@ def _seed(name: str, amount: int, reason: str) -> bool:
             return True
     except Exception:
         pass
-    return _LOCAL_LEDGER  # local record still succeeded
+    return local_seeded  # remote failed; reflect actual local write result
 
 
 def complete_task_for(agent_name: str, title: str, reward: int):
