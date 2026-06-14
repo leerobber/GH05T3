@@ -58,19 +58,20 @@ class KAIROS:
         if cycle.is_elite:
             self._elite.append(cycle)
 
-        # MAP-Elites archive — quality-diversity storage (replaces flat elite list)
-        try:
-            from evolution.map_elites import get_archive
-            get_archive().add(
-                proposal    = proposal,
-                quality     = score,
-                latency_s   = getattr(cycle, "_latency_s",   0.0),
-                token_count = getattr(cycle, "_token_count", 0),
-                metadata    = {"cycle_id": cycle.id, "verdict": verdict,
-                               "agent_id": agent_id},
-            )
-        except Exception:
-            pass
+        # MAP-Elites archive — direct insertion of high-quality cycles
+        if score >= 0.70:
+            try:
+                from evolution.map_elites import add as me_add
+                latency_ms  = getattr(cycle, "_latency_s", 0.0) * 1000
+                token_count = float(getattr(cycle, "_token_count", 0))
+                me_add(
+                    solution  = [min(score, 1.0), token_count, latency_ms, 0.65, 0.90],
+                    objective = score,
+                    measures  = [min(score, 0.999), min(latency_ms, 29999.0),
+                                 min(token_count, 1999.0)],
+                )
+            except Exception:
+                pass
 
         with open(KAIROS_LOG, "a") as f:
             f.write(json.dumps(cycle.to_dict()) + "\n")
@@ -126,8 +127,50 @@ class KAIROS:
             "avg_entropy_drift":  round(sum(drifts) / len(drifts), 4) if drifts else 0.0,
         }
         try:
-            from evolution.map_elites import get_archive
-            base["map_elites"] = get_archive().stats()
+            from evolution.map_elites import archive_stats
+            base["map_elites"] = archive_stats()
         except Exception:
             pass
         return base
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton + function API (used by evolution/__init__.py)
+# ---------------------------------------------------------------------------
+_kairos: KAIROS | None = None
+
+
+def _get_kairos() -> KAIROS:
+    global _kairos
+    if _kairos is None:
+        _kairos = KAIROS()
+    return _kairos
+
+
+def record_cycle(proposal: str = "", verdict: str = "PARTIAL", score: float = 0.0,
+                 sentinel_viability: float = 0.0, entropy_drift: float = 0.0,
+                 agent_id: str = "unknown", **kwargs) -> dict:
+    """Module-level wrapper — records a cycle and returns the cycle dict."""
+    cycle = _get_kairos().record_cycle(
+        proposal           = proposal,
+        verdict            = verdict,
+        score              = score,
+        sentinel_viability = sentinel_viability,
+        entropy_drift      = entropy_drift,
+        agent_id           = agent_id,
+    )
+    return cycle.to_dict()
+
+
+def stats() -> dict:
+    """Module-level wrapper — returns KAIROS stats dict."""
+    return _get_kairos().stats
+
+
+def ledger_summary() -> dict:
+    """Module-level wrapper — returns elite archive summary."""
+    k = _get_kairos()
+    return {
+        "entries":  len(k.elite_archive),
+        "summary":  [c.to_dict() for c in k.elite_archive[-10:]],
+    }

@@ -904,8 +904,8 @@ def _me_next_target() -> dict | None:
     global _me_targets
     if not _me_targets:
         try:
-            from evolution.map_elites import get_archive
-            targets = get_archive().ask()
+            from evolution.map_elites import ask
+            targets = ask()
             if targets:
                 _me_targets = list(targets)
                 LOG.debug("[sage/me] refilled %d targets from emitter", len(_me_targets))
@@ -920,11 +920,10 @@ def _me_record(objective: float, latency_s: float, tokens: int) -> None:
     _me_pending.append((objective, latency_s, tokens))
     if len(_me_pending) >= _ME_BATCH:
         try:
-            from evolution.map_elites import get_archive
-            objectives   = [r[0] for r in _me_pending]
-            latencies    = [r[1] for r in _me_pending]
-            token_counts = [r[2] for r in _me_pending]
-            get_archive().tell(objectives, latencies, token_counts)
+            from evolution.map_elites import tell
+            objectives = [r[0] for r in _me_pending]
+            measures   = [[r[0], r[1] * 1000, r[2]] for r in _me_pending]  # latency_s→ms
+            tell(objectives, measures)
             LOG.debug("[sage/me] tell() flushed %d results to emitter", len(_me_pending))
         except Exception as e:
             LOG.debug("[sage/me] tell() failed: %s", e)
