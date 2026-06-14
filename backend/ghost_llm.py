@@ -404,18 +404,82 @@ def _paid_llm_allowed() -> bool:
     return os.environ.get("ALLOW_PAID_LLM", "").strip().lower() in _TRUE_VALUES
 
 
+async def _ollama_loaded_models() -> list[str]:
+    """Return models currently loaded in Ollama VRAM (via /api/ps)."""
+    url = ollama_resolved_url()
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as c:
+            r = await c.get(f"{url}/api/ps")
+            if r.status_code == 200:
+                return [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        pass
+    return []
+
+
+async def _ollama_available_models() -> list[str]:
+    """Return all models listed in Ollama (/api/tags)."""
+    url = ollama_resolved_url()
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as c:
+            r = await c.get(f"{url}/api/tags")
+            if r.status_code == 200:
+                return [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        pass
+    return []
+
+
 async def _call_ollama_preferred(system: str, user: str, role: str = "proposer",
                                  model_override: str | None = None) -> tuple[str, str]:
     if not await ollama_available():
         raise RuntimeError("Ollama is not reachable at OLLAMA_GATEWAY_URL")
-    await ollama_ensure_model("qwen2.5:0.5b")
-    model = (model_override
-             or os.environ.get("OLLAMA_SAGE_MODEL")
-             or OLLAMA_PREFERRED.get(role)
-             or OLLAMA_PREFERRED.get("proposer")
-             or "qwen2.5:0.5b")
-    text = await ollama_call(model, system, user)
-    return text, f"ollama:{model}"
+
+    primary = (model_override
+               or os.environ.get("OLLAMA_SAGE_MODEL")
+               or OLLAMA_PREFERRED.get(role)
+               or OLLAMA_PREFERRED.get("proposer")
+               or "qwen2.5:0.5b")
+
+    try:
+        text = await ollama_call(primary, system, user)
+        return text, f"ollama:{primary}"
+    except Exception as e:
+        if "404" not in str(e):
+            raise  # not a model-missing error — propagate
+
+    LOG.debug("[ollama] %s → 404 (VRAM full?), trying loaded models first", primary)
+
+    # Try whatever is already in VRAM (no reload cost, instant)
+    for m in await _ollama_loaded_models():
+        if m == primary:
+            continue
+        try:
+            text = await ollama_call(m, system, user)
+            LOG.debug("[ollama] fallback to loaded model %s succeeded", m)
+            return text, f"ollama:{m}"
+        except Exception:
+            pass
+
+    # Try other available models in preference order (smallest-first sovereign roster)
+    _SOVEREIGN_FALLBACK = [
+        "codex-sovereign:latest", "oracle-sovereign:latest", "nexus-sovereign:latest",
+        "forge-sovereign:latest", "sentinel-sovereign:latest", "avery-sovereign:latest",
+    ]
+    available = set(await _ollama_available_models())
+    for m in _SOVEREIGN_FALLBACK:
+        if m in available and m != primary:
+            try:
+                text = await ollama_call(m, system, user)
+                LOG.debug("[ollama] fallback to %s succeeded", m)
+                return text, f"ollama:{m}"
+            except Exception:
+                pass
+
+    raise RuntimeError(
+        f"Ollama model {primary} returned 404 (VRAM full — close LM Studio to free space) "
+        "and no fallback models responded."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +568,7 @@ async def chat_once(session: str, system: str, user: str,
         except Exception as e:
             if _is_rate_limit(e):
                 _mark_rl("ollama", 30)
-            LOG.warning("[cascade] ollama failed: %s", e)
+            LOG.debug("[cascade] ollama failed: %s", e)
             if _cost_free_only():
                 raise NoLLMError(
                     "Ollama unavailable and COST_FREE_ONLY=1. "
