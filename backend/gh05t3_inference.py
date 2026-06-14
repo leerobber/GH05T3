@@ -110,17 +110,15 @@ def _pick_vllm_quant() -> str | None:
 def _pick_kv_cache_dtype() -> str:
     """fp8 KV cache cuts memory ~2x vs fp16, enabling longer context on the same VRAM.
 
-    Blackwell (sm_120): fp8_e5m2 — native hardware support
-    Hopper   (sm_90):  fp8_e4m3 — hardware fp8 tensor cores
-    Older:             auto     — vLLM default (fp16)
+    vLLM only accepts 'auto' or 'fp8' — it selects the optimal fp8 sub-format
+    (e5m2 vs e4m3) internally based on hardware capability.
+    Hopper (sm_90+) and Blackwell (sm_120+) both support fp8 natively.
     """
     if not torch.cuda.is_available():
         return "auto"
     major = torch.cuda.get_device_properties(0).major
-    if major >= 12:
-        return "fp8_e5m2"
     if major >= 9:
-        return "fp8_e4m3"
+        return "fp8"   # Hopper + Blackwell — vLLM picks e4m3/e5m2 internally
     return "auto"
 
 
@@ -141,16 +139,14 @@ class LoRAFarm:
     adapter hasn't been trained yet.
     """
 
-    # Canonical domain → subdirectory under backend/models/
     _DOMAIN_DIRS: dict[str, str] = {
         "security": "security_adapter",
         "code":     "code_adapter",
         "research": "research_adapter",
         "ops":      "ops_adapter",
-        "quick":    "gh05t3_lora_adapter",   # small queries use default (speed)
+        "quick":    "gh05t3_lora_adapter",
         "default":  "gh05t3_lora_adapter",
     }
-    # Stable integer IDs (1–8) reused across requests to avoid vLLM re-registration
     _LORA_INT_IDS: dict[str, int] = {
         "security": 1, "code": 2, "research": 3,
         "ops": 4, "quick": 5, "default": 6,
@@ -160,35 +156,27 @@ class LoRAFarm:
         self._base = base_dir or (Path(__file__).parent / "models")
 
     def get_lora_request(self, task_domain: str) -> "Optional[LoRARequest]":
-        """Return a LoRARequest for the given task domain, or None if vLLM unavailable."""
         if not _VLLM:
             return None
-
         domain = task_domain if task_domain in self._DOMAIN_DIRS else "default"
         adapter_path = self._base / self._DOMAIN_DIRS[domain]
-
-        # Fall back to default adapter when domain-specific one isn't trained yet
         if not (adapter_path / "adapter_config.json").exists():
             adapter_path = self._base / "gh05t3_lora_adapter"
-
         if not (adapter_path / "adapter_config.json").exists():
-            return None   # no adapter at all — vLLM serves base model
-
+            return None
         return LoRARequest(
-            lora_name     = domain,
-            lora_int_id   = self._LORA_INT_IDS.get(domain, 6),
+            lora_name       = domain,
+            lora_int_id     = self._LORA_INT_IDS.get(domain, 6),
             lora_local_path = str(adapter_path),
         )
 
     def available_domains(self) -> dict[str, bool]:
-        """Report which domain adapters are present on disk."""
-        result: dict[str, bool] = {}
-        for domain, subdir in self._DOMAIN_DIRS.items():
-            result[domain] = (self._base / subdir / "adapter_config.json").exists()
-        return result
+        return {
+            domain: (self._base / subdir / "adapter_config.json").exists()
+            for domain, subdir in self._DOMAIN_DIRS.items()
+        }
 
 
-# Module-level LoRAFarm singleton
 _lora_farm: "Optional[LoRAFarm]" = None
 
 
@@ -197,8 +185,6 @@ def get_lora_farm() -> "LoRAFarm":
     if _lora_farm is None:
         _lora_farm = LoRAFarm()
     return _lora_farm
-
-
 # ── model loading ──────────────────────────────────────────────────────────────
 def load_model() -> None:
     global _tokenizer, _ready, _model_id, _has_adapter
