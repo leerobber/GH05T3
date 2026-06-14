@@ -878,7 +878,7 @@ def _json_block(s: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# SAGE cycle
+# SAGE cycle — MAP-Elites emitter integration
 # ---------------------------------------------------------------------------
 PROPOSER_SYS = """You are the GH05T3 SAGE Proposer agent.
 Propose ONE concrete, self-improvement change to GH05T3 that would measurably
@@ -893,6 +893,74 @@ VERIFIER_SYS = """You are the GH05T3 SAGE Verifier.
 Decide if the proposal is technically coherent and sound.
 Respond strict JSON: {"verdict":"PASS|PARTIAL|FAIL","rationale":"<<=20 words>>"}"""
 
+# MAP-Elites batch state — targets from ask(), results awaiting tell()
+_me_targets: list[dict] = []
+_me_pending: list[tuple[float, float, int]] = []   # (objective, latency_s, tokens)
+_ME_BATCH = int(os.environ.get("ME_BATCH_SIZE", "10"))
+
+
+def _me_next_target() -> dict | None:
+    """Pop next emitter target, refilling from archive.ask() when buffer is empty."""
+    global _me_targets
+    if not _me_targets:
+        try:
+            from evolution.map_elites import get_archive
+            targets = get_archive().ask()
+            if targets:
+                _me_targets = list(targets)
+                LOG.debug("[sage/me] refilled %d targets from emitter", len(_me_targets))
+        except Exception as e:
+            LOG.debug("[sage/me] ask() skipped: %s", e)
+    return _me_targets.pop(0) if _me_targets else None
+
+
+def _me_record(objective: float, latency_s: float, tokens: int) -> None:
+    """Accumulate one result; flush tell() when a full batch is ready."""
+    global _me_pending
+    _me_pending.append((objective, latency_s, tokens))
+    if len(_me_pending) >= _ME_BATCH:
+        try:
+            from evolution.map_elites import get_archive
+            objectives   = [r[0] for r in _me_pending]
+            latencies    = [r[1] for r in _me_pending]
+            token_counts = [r[2] for r in _me_pending]
+            get_archive().tell(objectives, latencies, token_counts)
+            LOG.debug("[sage/me] tell() flushed %d results to emitter", len(_me_pending))
+        except Exception as e:
+            LOG.debug("[sage/me] tell() failed: %s", e)
+        finally:
+            _me_pending.clear()
+
+
+def _proposer_sys_for_target(target: dict | None) -> str:
+    """Inject MAP-Elites target constraints into the proposer system prompt.
+
+    quality_target drives specificity:  high → exploit known good regions
+                                        low  → explore novel approaches
+    token_budget drives brevity: tighter budget → shorter, punchier proposals
+    """
+    if not target:
+        return PROPOSER_SYS
+
+    qt = target.get("quality_target", 0.75)
+    tb = int(target.get("token_budget", 500))
+
+    if qt >= 0.85:
+        style = "Be maximally specific and immediately implementable — exploit known good patterns."
+    elif qt >= 0.60:
+        style = "Be concrete but try a novel approach area not explored recently."
+    else:
+        style = "Be bold and exploratory — propose an unconventional angle even if uncertain."
+
+    word_limit = max(10, min(25, tb // 20))
+
+    return (
+        f"You are the GH05T3 SAGE Proposer agent.\n"
+        f"Propose ONE concrete, self-improvement change to GH05T3 that would measurably\n"
+        f"improve KAIROS, HCM, Memory Palace, Ghost Protocol, or a sub-agent.\n"
+        f"Under {word_limit} words. {style}"
+    )
+
 
 async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
     async def _call(session, system, user, role="proposer"):
@@ -900,10 +968,17 @@ async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
             return await nightly_chat(session, system, user)
         return await chat_once(session, system, user, role)
 
-    session = f"sage-{cycle_num}"
-    proposal, proposer_tag = await _call(session, PROPOSER_SYS,
+    # ── MAP-Elites: get target for this cycle ──────────────────────────────────
+    me_target   = _me_next_target()
+    proposer_sys = _proposer_sys_for_target(me_target)
+
+    session    = f"sage-{cycle_num}"
+    t0         = time.monotonic()
+    proposal, proposer_tag = await _call(session, proposer_sys,
                                          f"Propose improvement #{cycle_num}. Be distinctive.")
-    proposal = proposal.strip().split("\n")[0][:220]
+    latency_s  = round(time.monotonic() - t0, 3)
+    proposal   = proposal.strip().split("\n")[0][:220]
+    token_est  = int(len(proposal.split()) * 1.3)   # fast token estimate
 
     critic_raw, critic_tag = await _call(f"{session}-critic", CRITIC_SYS,
                                          f"Proposal: {proposal}\nRespond with JSON only.", "critic")
@@ -925,21 +1000,28 @@ async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
     elite    = final >= 0.85
     archived = final >= 0.70 or verdict == "PASS"
 
+    # ── MAP-Elites: feed result back to emitter ────────────────────────────────
+    _me_record(final, latency_s, token_est)
+
     return {
-        "cycle_num":         cycle_num,
-        "proposer":          proposer_tag,
-        "critic":            critic_tag,
-        "verifier":          verifier_tag,
-        "proposal":          proposal,
-        "critic_decision":   decision,
-        "critic_reason":     cj.get("reason", "")[:200],
-        "verdict":           verdict,
+        "cycle_num":          cycle_num,
+        "proposer":           proposer_tag,
+        "critic":             critic_tag,
+        "verifier":           verifier_tag,
+        "proposal":           proposal,
+        "critic_decision":    decision,
+        "critic_reason":      cj.get("reason", "")[:200],
+        "verdict":            verdict,
         "verifier_rationale": vj.get("rationale", "")[:200],
-        "base_score":        base,
-        "multiplier":        mult,
-        "final_score":       final,
-        "archived":          archived,
-        "elite":             elite,
+        "base_score":         base,
+        "multiplier":         mult,
+        "final_score":        final,
+        "archived":           archived,
+        "elite":              elite,
+        # MAP-Elites telemetry
+        "me_target":          me_target,
+        "latency_s":          latency_s,
+        "token_est":          token_est,
     }
 
 
