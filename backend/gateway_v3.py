@@ -75,6 +75,13 @@ from integrations.story_editor import (
 from agent_marketplace import (
     JobQueue, ingest_github_event, ingest_stripe_event, ingest_cve_feed,
 )
+from integrations.lemonade_integration import (
+    lemonade_available as _lemonade_ok,
+    transcribe  as _lemonade_transcribe,
+    speak       as _lemonade_speak,
+    generate_image as _lemonade_generate_image,
+    lemonade_status as _lemonade_status,
+)
 
 # ── Marketplace API key — protects internal write endpoints ───────────────────
 _MARKETPLACE_KEY = os.environ.get("MARKETPLACE_API_KEY", "")
@@ -1004,6 +1011,90 @@ async def story_session_state(session_id: str):
         "story":      sess["story"],
         "turns":      len(sess["history"]),
     }
+
+
+# ─────────────────────────────────────────────
+# LEMONADE — AMD Radeon 780M iGPU (STT · TTS · image gen)
+# ─────────────────────────────────────────────
+
+@app.post("/avery/speech/transcribe")
+async def speech_transcribe(request: Request):
+    """Transcribe audio to text via Whisper on Lemonade (780M iGPU).
+
+    Send raw audio bytes as the request body.
+    Content-Type: audio/wav  or  audio/mpeg
+    Returns: {"text": "<transcription>"}
+    """
+    if not await _lemonade_ok():
+        raise HTTPException(503, "Lemonade not available — install and start Lemonade server "
+                                 "(https://github.com/lemonade-sdk/lemonade)")
+    body = await request.body()
+    if not body:
+        raise HTTPException(400, "No audio data in request body")
+    try:
+        ct  = request.headers.get("content-type", "audio/wav")
+        ext = "mp3" if "mp3" in ct or "mpeg" in ct else "wav"
+        text = await _lemonade_transcribe(body, filename=f"audio.{ext}")
+        return {"text": text}
+    except Exception as e:
+        log.error("[lemonade] transcribe failed: %s", e)
+        raise HTTPException(500, f"Transcription failed: {e}")
+
+
+class _TTSBody(BaseModel):
+    text:  str
+    voice: str = "af_heart"
+
+@app.post("/avery/speech/synthesize")
+async def speech_synthesize(body: _TTSBody):
+    """Text-to-speech via Kokoro on Lemonade (780M iGPU).
+
+    Body: {"text": "Hello, I'm Avery.", "voice": "af_heart"}
+    Returns: audio/wav bytes
+    """
+    from fastapi.responses import Response
+    if not await _lemonade_ok():
+        raise HTTPException(503, "Lemonade not available")
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "text is required")
+    try:
+        audio = await _lemonade_speak(text, voice=body.voice)
+        return Response(content=audio, media_type="audio/wav")
+    except Exception as e:
+        log.error("[lemonade] TTS failed: %s", e)
+        raise HTTPException(500, f"TTS failed: {e}")
+
+
+class _ImageBody(BaseModel):
+    prompt: str
+    size:   str  = "512x512"
+    model:  str | None = None
+
+@app.post("/avery/image/generate")
+async def image_generate(body: _ImageBody):
+    """Generate an image via Stable Diffusion on Lemonade (780M iGPU).
+
+    Body: {"prompt": "a cyberpunk ghost hacker", "size": "512x512"}
+    Returns: {"image": "<base64 PNG or URL>", "prompt": "..."}
+    """
+    if not await _lemonade_ok():
+        raise HTTPException(503, "Lemonade not available")
+    prompt = body.prompt.strip()
+    if not prompt:
+        raise HTTPException(400, "prompt is required")
+    try:
+        result = await _lemonade_generate_image(prompt, model=body.model, size=body.size)
+        return {"image": result, "prompt": prompt, "size": body.size}
+    except Exception as e:
+        log.error("[lemonade] image gen failed: %s", e)
+        raise HTTPException(500, f"Image generation failed: {e}")
+
+
+@app.get("/avery/lemonade/status")
+async def lemonade_status_endpoint():
+    """Check Lemonade availability and loaded models."""
+    return await _lemonade_status()
 
 
 # ─────────────────────────────────────────────

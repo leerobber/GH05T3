@@ -77,14 +77,13 @@ GH05T3/
 ```
 
 ## Port map (no conflicts)
-| Port | Process |
-|------|---------|
+| Port  | Process |
+|-------|---------|
 | 27017 | MongoDB |
 | 8001  | server.py (existing FastAPI + Mongo) |
-| 8002  | gateway_v3 (SwarmBus · Claude · GitHub · Stripe · Story Editor) |
+| 8002  | gateway_v3 (SwarmBus · Claude · GitHub · Stripe · Story Editor · Lemonade) |
 | 8010  | gh05t3_inference.py (LoRA model server — starts with run.bat) |
-| 8011  | llama.cpp verifier (Radeon 780M) |
-| 8012  | llama.cpp fallback (CPU) |
+| 13305 | Lemonade (AMD Radeon 780M iGPU — chat · Whisper STT · Kokoro TTS · SD image gen) |
 | 3210  | frontend static bundle |
 
 ## Hardware (TatorTot — user's desktop)
@@ -148,6 +147,10 @@ Then `run.bat` — gh05t3_inference.py loads the adapter on port 8010.
 | /avery/story/start/{id} | GET | Open story editor session |
 | /avery/story/turn | POST | Send message to story editor |
 | /avery/story/sessions | GET | List sessions |
+| /avery/speech/transcribe | POST | Whisper STT — raw audio body → {"text"} |
+| /avery/speech/synthesize | POST | Kokoro TTS — {"text","voice"} → audio/wav |
+| /avery/image/generate | POST | SD image gen — {"prompt","size"} → {"image"} |
+| /avery/lemonade/status | GET | Lemonade availability + loaded models |
 | /stripe/webhook | POST | Stripe event receiver |
 | /stripe/subscribers | GET | Subscriber counts |
 

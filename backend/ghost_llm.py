@@ -40,6 +40,9 @@ ANTHROPIC_MODEL = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
 # GH05T3 fine-tuned model — served by gh05t3_inference.py on port 8010
 GH05T3_MODEL_URL = os.environ.get("GH05T3_MODEL_URL", "http://localhost:8010")
 
+# Lemonade — AMD Radeon 780M iGPU (port 13305)
+LEMONADE_URL = os.environ.get("LEMONADE_URL", "http://localhost:13305")
+
 _LOCAL_ONLY_PROVIDERS = {"ollama", "local", "free", "cost_free", "cost-free", "gh05t3"}
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off"}
@@ -283,6 +286,29 @@ async def _call_gh05t3(system: str, user: str) -> str:
 # ---------------------------------------------------------------------------
 # Availability helpers
 # ---------------------------------------------------------------------------
+async def lemonade_available() -> bool:
+    """True if Lemonade server is running (AMD Radeon 780M iGPU, port 13305)."""
+    if not LEMONADE_URL:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            r = await c.get(f"{LEMONADE_URL}/api/v1/models")
+            return r.status_code == 200
+    except Exception:
+        return False
+
+
+async def _call_lemonade(system: str, user: str) -> str:
+    model = os.environ.get("LEMONADE_MODEL", "Gemma-4-E2B-it-GGUF")
+    return await _openai_compat(
+        base    = f"{LEMONADE_URL}/api/v1",
+        api_key = "lemonade",
+        model   = model,
+        system  = system,
+        user    = user,
+    )
+
+
 async def ollama_available() -> bool:
     url = ollama_resolved_url()
     if not url:
@@ -484,6 +510,19 @@ async def chat_once(session: str, system: str, user: str,
                     "Start Ollama (ollama serve) or set COST_FREE_ONLY=0 to enable "
                     "free cloud fallbacks (Groq, Gemini)."
                 ) from e
+
+    # ── Tier 0c: Lemonade (AMD Radeon 780M iGPU — free, local, always-on) ────
+    # Kicks in when Ollama is down or the task was already handled above.
+    # Uses Lemonade's optimised GGUF/Vulkan pipeline on the 780M.
+    # Skipped for research tasks (_prefer_cloud) just like the other local tiers.
+    if not _prefer_cloud and _provider_ok("lemonade") and await lemonade_available():
+        try:
+            text = await _call_lemonade(system, user)
+            return text, "lemonade:780M"
+        except Exception as e:
+            if _is_rate_limit(e):
+                _mark_rl("lemonade", 30)
+            LOG.warning("[cascade] lemonade failed: %s", e)
 
     # ── Tier 1: Groq free tier (key rotation — tries all configured keys) ────
     # research tasks start here, skipping local models for broader knowledge
@@ -820,9 +859,11 @@ async def nightly_status() -> dict:
         "has_groq_key":      bool(cfg.get("groq_api_key")   or _groq_key()),
         "google_model":      cfg.get("google_model",  "gemini-2.0-flash"),
         "groq_model":        cfg.get("groq_model",    "llama-3.3-70b-versatile"),
-        "ollama_reachable":  await ollama_available(),
+        "ollama_reachable":    await ollama_available(),
+        "lemonade_reachable":  await lemonade_available(),
         "sovereign_available": await sovereign_available(),
-        "fallback_chain":    ["sovereign-core (local GPU)", "ollama (local)", "groq (free)", "google (free)", "anthropic"],
+        "fallback_chain":    ["sovereign-core (local GPU)", "ollama (local)",
+                              "lemonade (780M iGPU)", "groq (free)", "google (free)", "anthropic"],
     }
 
 
