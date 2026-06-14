@@ -315,7 +315,7 @@ async def ollama_available() -> bool:
         return False
     try:
         async with httpx.AsyncClient(timeout=2.0) as c:
-            r = await c.get(f"{url}/v1/models")
+            r = await c.get(f"{url}/api/tags")
             return r.status_code == 200
     except Exception:
         return False
@@ -410,6 +410,7 @@ async def _call_ollama_preferred(system: str, user: str, role: str = "proposer",
         raise RuntimeError("Ollama is not reachable at OLLAMA_GATEWAY_URL")
     await ollama_ensure_model("qwen2.5:0.5b")
     model = (model_override
+             or os.environ.get("OLLAMA_SAGE_MODEL")
              or OLLAMA_PREFERRED.get(role)
              or OLLAMA_PREFERRED.get("proposer")
              or "qwen2.5:0.5b")

@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 async def run_cycles(n: int = 8, model: str | None = None) -> None:
     if model:
         os.environ["OLLAMA_SAGE_MODEL"] = model
+    # Always allow free cloud fallbacks (Groq, Gemini) for SAGE evolution cycles
+    os.environ["COST_FREE_ONLY"] = "0"
 
     from evolution.map_elites import archive_stats
     from ghost_llm import ollama_available, run_sage_cycle
