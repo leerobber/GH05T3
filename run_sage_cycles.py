@@ -61,8 +61,9 @@ async def run_cycles(n: int = 8, model_arg: str | None = None) -> None:
     import httpx
     from evolution.map_elites import archive_stats
 
-    # Resolve Ollama URL from environment
+    # Resolve Ollama URL from environment and ensure downstream code sees it
     ollama_url = (os.environ.get("OLLAMA_GATEWAY_URL") or "http://localhost:11434").rstrip("/")
+    os.environ["OLLAMA_GATEWAY_URL"] = ollama_url
 
     # Auto-detect best available model
     requested = model_arg or os.environ.get("OLLAMA_SAGE_MODEL")
