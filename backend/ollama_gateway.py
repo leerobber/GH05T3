@@ -121,7 +121,7 @@ async def call(
             return r.json()["message"]["content"]
 
 def resolved_url() -> str:
-    return (os.environ.get("OLLAMA_GATEWAY_URL") or "").rstrip("/")
+    return (os.environ.get("OLLAMA_GATEWAY_URL") or "http://localhost:11434").rstrip("/")
 
 
 async def ping() -> dict:

@@ -3,9 +3,10 @@
 Usage:
     python run_sage_cycles.py              # 8 cycles
     python run_sage_cycles.py 16           # 16 cycles
-    python run_sage_cycles.py 8 gh05t3-sovereign:latest
 
-Set OLLAMA_SAGE_MODEL env var to override the model.
+Set OLLAMA_SAGE_MODEL env var to pick the model:
+    $env:OLLAMA_SAGE_MODEL = "gh05t3-sovereign:latest"
+    python run_sage_cycles.py 8
 """
 import asyncio
 import os
@@ -14,68 +15,22 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
-# Always allow free cloud fallbacks for SAGE evolution cycles
+# Allow cloud fallbacks (Groq/Gemini) during evolution cycles
 os.environ["COST_FREE_ONLY"] = "0"
 
 
-_PREFERRED_MODELS = [
-    "gh05t3-sovereign:latest",
-    "avery-sovereign:latest",
-    "codex-sovereign:latest",
-    "nexus-sovereign:latest",
-    "qwen3:8b",
-    "qwen2.5:7b",
-    "qwen2.5:7b-q4_K_M",
-    "llama3.2:3b",
-]
-
-
-async def _pick_model(requested: str | None, ollama_url: str) -> str | None:
-    """Return the best available Ollama model, or None if Ollama is unreachable."""
-    import httpx
-    try:
-        async with httpx.AsyncClient(timeout=3.0) as c:
-            r = await c.get(f"{ollama_url}/api/tags")
-            if r.status_code != 200:
-                return None
-            available = {m["name"] for m in r.json().get("models", [])}
-            if not available:
-                return None
-
-            # honour explicit request if that model exists
-            if requested and requested in available:
-                return requested
-
-            # pick from preference list
-            for m in _PREFERRED_MODELS:
-                if m in available:
-                    return m
-
-            # last resort: whatever is there
-            return next(iter(available))
-    except Exception:
-        return None
-
-
-async def run_cycles(n: int = 8, model_arg: str | None = None) -> None:
-    import httpx
+async def run_cycles(n: int = 8) -> None:
     from evolution.map_elites import archive_stats
+    from ghost_llm import run_sage_cycle, ollama_available
 
-    # Resolve Ollama URL from environment and ensure downstream code sees it
-    ollama_url = (os.environ.get("OLLAMA_GATEWAY_URL") or "http://localhost:11434").rstrip("/")
-    os.environ["OLLAMA_GATEWAY_URL"] = ollama_url
+    # Show which model will be used
+    model = os.environ.get("OLLAMA_SAGE_MODEL", "auto")
+    avail = await ollama_available()
 
-    # Auto-detect best available model
-    requested = model_arg or os.environ.get("OLLAMA_SAGE_MODEL")
-    model = await _pick_model(requested, ollama_url)
-
-    if model:
-        os.environ["OLLAMA_SAGE_MODEL"] = model
-        print(f"Ollama model: {model}")
+    if avail:
+        print(f"Ollama: available  |  model: {model}")
     else:
-        print("Ollama not available — will use cloud fallbacks (Groq/Gemini)")
-
-    from ghost_llm import run_sage_cycle
+        print("Ollama: not reachable — will use cloud fallbacks (Groq/Gemini)")
 
     print(f"Running {n} SAGE cycles...\n")
 
@@ -99,6 +54,5 @@ async def run_cycles(n: int = 8, model_arg: str | None = None) -> None:
 
 
 if __name__ == "__main__":
-    n         = int(sys.argv[1]) if len(sys.argv) > 1 else 8
-    model_arg = sys.argv[2]      if len(sys.argv) > 2 else None
-    asyncio.run(run_cycles(n, model_arg))
+    n = int(sys.argv[1]) if len(sys.argv) > 1 else 8
+    asyncio.run(run_cycles(n))
