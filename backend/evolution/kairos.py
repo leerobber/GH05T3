@@ -9,7 +9,6 @@ from pathlib import Path
 KAIROS_LOG      = Path("evolution/kairos_log.jsonl")
 ELITE_THRESHOLD = float(os.environ.get("SAGE_ELITE_THRESHOLD", "0.90"))
 
-
 @dataclass
 class KAIROSCycle:
     id:                   int
@@ -59,6 +58,20 @@ class KAIROS:
         if cycle.is_elite:
             self._elite.append(cycle)
 
+        # MAP-Elites archive — quality-diversity storage (replaces flat elite list)
+        try:
+            from evolution.map_elites import get_archive
+            get_archive().add(
+                proposal    = proposal,
+                quality     = score,
+                latency_s   = getattr(cycle, "_latency_s",   0.0),
+                token_count = getattr(cycle, "_token_count", 0),
+                metadata    = {"cycle_id": cycle.id, "verdict": verdict,
+                               "agent_id": agent_id},
+            )
+        except Exception:
+            pass
+
         with open(KAIROS_LOG, "a") as f:
             f.write(json.dumps(cycle.to_dict()) + "\n")
 
@@ -103,7 +116,7 @@ class KAIROS:
         drifts    = [c.entropy_drift for c in self._cycles if c.entropy_drift > 0]
         viabs     = [c.sentinel_viability for c in self._cycles if c.sentinel_viability > 0]
         blocked   = [c for c in self._cycles if c.verdict == "SENTINEL_BLOCK"]
-        return {
+        base = {
             "total_cycles":       len(self._cycles),
             "elite_cycles":       len(self._elite),
             "sentinel_blocks":    len(blocked),
@@ -112,3 +125,9 @@ class KAIROS:
             "avg_sentinel_v":     round(sum(viabs)  / len(viabs),  4) if viabs  else 0.0,
             "avg_entropy_drift":  round(sum(drifts) / len(drifts), 4) if drifts else 0.0,
         }
+        try:
+            from evolution.map_elites import get_archive
+            base["map_elites"] = get_archive().stats()
+        except Exception:
+            pass
+        return base

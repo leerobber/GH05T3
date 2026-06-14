@@ -165,6 +165,10 @@ mcp>=1.0.0
 # LoRA fine-tuning (GPU required — install AFTER the rest, CUDA-specific)
 # pip install "unsloth[cu124]" trl>=0.9.0 datasets accelerate
 
+# ── MAP-Elites quality-diversity archive (replaces flat KAIROS elite list) ──
+ribs>=0.7.0        # pyribs: GridArchive + GaussianEmitter + Scheduler
+numpy>=1.24.0      # required by ribs
+
 # ── CPU-native STT + TTS (zero VRAM — keeps 780M on chat model full-time) ──
 # faster-whisper: Whisper STT on CPU via CTranslate2 (auto-downloads model weights)
 faster-whisper>=1.0.0

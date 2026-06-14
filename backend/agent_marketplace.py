@@ -49,6 +49,7 @@ _SCALE_UP_AT   = int(os.environ.get("MARKETPLACE_SCALE_UP_AT", "10"))
 _IDLE_TTL      = int(os.environ.get("MARKETPLACE_IDLE_TTL",    "120"))
 _JOB_EXPIRE_S     = 3600   # PENDING jobs unclaimed after 1h are expired
 _CLAIM_TIMEOUT_S  = int(os.environ.get("MARKETPLACE_CLAIM_TIMEOUT", "300"))  # CLAIMED lease: 5 min
+BID_WINDOW_S      = int(os.environ.get("MARKETPLACE_BID_WINDOW", "10"))
 
 
 # ---------------------------------------------------------------------------
@@ -56,11 +57,15 @@ _CLAIM_TIMEOUT_S  = int(os.environ.get("MARKETPLACE_CLAIM_TIMEOUT", "300"))  # C
 # ---------------------------------------------------------------------------
 
 class JobStatus(str, Enum):
-    PENDING   = "pending"
-    CLAIMED   = "claimed"
-    COMPLETED = "completed"
-    FAILED    = "failed"
-    EXPIRED   = "expired"
+    PENDING    = "pending"
+    BIDDING    = "bidding"
+    CLAIMED    = "claimed"
+    COMPLETED  = "completed"
+    FAILED     = "failed"
+    EXPIRED    = "expired"
+    VALIDATING = "validating"
+    VALIDATED  = "validated"
+    REJECTED   = "rejected"
 
 
 @dataclass
@@ -152,6 +157,17 @@ def _init_db():
         c.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON marketplace_jobs(status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tags   ON marketplace_jobs(tags)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_jobs_time   ON marketplace_jobs(created_at)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS marketplace_bids (
+                id         TEXT PRIMARY KEY,
+                job_id     TEXT NOT NULL,
+                agent_id   TEXT NOT NULL,
+                bid        REAL NOT NULL,
+                submitted  REAL NOT NULL,
+                UNIQUE(job_id, agent_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bids_job ON marketplace_bids(job_id)")
 
 
 # ---------------------------------------------------------------------------
@@ -267,10 +283,12 @@ class JobQueue:
         SQLite transaction (both tables live in palace.db), so a crash between
         them is impossible — either both commit or neither does.
         """
+        _completed_metadata: dict = {}
+
         def _do() -> tuple[bool, int, float]:
             with _conn(immediate=True) as c:
                 row = c.execute(
-                    "SELECT reward, claimed_by, status FROM marketplace_jobs WHERE id=?",
+                    "SELECT reward, claimed_by, status, metadata FROM marketplace_jobs WHERE id=?",
                     (job_id,)
                 ).fetchone()
                 if not row or row[1] != agent_id or row[2] != JobStatus.CLAIMED.value:
@@ -278,6 +296,7 @@ class JobQueue:
 
                 now    = time.time()
                 reward = row[0]
+                _completed_metadata.update(json.loads(row[3] or "{}"))
 
                 c.execute(
                     "UPDATE marketplace_jobs SET status=?, result=?, completed_at=? "
@@ -307,6 +326,9 @@ class JobQueue:
         if ok:
             LOG.info("[mkt] completed job=%s by=%s reward=%d → balance=%.1f",
                      job_id, agent_id, reward, new_bal)
+            # Post validation job if requested
+            if _completed_metadata.get("requires_validation"):
+                await self._post_validation_job(job_id, result)
         return ok
 
     async def fail(self, job_id: str, error: str, agent_id: str) -> bool:
@@ -354,6 +376,170 @@ class JobQueue:
         if n_rec:
             LOG.info("[mkt] recycled %d abandoned claimed jobs back to pending", n_rec)
         return n_exp + n_rec
+
+    # ── auction ───────────────────────────────────────────────────────────────
+
+    async def post_auction(self, task: str, tags: list[str] = None,
+                           reward: int = 20, posted_by: str = "system",
+                           metadata: dict = None) -> str:
+        """Post a job in BIDDING state. Agents bid quality promises within BID_WINDOW_S seconds.
+
+        After the window, resolve_auction() claims for the highest bidder at second-price reward.
+        This incentivises honest capability reporting — an agent can't gain by over-promising.
+        """
+        job_id = str(uuid.uuid4())[:12]
+        deadline = time.time() + BID_WINDOW_S
+        meta = dict(metadata or {})
+        meta["bid_deadline"] = deadline
+        def _insert():
+            with _conn() as c:
+                c.execute(
+                    "INSERT INTO marketplace_jobs "
+                    "(id, task, tags, reward, status, posted_by, created_at, metadata) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (job_id, task, json.dumps(tags or []), reward,
+                     JobStatus.BIDDING.value, posted_by, time.time(), json.dumps(meta)),
+                )
+        await asyncio.to_thread(_insert)
+        LOG.info("[mkt:auction] posted job=%s reward=%d window=%ds", job_id, reward, BID_WINDOW_S)
+        for q in self._listeners:
+            try: q.put_nowait(job_id)
+            except asyncio.QueueFull: pass
+        return job_id
+
+    async def bid(self, job_id: str, agent_id: str, quality_promise: float) -> bool:
+        """Submit a sealed bid (quality_promise 0.0–1.0) for a BIDDING job.
+
+        The promise is a truthful capability signal — Vickrey's second-price rule
+        means over-promising yields no gain (winner pays second-highest, not first).
+        """
+        quality_promise = max(0.0, min(1.0, quality_promise))
+        bid_id = str(uuid.uuid4())[:12]
+        def _do():
+            with _conn() as c:
+                row = c.execute(
+                    "SELECT metadata FROM marketplace_jobs WHERE id=? AND status=?",
+                    (job_id, JobStatus.BIDDING.value)
+                ).fetchone()
+                if not row:
+                    return False
+                deadline = json.loads(row[0]).get("bid_deadline", 0)
+                if time.time() > deadline:
+                    return False
+                c.execute(
+                    "INSERT OR REPLACE INTO marketplace_bids (id, job_id, agent_id, bid, submitted) "
+                    "VALUES (?,?,?,?,?)",
+                    (bid_id, job_id, agent_id, quality_promise, time.time()),
+                )
+                return True
+        ok = await asyncio.to_thread(_do)
+        if ok:
+            LOG.debug("[mkt:auction] bid job=%s agent=%s promise=%.2f", job_id, agent_id, quality_promise)
+        return ok
+
+    async def resolve_auction(self, job_id: str) -> Optional[str]:
+        """Close bidding, claim for the highest bidder at second-price reward.
+
+        Vickrey rule: highest bidder wins; their reward fraction = second-highest bid.
+        E.g. bids [0.9, 0.7, 0.5] → winner is 0.9 agent, pays/receives 0.7 × base_reward.
+        Returns winning agent_id or None if no bids.
+        """
+        def _do() -> Optional[tuple[str, str, int]]:
+            with _conn(immediate=True) as c:
+                row = c.execute(
+                    "SELECT reward FROM marketplace_jobs WHERE id=? AND status=?",
+                    (job_id, JobStatus.BIDDING.value)
+                ).fetchone()
+                if not row:
+                    return None
+                base_reward = row[0]
+
+                bids = c.execute(
+                    "SELECT agent_id, bid FROM marketplace_bids WHERE job_id=? ORDER BY bid DESC",
+                    (job_id,)
+                ).fetchall()
+                if not bids:
+                    # No bids — expire the job
+                    c.execute("UPDATE marketplace_jobs SET status=? WHERE id=?",
+                              (JobStatus.EXPIRED.value, job_id))
+                    return None
+
+                winner_agent, winner_bid = bids[0]
+                second_bid = bids[1][1] if len(bids) > 1 else winner_bid
+                # Second-price: winner receives reward proportional to second-highest bid
+                final_reward = max(1, int(base_reward * second_bid))
+
+                now = time.time()
+                c.execute(
+                    "UPDATE marketplace_jobs SET status=?, claimed_by=?, claimed_at=?, reward=? "
+                    "WHERE id=?",
+                    (JobStatus.CLAIMED.value, winner_agent, now, final_reward, job_id),
+                )
+                return winner_agent, job_id, final_reward
+
+        result = await asyncio.to_thread(_do)
+        if result:
+            winner, jid, reward = result
+            LOG.info("[mkt:auction] resolved job=%s winner=%s reward=%d (2nd-price)", jid, winner, reward)
+            return winner
+        return None
+
+    # ── validation ────────────────────────────────────────────────────────────
+
+    async def _post_validation_job(self, original_job_id: str, result: str) -> str:
+        """Post a VALIDATOR job to verify a just-completed job's output."""
+        task = (
+            f"Validate result of job {original_job_id}.\n"
+            f"Result to verify (first 800 chars):\n{result[:800]}\n\n"
+            "Score the result 0.0–1.0 for correctness, completeness, and safety. "
+            "Respond as JSON: {\"passed\": true/false, \"score\": 0.0–1.0, \"feedback\": \"...\"}."
+        )
+        return await self.post(
+            task, tags=["validate", "qa"], reward=10,
+            posted_by="marketplace_auto",
+            metadata={"validates": original_job_id, "is_validation": True},
+        )
+
+    async def validate_result(self, original_job_id: str, validator_id: str,
+                              passed: bool, score: float, feedback: str = "") -> bool:
+        """Record validator's decision. Updates original job to VALIDATED or REJECTED.
+
+        A rejected job is re-posted as PENDING so another agent can retry it.
+        """
+        def _do() -> bool:
+            with _conn(immediate=True) as c:
+                new_status = JobStatus.VALIDATED.value if passed else JobStatus.REJECTED.value
+                updated = c.execute(
+                    "UPDATE marketplace_jobs "
+                    "SET status=?, metadata=json_set(metadata, '$.validation_score', ?, "
+                    "    '$.validation_feedback', ?, '$.validated_by', ?) "
+                    "WHERE id=? AND status=?",
+                    (new_status, round(score, 3), feedback[:400], validator_id,
+                     original_job_id, JobStatus.COMPLETED.value),
+                ).rowcount
+                if updated and not passed:
+                    # Rejected — re-queue so another agent can attempt it
+                    row = c.execute(
+                        "SELECT task, tags, reward, posted_by, metadata FROM marketplace_jobs WHERE id=?",
+                        (original_job_id,)
+                    ).fetchone()
+                    if row:
+                        retry_meta = json.loads(row[4] or "{}")
+                        retry_meta["retry_of"] = original_job_id
+                        c.execute(
+                            "INSERT INTO marketplace_jobs "
+                            "(id, task, tags, reward, status, posted_by, created_at, metadata) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (str(uuid.uuid4())[:12], row[0], row[1], row[2],
+                             JobStatus.PENDING.value, row[3], time.time(),
+                             json.dumps(retry_meta)),
+                        )
+                return bool(updated)
+        ok = await asyncio.to_thread(_do)
+        if ok:
+            status_word = "VALIDATED" if passed else "REJECTED+requeued"
+            LOG.info("[mkt] job=%s %s by=%s score=%.2f", original_job_id, status_word, validator_id, score)
+        return ok
 
     # ── stats ─────────────────────────────────────────────────────────────────
 
