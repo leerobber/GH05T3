@@ -1047,8 +1047,9 @@ async def stripe_webhook(request: Request):
     # Dispatch marketplace job for async agent processing
     try:
         await ingest_stripe_event(event_type, event)
-    except Exception:
-        pass
+    except Exception as e:
+        log.error("[marketplace] stripe ingestion failed (event=%s): %s",
+                  event_type, e, exc_info=True)
 
     return {"received": True, "event": event_type, "action": result.get("action") if result else "ignored"}
 
@@ -1100,7 +1101,8 @@ async def marketplace_economy():
         from economy.ledger import ledger_stats
         return ledger_stats()
     except Exception as e:
-        return {"error": str(e)}
+        log.error("[economy] ledger_stats failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch ledger stats")
 
 
 @app.post("/sentinel/cve-feed")

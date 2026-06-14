@@ -54,11 +54,12 @@ class CircuitBreaker:
         self.success_threshold = success_threshold
         self._on_state_change  = on_state_change
 
-        self._state         = self._CLOSED
-        self._failures      = 0
-        self._successes     = 0
-        self._opened_at     = 0.0
-        self._last_failure  = ""
+        self._state           = self._CLOSED
+        self._failures        = 0
+        self._successes       = 0
+        self._opened_at       = 0.0
+        self._last_failure    = ""
+        self._probe_in_flight = False  # enforces single probe in HALF_OPEN
 
     # ── state checks ──────────────────────────────────────────────────────────
 
@@ -70,17 +71,26 @@ class CircuitBreaker:
         return self._state
 
     def allow(self) -> bool:
-        """Return True if a call should proceed."""
+        """Return True if a call should proceed.
+
+        In HALF_OPEN exactly one probe is allowed at a time — the flag is
+        cleared by success(), failure(), or _transition() so the next
+        probe can proceed after the current one resolves.
+        """
         s = self.state
         if s == self._CLOSED:
             return True
         if s == self._HALF_OPEN:
-            return True   # one probe request allowed
+            if self._probe_in_flight:
+                return False  # another probe already in flight
+            self._probe_in_flight = True
+            return True
         return False      # OPEN — fast-fail
 
     # ── feedback ──────────────────────────────────────────────────────────────
 
     def success(self) -> None:
+        self._probe_in_flight = False
         s = self.state
         if s == self._HALF_OPEN:
             self._successes += 1
@@ -92,6 +102,7 @@ class CircuitBreaker:
             self._failures = max(0, self._failures - 1)
 
     def failure(self, exc: Exception | None = None) -> None:
+        self._probe_in_flight = False
         self._last_failure = str(exc) if exc else "unknown"
         s = self.state
         if s in (self._CLOSED, self._HALF_OPEN):
@@ -125,6 +136,7 @@ class CircuitBreaker:
     def _transition(self, new_state: str) -> None:
         if new_state == self._state:
             return
+        self._probe_in_flight = False  # reset probe token on every state change
         old = self._state
         self._state = new_state
         LOG.info("[cb] %s: %s → %s", self.name, old, new_state)

@@ -112,12 +112,16 @@ class OracleAgent(SwarmAgent):
                 await asyncio.sleep(5)
                 continue
             await self.think(f"ORACLE claimed job={job.id}: {job.task[:60]}")
-            result = await _ollama_generate(
-                self._client, "oracle",
-                f"Research task: {job.task}\nProvide a comprehensive, cited answer.",
-                temperature=0.3,
-            )
-            await q.complete(job.id, result, "ORACLE")
+            try:
+                result = await _ollama_generate(
+                    self._client, "oracle",
+                    f"Research task: {job.task}\nProvide a comprehensive, cited answer.",
+                    temperature=0.3,
+                )
+                await q.complete(job.id, result, "ORACLE")
+            except Exception as e:
+                log.error("[ORACLE] job=%s failed: %s", job.id, e)
+                await q.fail(job.id, str(e), "ORACLE")
 
     async def handle_research(self, task_msg: SwarmMessage):
         query = task_msg.content
@@ -211,12 +215,16 @@ class ForgeAgent(SwarmAgent):
                 await asyncio.sleep(5)
                 continue
             await self.think(f"FORGE claimed job={job.id}: {job.task[:60]}")
-            result = await _ollama_generate(
-                self._client, "forge",
-                f"Write production-ready code for:\n{job.task}",
-                temperature=0.25, max_tokens=1200,
-            )
-            await q.complete(job.id, result, "FORGE")
+            try:
+                result = await _ollama_generate(
+                    self._client, "forge",
+                    f"Write production-ready code for:\n{job.task}",
+                    temperature=0.25, max_tokens=1200,
+                )
+                await q.complete(job.id, result, "FORGE")
+            except Exception as e:
+                log.error("[FORGE] job=%s failed: %s", job.id, e)
+                await q.fail(job.id, str(e), "FORGE")
 
     async def close(self):
         await self._client.aclose()
@@ -279,13 +287,17 @@ class CodexAgent(SwarmAgent):
                 await asyncio.sleep(5)
                 continue
             await self.think(f"CODEX claimed job={job.id}: {job.task[:60]}")
-            result = await _ollama_generate(
-                self._client, "codex",
-                f"Review the following code or PR description for bugs, security issues, "
-                f"and improvement opportunities:\n\n{job.task}",
-                temperature=0.1, max_tokens=600,
-            )
-            await q.complete(job.id, result, "CODEX")
+            try:
+                result = await _ollama_generate(
+                    self._client, "codex",
+                    f"Review the following code or PR description for bugs, security issues, "
+                    f"and improvement opportunities:\n\n{job.task}",
+                    temperature=0.1, max_tokens=600,
+                )
+                await q.complete(job.id, result, "CODEX")
+            except Exception as e:
+                log.error("[CODEX] job=%s failed: %s", job.id, e)
+                await q.fail(job.id, str(e), "CODEX")
 
     async def close(self):
         await self._client.aclose()
@@ -408,44 +420,88 @@ class SentinelAgent(SwarmAgent):
                     await asyncio.sleep(5)
                     continue
                 await self.think(f"SENTINEL claimed job={job.id}: {job.task[:60]}")
-                prompt = (
-                    f"Security analysis task:\n{job.task}\n\n"
-                    f"Provide: (1) risk assessment, (2) whether GH05T3 stack is affected, "
-                    f"(3) specific mitigations, (4) urgency level (CRITICAL/HIGH/MEDIUM/LOW)."
-                )
-                result = await _ollama_generate(cli, "sentinel", prompt, temperature=0.1, max_tokens=600)
-                await q.complete(job.id, result, "SENTINEL")
+                try:
+                    prompt = (
+                        f"Security analysis task:\n{job.task}\n\n"
+                        f"Provide: (1) risk assessment, (2) whether GH05T3 stack is affected, "
+                        f"(3) specific mitigations, (4) urgency level (CRITICAL/HIGH/MEDIUM/LOW)."
+                    )
+                    result = await _ollama_generate(cli, "sentinel", prompt,
+                                                    temperature=0.1, max_tokens=600)
+                    await q.complete(job.id, result, "SENTINEL")
+                except Exception as e:
+                    log.error("[SENTINEL] job=%s failed: %s", job.id, e)
+                    await q.fail(job.id, str(e), "SENTINEL")
         finally:
             await cli.aclose()
 
+    # Python packages in the GH05T3 stack to monitor for CVEs
+    _MONITORED_PACKAGES = [
+        "fastapi", "pydantic", "uvicorn", "httpx", "requests",
+        "transformers", "torch", "aiofiles", "starlette", "websockets",
+    ]
+
     async def fetch_cve_feed(self, limit: int = 10) -> list[dict]:
-        """Fetch recent critical CVEs from OSV.dev API and ingest as marketplace jobs."""
+        """Fetch recent CVEs from OSV.dev for GH05T3's Python dependencies.
+
+        Uses /v1/querybatch with real package names — the single /v1/query
+        endpoint requires a package name+ecosystem pair; sending only
+        {"ecosystem": "PyPI"} without a name returns a 400 error.
+        """
         if not _MARKETPLACE:
             return []
         try:
             import httpx as _httpx
+            queries = [
+                {"package": {"ecosystem": "PyPI", "name": pkg}}
+                for pkg in self._MONITORED_PACKAGES
+            ]
             async with _httpx.AsyncClient(timeout=15) as c:
                 r = await c.post(
-                    "https://api.osv.dev/v1/query",
-                    json={"package": {"ecosystem": "PyPI"}, "page_size": limit},
+                    "https://api.osv.dev/v1/querybatch",
+                    json={"queries": queries},
                 )
                 if r.status_code != 200:
+                    log.debug("OSV querybatch returned %d", r.status_code)
                     return []
-                vulns = r.json().get("vulns", [])
-                cve_records = []
-                for v in vulns:
-                    aliases = v.get("aliases", [v.get("id", "")])
-                    cve_id  = next((a for a in aliases if a.startswith("CVE-")), v.get("id"))
-                    sev     = (v.get("database_specific", {}).get("severity") or
-                               v.get("severity", [{}])[0].get("score", "MEDIUM") if v.get("severity") else "MEDIUM")
-                    cve_records.append({
-                        "id":       cve_id,
-                        "summary":  v.get("summary", v.get("details", ""))[:300],
-                        "severity": sev if isinstance(sev, str) else "MEDIUM",
-                    })
+
+                results    = r.json().get("results", [])
+                cve_records: list[dict] = []
+                seen_ids: set[str]      = set()
+
+                for batch_result in results:
+                    for v in batch_result.get("vulns", []):
+                        aliases = v.get("aliases", []) or [v.get("id", "")]
+                        cve_id  = next(
+                            (a for a in aliases if a.startswith("CVE-")),
+                            v.get("id", "UNKNOWN"),
+                        )
+                        if cve_id in seen_ids:
+                            continue
+                        seen_ids.add(cve_id)
+
+                        db_sev = v.get("database_specific", {}).get("severity", "")
+                        sev_list = v.get("severity", [])
+                        sev = (db_sev or
+                               (sev_list[0].get("score", "MEDIUM")
+                                if sev_list and isinstance(sev_list[0].get("score"), str)
+                                else "MEDIUM"))
+
+                        cve_records.append({
+                            "id":       cve_id,
+                            "summary":  v.get("summary", v.get("details", ""))[:300],
+                            "severity": sev if isinstance(sev, str) else "MEDIUM",
+                        })
+                        if len(cve_records) >= limit:
+                            break
+                    if len(cve_records) >= limit:
+                        break
+
                 if cve_records:
                     jobs = await ingest_cve_feed(cve_records)
-                    await self.think(f"SENTINEL: ingested {len(jobs)} CVE jobs from OSV feed")
+                    await self.think(
+                        f"SENTINEL: ingested {len(jobs)} CVE jobs from OSV feed"
+                    )
                 return cve_records
         except Exception as e:
             log.debug("CVE feed fetch failed: %s", e)
@@ -688,13 +744,18 @@ class LedgerAgent(SwarmAgent):
                 await asyncio.sleep(5)
                 continue
             await self.think(f"LEDGER claimed job={job.id}: {job.task[:60]}")
-            prompt = (
-                f"As CFO Diana Cross, handle this billing event:\n{job.task}\n\n"
-                f"State: action taken, customer status, and any follow-up needed."
-            )
-            result = await _ollama_generate(self._client, "nexus", prompt, temperature=0.2, max_tokens=400)
-            self._events_handled += 1
-            await q.complete(job.id, result, "LEDGER")
+            try:
+                prompt = (
+                    f"As CFO Diana Cross, handle this billing event:\n{job.task}\n\n"
+                    f"State: action taken, customer status, and any follow-up needed."
+                )
+                result = await _ollama_generate(self._client, "nexus", prompt,
+                                                temperature=0.2, max_tokens=400)
+                self._events_handled += 1
+                await q.complete(job.id, result, "LEDGER")
+            except Exception as e:
+                log.error("[LEDGER] job=%s failed: %s", job.id, e)
+                await q.fail(job.id, str(e), "LEDGER")
 
     def economy_report(self) -> dict:
         """Quick economy snapshot from local ledger."""

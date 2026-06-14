@@ -152,10 +152,10 @@ class LoRAFarm:
         "ops": 4, "quick": 5, "default": 6,
     }
 
-    def __init__(self, base_dir: Path = None):
+    def __init__(self, base_dir: Path | None = None):
         self._base = base_dir or (Path(__file__).parent / "models")
 
-    def get_lora_request(self, task_domain: str) -> "Optional[LoRARequest]":
+    def get_lora_request(self, task_domain: str) -> LoRARequest | None:
         if not _VLLM:
             return None
         domain = task_domain if task_domain in self._DOMAIN_DIRS else "default"
@@ -177,7 +177,7 @@ class LoRAFarm:
         }
 
 
-_lora_farm: "Optional[LoRAFarm]" = None
+_lora_farm: LoRAFarm | None = None
 
 
 def get_lora_farm() -> "LoRAFarm":
@@ -338,7 +338,7 @@ def _inject_system(messages: list[dict]) -> list[dict]:
 async def _vllm_stream_tokens(prompt: str, max_tokens: int, temperature: float,
                                req_id: str, task_domain: str = "default"):
     """Async-yield raw text tokens from vLLM. Aborts the request on cancellation."""
-    lora = get_lora_farm().get_lora_request(task_domain) if _has_adapter else None
+    lora = get_lora_farm().get_lora_request(task_domain)
     prev = ""
     try:
         async for out in _vllm_engine.generate(
@@ -378,7 +378,7 @@ async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float,
                 repetition_penalty = 1.1,
             ),
             req_id,
-            lora_request=get_lora_farm().get_lora_request(task_domain) if _has_adapter else None,
+            lora_request=get_lora_farm().get_lora_request(task_domain),
         ):
             if out.finished and out.outputs:
                 full_text = out.outputs[0].text.strip()
@@ -561,8 +561,10 @@ async def chat_completions(req: ChatRequest):
     if not req.task_domain:
         try:
             from ghost_llm import _classify_task
-            user_text = " ".join(m.content for m in req.messages if m.role == "user")
-            domain = _classify_task(user_text)
+            combined = " ".join(
+                m.content for m in req.messages if m.role in ("system", "user")
+            )
+            domain = _classify_task(combined)
         except Exception:
             pass
 

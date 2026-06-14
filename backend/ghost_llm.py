@@ -424,8 +424,10 @@ async def chat_once(session: str, system: str, user: str,
     _prefer_small = task == "quick"
 
     # ── Tier -1: GH05T3 fine-tuned local model (highest priority) ─────────────
+    # Research tasks (_prefer_cloud) skip local models in auto mode to reach
+    # cloud LLMs with broader training data; explicit provider="gh05t3" always wins.
     if (provider == "gh05t3"
-            or (provider in {"auto"} and await gh05t3_available())
+            or (provider == "auto" and not _prefer_cloud and await gh05t3_available())
             or (_prefer_local and not _prefer_cloud and await gh05t3_available())):
         try:
             text = await _call_gh05t3(system, user)
@@ -448,8 +450,8 @@ async def chat_once(session: str, system: str, user: str,
     # ── Tier 0a: SovereignCore gateway (OpenAI-compat, local GPU cluster) ─────
     # Routes inference across RTX 5050 → Radeon 780M → Ryzen 7 CPU via Ollama.
     # Preferred over direct Ollama because the gateway handles load balancing and
-    # health-aware routing automatically.
-    if _provider_ok("sovereign"):
+    # health-aware routing automatically. Skipped for research tasks (_prefer_cloud).
+    if not _prefer_cloud and _provider_ok("sovereign"):
         try:
             from sovereign_economy import sovereign_available as _sov_ok, sovereign_chat
             if await _sov_ok():
@@ -467,8 +469,8 @@ async def chat_once(session: str, system: str, user: str,
     if _provider_ok("ollama") and await ollama_available():
         try:
             if _prefer_small:
-                text = await _call_ollama_preferred(system, user, role,
-                                                    model_override="qwen2.5:0.5b")
+                text, _ = await _call_ollama_preferred(system, user, role,
+                                                       model_override="qwen2.5:0.5b")
                 return text, "ollama:qwen2.5:0.5b"
             elif not _prefer_cloud:
                 return await _call_ollama_preferred(system, user, role)

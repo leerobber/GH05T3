@@ -146,14 +146,18 @@ class MemoryPalace:
                   "timestamp": now, "tags": tags or []}
         self._shards.append(shard)
 
-        # Background Qdrant upsert — non-blocking
+        # Background Qdrant upsert — non-blocking in both async and sync callers
         if _qdrant_ok:
             try:
-                import asyncio
-                try:
-                    asyncio.get_running_loop().create_task(self._qdrant_upsert(shard))
-                except RuntimeError:
-                    pass
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._qdrant_upsert(shard))
+            except RuntimeError:
+                # No running event loop (called from sync context) — spin up a thread
+                import threading
+                threading.Thread(
+                    target=lambda: asyncio.run(self._qdrant_upsert(shard)),
+                    daemon=True,
+                ).start()
             except Exception:
                 pass
 
