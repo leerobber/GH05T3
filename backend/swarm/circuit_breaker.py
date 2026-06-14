@@ -131,8 +131,8 @@ class CircuitBreaker:
         if self._on_state_change:
             try:
                 self._on_state_change(self.name, old, new_state)
-            except Exception:
-                pass
+            except Exception as e:
+                LOG.warning("[cb] %s state-change hook failed: %s", self.name, e)
 
     def stats(self) -> dict:
         return {

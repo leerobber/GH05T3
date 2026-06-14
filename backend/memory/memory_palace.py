@@ -8,6 +8,7 @@ Config:
   OLLAMA_EMBED_MODEL    = nomic-embed-text
 """
 from __future__ import annotations
+import asyncio
 import json
 import logging
 import math
@@ -164,14 +165,16 @@ class MemoryPalace:
             return
         try:
             from qdrant_client.models import PointStruct
-            _qdrant_client.upsert(
+            point = PointStruct(
+                id=shard["id"],
+                vector=vec,
+                payload={"room": shard["room"], "content": shard["content"],
+                         "tags": shard["tags"]},
+            )
+            await asyncio.to_thread(
+                _qdrant_client.upsert,
                 collection_name=_COLLECTION,
-                points=[PointStruct(
-                    id=shard["id"],
-                    vector=vec,
-                    payload={"room": shard["room"], "content": shard["content"],
-                             "tags": shard["tags"]},
-                )],
+                points=[point],
             )
         except Exception as e:
             LOG.debug("qdrant upsert failed: %s", e)
@@ -204,7 +207,8 @@ class MemoryPalace:
             if conditions:
                 from qdrant_client.models import Filter
                 filt = Filter(must=conditions)
-            hits = _qdrant_client.search(
+            hits = await asyncio.to_thread(
+                _qdrant_client.search,
                 collection_name=_COLLECTION,
                 query_vector=vec,
                 limit=top_k,
@@ -238,6 +242,7 @@ class MemoryPalace:
         candidate_words = [(s, s["content"].lower().split()) for s in candidates]
         avg_len = (sum(len(w) for _, w in candidate_words) / len(candidates)
                    if candidates else 80.0)
+        avg_len = max(avg_len, 1.0)  # guard: all-empty-content shards must not cause ZeroDivisionError
 
         scored = [
             (s, _bm25_score(query_terms, w, avg_len))

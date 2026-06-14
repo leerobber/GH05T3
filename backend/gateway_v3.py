@@ -45,7 +45,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import (BACKENDS, GATEWAY_HOST, GATEWAY_PORT,
@@ -72,6 +72,25 @@ from integrations.story_editor import (
     story_editor_greeting, story_editor_turn,
     get_session, reset_session, list_sessions,
 )
+from agent_marketplace import (
+    JobQueue, ingest_github_event, ingest_stripe_event, ingest_cve_feed,
+)
+
+# ── Marketplace API key — protects internal write endpoints ───────────────────
+_MARKETPLACE_KEY = os.environ.get("MARKETPLACE_API_KEY", "")
+
+
+def _require_marketplace_auth(request: Request):
+    """Reject requests missing a valid X-API-Key header.
+
+    Set MARKETPLACE_API_KEY in backend/.env to enable enforcement.
+    Empty key = dev-mode (accept all) — never leave empty in production.
+    """
+    if not _MARKETPLACE_KEY:
+        return  # dev mode — no key configured
+    provided = request.headers.get("X-API-Key", "")
+    if not provided or provided != _MARKETPLACE_KEY:
+        raise HTTPException(status_code=403, detail="Invalid or missing X-API-Key")
 
 log = logging.getLogger("gh0st3.gateway_v3")
 
@@ -1025,6 +1044,12 @@ async def stripe_webhook(request: Request):
         )
         log.info("Stripe event processed: %s → %s", event_type, result.get("action"))
 
+    # Dispatch marketplace job for async agent processing
+    try:
+        await ingest_stripe_event(event_type, event)
+    except Exception:
+        pass
+
     return {"received": True, "event": event_type, "action": result.get("action") if result else "ignored"}
 
 
@@ -1038,6 +1063,58 @@ async def stripe_subscribers():
 async def stripe_subscribers_all():
     """Full subscriber list — internal use only, protect this behind auth in prod."""
     return {"subscribers": all_subscribers()}
+
+
+# ─────────────────────────────────────────────
+# MARKETPLACE — Agent Job Queue
+# ─────────────────────────────────────────────
+
+@app.get("/marketplace/stats")
+async def marketplace_stats():
+    """Job queue statistics — pending / claimed / completed counts."""
+    return JobQueue.instance().stats()
+
+
+class ManualJobRequest(BaseModel):
+    task:      str  = Field(..., max_length=2000)
+    tags:      list = Field(default=[], max_length=10)
+    reward:    int  = Field(default=20, ge=0, le=1000)
+    posted_by: str  = Field(default="api", max_length=50)
+
+
+@app.post("/marketplace/post")
+async def marketplace_post_job(req: ManualJobRequest, request: Request):
+    """Manually post a job to the agent marketplace. Requires X-API-Key header."""
+    _require_marketplace_auth(request)
+    job_id = await JobQueue.instance().post(
+        task=req.task, tags=req.tags,
+        reward=req.reward, posted_by=req.posted_by,
+    )
+    return {"job_id": job_id}
+
+
+@app.get("/marketplace/economy")
+async def marketplace_economy():
+    """Local credit ledger snapshot — agent balances and totals."""
+    try:
+        from economy.ledger import ledger_stats
+        return ledger_stats()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/sentinel/cve-feed")
+async def sentinel_cve_feed(request: Request):
+    """Accept CVE records and dispatch SENTINEL jobs. Body: {"cves": [...]}
+    Requires X-API-Key header matching MARKETPLACE_API_KEY env var.
+    """
+    _require_marketplace_auth(request)
+    body = await request.json()
+    cves = body.get("cves", [])
+    if not cves:
+        raise HTTPException(400, "No CVE records provided")
+    job_ids = await ingest_cve_feed(cves)
+    return {"jobs_posted": len(job_ids), "job_ids": job_ids}
 
 
 # ─────────────────────────────────────────────
