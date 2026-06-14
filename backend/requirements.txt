@@ -164,3 +164,11 @@ mcp>=1.0.0
 # Telegram/Slack notifier — uses httpx (already in deps)
 # LoRA fine-tuning (GPU required — install AFTER the rest, CUDA-specific)
 # pip install "unsloth[cu124]" trl>=0.9.0 datasets accelerate
+
+# ── CPU-native STT + TTS (zero VRAM — keeps 780M on chat model full-time) ──
+# faster-whisper: Whisper STT on CPU via CTranslate2 (auto-downloads model weights)
+faster-whisper>=1.0.0
+# kokoro: Kokoro TTS on CPU (auto-downloads model weights from HuggingFace)
+kokoro>=0.9.2
+# numpy is already a transitive dep, but pin here as kokoro audio encoding needs it
+numpy>=1.24.0
