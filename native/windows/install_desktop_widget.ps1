@@ -24,7 +24,8 @@ function New-Shortcut {
 }
 
 $WidgetPath = Join-Path $Root "GH05T3_Widget.hta"
-$RunPath = Join-Path $Root "run.bat"
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $Root)
+$RunPath = Join-Path $RepoRoot "run.bat"
 
 New-Shortcut `
     -Path (Join-Path $Desktop "GH05T3 Widget.lnk") `
@@ -35,7 +36,7 @@ New-Shortcut `
 New-Shortcut `
     -Path (Join-Path $Desktop "GH05T3 App.lnk") `
     -Target $RunPath `
-    -WorkingDirectory $Root `
+    -WorkingDirectory $RepoRoot `
     -IconLocation "$env:WINDIR\System32\shell32.dll,13"
 
 New-Shortcut `
