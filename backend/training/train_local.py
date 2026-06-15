@@ -96,6 +96,17 @@ DOMAIN_OUT_DIRS = {
     "ops":      REPO / "backend" / "models" / "ops_adapter",
 }
 
+# ── sovereign model → domain mapping ─────────────────────────────────────────
+AGENT_DOMAIN = {
+    "gh05t3-sovereign":   "default",
+    "avery-sovereign":    "default",
+    "codex-sovereign":    "code",
+    "oracle-sovereign":   "research",
+    "nexus-sovereign":    "ops",
+    "forge-sovereign":    "code",
+    "sentinel-sovereign": "security",
+}
+
 
 # ── data ───────────────────────────────────────────────────────────────────────
 def ensure_data() -> Path:
@@ -379,22 +390,67 @@ def build_domain_dataset(domain: str, data_dir: Path):
     return Dataset.from_dict({"text": texts})
 
 
+def load_sage_sft(domain: str) -> list[str]:
+    """Load KAIROS-exported SFT pairs for this domain and convert to ChatML.
+
+    Reads backend/training/sft_data_{domain}.jsonl (written by sft_export.py).
+    Returns [] gracefully if the file doesn't exist yet.
+    """
+    sft_path = REPO / "backend" / "training" / f"sft_data_{domain}.jsonl"
+    if not sft_path.exists():
+        return []
+
+    system = DOMAIN_SYSTEMS.get(domain, SYSTEM)
+    texts = []
+    seen = set()
+    with open(sft_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            proposal = (rec.get("output") or rec.get("completion") or "").strip()
+            if not proposal or proposal in seen:
+                continue
+            seen.add(proposal)
+            texts.append(chatml([
+                {"role": "system",    "content": system},
+                {"role": "user",      "content": rec.get("input", "Propose a GH05T3 improvement.")},
+                {"role": "assistant", "content": proposal},
+            ]))
+
+    log.info("SAGE SFT augmentation: +%d examples from %s", len(texts), sft_path.name)
+    return texts
+
+
 # ── main ───────────────────────────────────────────────────────────────────────
 def main():
     import argparse
     import torch
 
     parser = argparse.ArgumentParser(description="GH05T3 LoRA trainer — default or domain-specific")
-    parser.add_argument("--domain", default="default",
+    parser.add_argument("--domain", default=None,
                         choices=["default", "security", "code", "research", "ops"],
                         help="Domain adapter to train (default trains the base GH05T3 adapter)")
+    parser.add_argument("--agent", default=None,
+                        help="Sovereign agent name (e.g. codex-sovereign) — auto-selects domain")
     parser.add_argument("--output", default=None,
                         help="Override output directory (default: backend/models/<domain>_adapter)")
     parser.add_argument("--steps", type=int, default=MAX_STEPS,
                         help=f"Training steps (default: {MAX_STEPS})")
     cli = parser.parse_args()
 
-    domain  = cli.domain
+    # --agent maps to domain; --domain takes precedence if both given
+    if cli.agent and not cli.domain:
+        agent_key = cli.agent.replace("ollama:", "").split(":")[0]
+        domain = AGENT_DOMAIN.get(agent_key, "default")
+        log.info("Agent %s → domain '%s'", cli.agent, domain)
+    else:
+        domain = cli.domain or "default"
+
     out_dir = Path(cli.output) if cli.output else DOMAIN_OUT_DIRS.get(domain, OUT_DIR)
     steps   = cli.steps
 
@@ -434,6 +490,15 @@ def main():
     # ── data ──
     data_dir = ensure_data()
     dataset  = build_domain_dataset(domain, data_dir)
+
+    # ── SAGE SFT augmentation — inject elite proposals from KAIROS archive ─────
+    sage_texts = load_sage_sft(domain)
+    if sage_texts:
+        from datasets import concatenate_datasets, Dataset as HFDataset
+        sage_ds = HFDataset.from_dict({"text": sage_texts})
+        dataset  = concatenate_datasets([dataset, sage_ds])
+        random.shuffle(dataset["text"])  # type: ignore[index]
+        log.info("Dataset after SAGE augmentation: %d examples", len(dataset))
 
     # ── tokenizer ──
     log.info("Loading %s ...", MODEL_ID)

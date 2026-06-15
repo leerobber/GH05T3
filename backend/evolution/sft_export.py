@@ -148,6 +148,76 @@ def export_all(
     }
 
 
+# ── Sovereign model → training domain mapping ──────────────────────────────
+AGENT_DOMAIN: dict[str, str] = {
+    "gh05t3-sovereign":  "default",
+    "avery-sovereign":   "default",
+    "codex-sovereign":   "code",
+    "oracle-sovereign":  "research",
+    "nexus-sovereign":   "ops",
+    "forge-sovereign":   "code",
+    "sentinel-sovereign":"security",
+}
+
+
+def _normalize_agent_id(agent_id: str) -> str:
+    """'ollama:codex-sovereign:latest' → 'codex-sovereign'"""
+    name = agent_id.split(":")[-2] if agent_id.count(":") >= 2 else agent_id
+    return name.split("/")[-1]
+
+
+def export_per_agent(
+    training_dir: Path | None = None,
+    log_path: Path = KAIROS_LOG,
+    min_score: float = 0.90,
+) -> dict[str, int]:
+    """Split KAIROS log by proposing agent and write one SFT file per domain.
+
+    Returns {agent_name: n_pairs} for each agent that had qualifying proposals.
+    Agents that map to the same domain are merged (codex + forge → code).
+    """
+    base = training_dir or Path(__file__).parents[1] / "training"
+    records = _read_kairos(log_path)
+
+    domain_records: dict[str, list[dict]] = {}
+    for r in records:
+        score    = r.get("score", 0.0)
+        proposal = (r.get("proposal") or "").strip()
+        verdict  = (r.get("verdict") or "").upper()
+        if score < min_score or not proposal or verdict not in {"PASS", "PARTIAL"}:
+            continue
+        raw_agent = r.get("agent_id", "unknown")
+        agent     = _normalize_agent_id(raw_agent)
+        domain    = AGENT_DOMAIN.get(agent, "default")
+        domain_records.setdefault(domain, []).append(r)
+
+    counts: dict[str, int] = {}
+    for domain, recs in domain_records.items():
+        path = base / f"sft_data_{domain}.jsonl"
+        seen = set()
+        pairs = []
+        for r in sorted(recs, key=lambda x: x.get("score", 0), reverse=True):
+            proposal = (r.get("proposal") or "").strip()
+            if proposal in seen:
+                continue
+            seen.add(proposal)
+            pairs.append({
+                "instruction": _PROPOSER_INSTRUCTION,
+                "input":       _PROPOSER_INPUT,
+                "output":      proposal,
+                "score":       round(r.get("score", 0), 4),
+                "verdict":     (r.get("verdict") or "").upper(),
+                "agent_id":    r.get("agent_id", "unknown"),
+            })
+        base.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            for p in pairs:
+                f.write(json.dumps(p) + "\n")
+        counts[domain] = len(pairs)
+
+    return counts
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export KAIROS log to SFT/DPO training data")
     parser.add_argument("--min-score", type=float, default=0.90)
