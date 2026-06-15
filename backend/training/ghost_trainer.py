@@ -1,6 +1,10 @@
 import json, os, re, time, sqlite3, argparse, subprocess, sys, tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+# Allow imports of shared root modules (ghost_domains, economy_bridge, repo_scanner, slack_notify)
+sys.path.insert(0, str(Path(__file__).parents[2]))
+
 import numpy as np
 import requests as _req
 try:

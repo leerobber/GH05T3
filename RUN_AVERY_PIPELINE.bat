@@ -16,7 +16,7 @@ echo RUNPOD_KEY : %RUNPOD_API_KEY:~0,8%...
 echo.
 
 :: Run the full pipeline
-python avery_pipeline.py %*
+python backend\training\avery_pipeline.py %*
 
 echo.
 if %ERRORLEVEL%==0 (
