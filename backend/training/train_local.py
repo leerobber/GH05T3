@@ -477,6 +477,13 @@ def main():
     log.info("GPU: %s | %.1f GB | sm_%d%d | PyTorch %s",
              gpu.name, vram, gpu.major, gpu.minor, torch.__version__)
 
+    # TF32 — Blackwell/Ampere tensor cores run matmul in TF32 at ~10× FP32 throughput.
+    # Default is enabled on sm_80+ but explicit set prevents accidental torch.set_float32_matmul_precision override.
+    if gpu.major >= 8:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        log.info("TF32 matmul: enabled (sm_%d%d)", gpu.major, gpu.minor)
+
     if vram < 6:
         log.error("Need >= 6 GB VRAM, found %.1f GB", vram)
         sys.exit(1)
@@ -620,6 +627,9 @@ def main():
         save_steps=100,
         save_total_limit=3,
         report_to="none",
+        # Async data streaming — pre-tokenized tensors DMA into GPU while backward runs
+        dataloader_pin_memory=True,
+        dataloader_num_workers=2,   # 2 CPU workers saturate the DataLoader without OOM
     )
 
     trainer = SFTTrainer(
