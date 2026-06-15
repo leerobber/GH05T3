@@ -38,15 +38,22 @@ if errorlevel 1 (
     if errorlevel 1 ( echo [ERROR] PyTorch install failed & pause & exit /b 1 )
 
     pip install ^
-        "transformers==4.40.2" ^
-        "peft==0.10.0" ^
-        "trl==0.8.6" ^
-        "accelerate==0.29.3" ^
-        "datasets==2.19.0" ^
+        "transformers>=4.40.2" ^
+        "peft>=0.10.0" ^
+        "trl>=0.8.6" ^
+        "accelerate>=0.29.3" ^
+        "datasets>=2.19.0" ^
         "huggingface_hub>=0.22.0" ^
         "bitsandbytes>=0.44.0" ^
         "kaggle" -q
     if errorlevel 1 ( echo [ERROR] Dep install failed & pause & exit /b 1 )
+
+    echo [SETUP] Installing Unsloth (2-3x training speedup for Blackwell)...
+    pip install unsloth -q
+    if errorlevel 1 (
+        echo [WARN] Unsloth install failed — training will use standard HF path (2-3x slower)
+        echo        To retry: pip install unsloth
+    )
 
     echo [SETUP] Done.
     echo.

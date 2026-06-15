@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """
-GH05T3 Local Training — Qwen2.5-7B-Instruct + QLoRA (4-bit)
-Runs on RTX 5050 (Blackwell, 8 GB VRAM).  No cloud needed.
+GH05T3 Local Training — Qwen2.5-7B-Instruct + QLoRA (4-bit) + Unsloth 2-3×
+Runs on RTX 5050 (Blackwell sm_120, 8 GB VRAM).  No cloud needed.
 
 One-time setup from repo root (run train.bat — it does this automatically):
     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-    pip install transformers==4.40.2 peft==0.10.0 trl==0.8.6 accelerate==0.29.3 \
-                datasets==2.19.0 "huggingface_hub>=0.22.0" "bitsandbytes>=0.44.0" kaggle
+    pip install unsloth                                              # 2-3x speedup
+    pip install transformers>=4.40.2 peft>=0.10.0 trl>=0.8.6 accelerate>=0.29.3 \
+                datasets>=2.19.0 "huggingface_hub>=0.22.0" "bitsandbytes>=0.44.0" kaggle
 
 Then:
     python backend/training/train_local.py
     # OR on Windows:
     native\\windows\\train.bat
+
+Speed path:
+    Unsloth installed  → FastLanguageModel path:  ~30-45 min / 500 steps (2-3x faster)
+    Unsloth missing    → Standard HF path:         ~60-90 min / 500 steps (baseline)
+    Unsloth detects Blackwell sm_120 automatically — no extra config needed.
 """
 
 import json
@@ -21,6 +27,14 @@ import random
 import sys
 import warnings
 from pathlib import Path
+
+# ── Unsloth fast path — 2-3× speedup on Blackwell sm_120, zero config needed ──
+try:
+    from unsloth import FastLanguageModel as _UnslothModel
+    _HAS_UNSLOTH = True
+except ImportError:
+    _UnslothModel = None
+    _HAS_UNSLOTH = False
 
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*resume_download.*")
 warnings.filterwarnings("ignore", category=UserWarning,   message=".*use_reentrant.*")
@@ -472,9 +486,7 @@ def main():
         log.error("Fix: pip install torch --index-url https://download.pytorch.org/whl/cu128")
         sys.exit(1)
 
-    from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                               BitsAndBytesConfig, TrainingArguments)
-    from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+    from transformers import TrainingArguments
     from trl import SFTTrainer
 
     # Use bf16 on Ampere+ (sm_80+) and Blackwell — more numerically stable than fp16
@@ -500,47 +512,73 @@ def main():
         random.shuffle(dataset["text"])  # type: ignore[index]
         log.info("Dataset after SAGE augmentation: %d examples", len(dataset))
 
-    # ── tokenizer ──
-    log.info("Loading %s ...", MODEL_ID)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    # =========================================================================
+    # Model + LoRA loading — two paths:
+    #   A) Unsloth FastLanguageModel (installed) → 2-3× faster on Blackwell
+    #   B) Standard HuggingFace QLoRA            → baseline fallback
+    # =========================================================================
+    if _HAS_UNSLOTH:
+        log.info("Unsloth fast path — 2-3× speedup via fused Blackwell kernels")
+        model, tokenizer = _UnslothModel.from_pretrained(
+            model_name=MODEL_ID,
+            max_seq_length=MAX_SEQ_LEN,
+            dtype=compute_dtype,
+            load_in_4bit=True,
+        )
+        # RSLoRA (Rank-Stabilized LoRA) — better gradient scaling at rank 16
+        # use_gradient_checkpointing=True handled internally by Unsloth (reentrant=False safe)
+        model = _UnslothModel.get_peft_model(
+            model,
+            r=LORA_RANK,
+            lora_alpha=32,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+            lora_dropout=0.05,
+            bias="none",
+            use_gradient_checkpointing=True,
+            use_rslora=True,
+        )
+        tokenizer = tokenizer  # already loaded
+    else:
+        log.info("Unsloth not installed — standard HF path (install: pip install unsloth)")
+        from transformers import (AutoModelForCausalLM, AutoTokenizer,
+                                   BitsAndBytesConfig)
+        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
-    # ── 4-bit quantized base model ─────────────────────────────────────────────
-    # 7B fp16 = 14 GB → doesn't fit in 8 GB.  4-bit NF4 = ~3.5 GB → fits easily.
-    bnb_cfg = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=compute_dtype,
-        bnb_4bit_use_double_quant=True,   # nested quant saves ~0.4 GB extra
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_cfg,
-        device_map="cuda",
-        trust_remote_code=True,
-    )
-    model.config.use_cache = False
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        # 7B fp16 = 14 GB → 4-bit NF4 = ~3.5 GB → fits in 8 GB
+        bnb_cfg = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=compute_dtype,
+            bnb_4bit_use_double_quant=True,
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            quantization_config=bnb_cfg,
+            device_map="cuda",
+            trust_remote_code=True,
+        )
+        model.config.use_cache = False
+        # prepare_model_for_kbit_training with use_gradient_checkpointing=False
+        # so TrainingArguments owns checkpointing (RULE 2: use_reentrant=False)
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
+
+        lora_cfg = LoraConfig(
+            r=LORA_RANK,
+            lora_alpha=32,
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+            lora_dropout=0.05,
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
+        model = get_peft_model(model, lora_cfg)
+
     log.info("Model loaded — %.1f/%.1f GB VRAM", torch.cuda.memory_allocated(0)/1e9, vram)
-
-    # ── prepare for k-bit training ─────────────────────────────────────────────
-    # Handles enable_input_require_grads() and casts layer norms to fp32 for stability.
-    # use_gradient_checkpointing=False here — let TrainingArguments own it so we can
-    # pass gradient_checkpointing_kwargs={"use_reentrant": False} (see below).
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
-
-    # ── LoRA ──────────────────────────────────────────────────────────────────
-    # No manual fp16 cast needed: bitsandbytes compute_dtype handles adapter precision.
-    lora_cfg = LoraConfig(
-        r=LORA_RANK,
-        lora_alpha=32,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj"],
-        lora_dropout=0.05,
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
-    model = get_peft_model(model, lora_cfg)
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total     = sum(p.numel() for p in model.parameters())
     log.info("LoRA: %s trainable / %s total (%.2f%%)",
@@ -553,15 +591,21 @@ def main():
 
     grad_accum = GRAD_ACCUM if batch == BATCH else GRAD_ACCUM * 2
 
+    # Gradient checkpointing: Unsloth owns it via get_peft_model(use_gradient_checkpointing=True)
+    # Standard HF path: TrainingArguments must own it with use_reentrant=False (RULE 2)
+    gc_kwargs = {} if _HAS_UNSLOTH else {
+        "gradient_checkpointing": True,
+        # CRITICAL (RULE 2): use_reentrant=True (default) reruns forward during backward.
+        # With fp16/bf16 + PEFT hooks this produces NaN gradients → loss collapses.
+        "gradient_checkpointing_kwargs": {"use_reentrant": False},
+    }
+
     args = TrainingArguments(
         output_dir=str(ckpt_dir),
         max_steps=steps,
         per_device_train_batch_size=batch,
         gradient_accumulation_steps=grad_accum,
-        gradient_checkpointing=True,
-        # CRITICAL: use_reentrant=True (default) reruns forward during backward.
-        # With fp16/bf16 + PEFT hooks this produces NaN gradients → loss collapses.
-        gradient_checkpointing_kwargs={"use_reentrant": False},
+        **gc_kwargs,
         warmup_steps=WARMUP,
         learning_rate=LR,
         fp16=not use_bf16,

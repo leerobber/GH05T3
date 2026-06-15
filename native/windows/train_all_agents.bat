@@ -1,7 +1,7 @@
 @echo off
 :: GH05T3 — Train ALL 7 sovereign agent adapters sequentially
 ::
-:: Runs overnight on RTX 5050 (~45 min per agent = ~5-6 hours total).
+:: Runs overnight on RTX 5050 (~20 min/agent with Unsloth = ~2.5 hrs | ~45 min without = ~5-6 hrs).
 :: Each agent trains on its domain-specific data PLUS SAGE elite proposals
 :: from kairos_log.jsonl (exported by sft_export.py automatically).
 ::
@@ -57,6 +57,22 @@ if errorlevel 1 (
     pip install "transformers>=4.40.2" "peft>=0.10.0" "trl>=0.8.6" "accelerate>=0.29.3" ^
                 "datasets>=2.19.0" "huggingface_hub>=0.22.0" "bitsandbytes>=0.44.0" -q
     echo [SETUP] Done.
+    echo.
+)
+
+:: ── Unsloth check (2-3x speedup) ─────────────────────────────────────────────
+python -c "import unsloth" >nul 2>&1
+if errorlevel 1 (
+    echo [SETUP] Installing Unsloth for 2-3x training speedup on Blackwell...
+    pip install unsloth -q
+    if errorlevel 1 (
+        echo [WARN] Unsloth install failed — all agents will train at baseline speed
+    ) else (
+        echo [SETUP] Unsloth installed. Training will be 2-3x faster.
+    )
+    echo.
+) else (
+    echo [OK] Unsloth detected — fast path active for all agents
     echo.
 )
 
