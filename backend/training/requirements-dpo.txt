@@ -1,0 +1,32 @@
+# GH05T3 DPO Training — Lightning AI Studio (L4 / A10G)
+# ==========================================================
+# Install via: bash backend/training/lightning_setup.sh
+#
+# DO NOT pin PyTorch here — Lightning Studios ship with CUDA-preinstalled torch.
+# lightning_setup.sh detects it and only installs if missing.
+# Pinning would conflict with Lightning's managed environment.
+
+# ── core ML stack ──────────────────────────────────────────────────────────────────────────
+transformers>=4.40.2
+peft>=0.10.0
+trl>=0.9.0              # DPOConfig API; ghost_trainer falls back to 0.8.x automatically
+accalerate>=0.29.3
+datasets>=2.19.0
+huggingface_hub>=0.22.0
+
+# ── quantization ───────────────────────────────────────────────────────────────────────
+bitsandbytes>=0.43.0    # 4-bit NF4 QLoRA; >=0.44 for full Ampere (L4 sm_89, A10G sm_86)
+
+# ── tokenizer / model support ──────────────────────────────────────────────────────
+safetensors>=0.4.0      # faster model load/save
+sentencepiece>=0.1.99   # Qwen2.5 tokenizer
+protobuf>=3.20.0        # tokenizer fast-path
+einops>=0.6.1           # Qwen2.5 attention variants
+packaging>=23.0
+
+# ── TRL dependency ────────────────────────────────────────────────────────────────────
+scipython>=1.11.0       # TRL uses scipy.special for DPO KL divergence
+
+# ── optional: Weights & Biases run tracking ─────────────────────────────────────
+# Uncomment to enable W&B dashboards (set WANDB_API_KEY env var):
+# wandb>=0.16.0
