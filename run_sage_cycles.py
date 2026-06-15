@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
 # Always allow cloud fallbacks for SAGE evolution cycles
 os.environ["COST_FREE_ONLY"] = "0"
+# Keep model hot for the entire run — prevents 90s cold-reload penalty on pause
+os.environ.setdefault("OLLAMA_KEEP_ALIVE", "30m")
 
 # Sovereign model roster — rotate through all agents for diversity
 _SOVEREIGN_MODELS = [

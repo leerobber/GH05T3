@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
 # Always allow cloud fallbacks during evolution
 os.environ["COST_FREE_ONLY"] = "0"
+# Keep model hot for the entire run — prevents 90s cold-reload penalty on pause
+os.environ.setdefault("OLLAMA_KEEP_ALIVE", "30m")
 
 _SOVEREIGN_MODELS = [
     "gh05t3-sovereign:latest",

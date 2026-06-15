@@ -93,7 +93,7 @@ async def call(
     if not url:
         raise RuntimeError("OLLAMA_GATEWAY_URL not configured")
 
-    keep_alive_raw = os.environ.get("OLLAMA_KEEP_ALIVE", "2m").strip()
+    keep_alive_raw = os.environ.get("OLLAMA_KEEP_ALIVE", "10m").strip()
     keep_alive = int(keep_alive_raw) if keep_alive_raw.lstrip("-").isdigit() else keep_alive_raw
     num_ctx     = int(os.environ.get("OLLAMA_NUM_CTX",     "2048"))
     num_predict = int(os.environ.get("OLLAMA_NUM_PREDICT", "512"))
