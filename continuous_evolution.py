@@ -40,7 +40,11 @@ class EvolutionMonitor:
         self.scores: list[float] = []
         self.model_scores: dict[str, list[float]] = {}
         self.fixed_model = fixed_model
-        self.rotate = fixed_model is None and not os.environ.get("OLLAMA_SAGE_MODEL")
+        # Rotation is always on when no fixed model requested.
+        # Clear any .env-sourced pin so ghost_llm doesn't see it post-import.
+        if fixed_model is None:
+            os.environ.pop("OLLAMA_SAGE_MODEL", None)
+        self.rotate = fixed_model is None
         signal.signal(signal.SIGINT, self._stop)
         signal.signal(signal.SIGTERM, self._stop)
 

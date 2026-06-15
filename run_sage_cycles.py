@@ -37,7 +37,12 @@ _SOVEREIGN_MODELS = [
 async def run_cycles(n: int = 8, mode: str = "enhanced",
                      fixed_model: str | None = None) -> None:
     from evolution.map_elites import archive_stats
-    from ghost_llm import ollama_available
+    from ghost_llm import ollama_available  # triggers load_dotenv — must happen first
+
+    # load_dotenv (inside ghost_llm) may have set OLLAMA_SAGE_MODEL from .env.
+    # If the caller didn't pin a model, clear it so rotation actually fires.
+    if fixed_model is None:
+        os.environ.pop("OLLAMA_SAGE_MODEL", None)
 
     if mode == "enhanced":
         from sage_enhanced import run_enhanced_sage_cycle as _run_cycle
@@ -46,7 +51,7 @@ async def run_cycles(n: int = 8, mode: str = "enhanced",
         async def _run_cycle(i, **_):
             return await _base(i, use_nightly=False)
 
-    rotate = fixed_model is None and not os.environ.get("OLLAMA_SAGE_MODEL")
+    rotate = fixed_model is None
     avail = await ollama_available()
 
     if avail:

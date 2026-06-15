@@ -97,6 +97,7 @@ async def call(
     keep_alive = int(keep_alive_raw) if keep_alive_raw.lstrip("-").isdigit() else keep_alive_raw
     num_ctx     = int(os.environ.get("OLLAMA_NUM_CTX",     "2048"))
     num_predict = int(os.environ.get("OLLAMA_NUM_PREDICT", "512"))
+    temperature = float(os.environ.get("OLLAMA_TEMPERATURE", "0.85"))
 
     payload = {
         "model": model,
@@ -107,7 +108,7 @@ async def call(
         "stream": False,
         "keep_alive": keep_alive,
         "options": {
-            "temperature": 0.6,
+            "temperature": temperature,
             "num_ctx":     num_ctx,
             "num_predict": num_predict,
         },
