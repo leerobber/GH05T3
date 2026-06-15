@@ -171,3 +171,7 @@ tunnel_url.txt
 
 # npm lock (using yarn)
 frontend/package-lock.json
+*.env
+credentials.json
+*.key
+.credentials
