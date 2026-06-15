@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { api } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { api } from "../../../lib/ghostApi";
 import { Search, Brain } from "lucide-react";
 
 const TYPE_COLOR = {

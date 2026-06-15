@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { kairosRecent } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { kairosRecent } from "../../../lib/ghostApi";
 import { ChevronRight } from "lucide-react";
 
 export const TranscriptPanel = ({ refreshKey }) => {

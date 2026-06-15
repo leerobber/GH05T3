@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Zap } from "lucide-react";
-import { getHistory, postChat } from "../../lib/ghostApi";
+import { getHistory, postChat } from "../../../lib/ghostApi";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 

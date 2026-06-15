@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { api } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { api } from "../../../lib/ghostApi";
 import { Feather, Eye } from "lucide-react";
 
 export const JournalPanel = ({ refreshKey }) => {

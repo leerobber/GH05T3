@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { api } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { api } from "../../../lib/ghostApi";
 import { Volume2, VolumeX, MessageSquareQuote } from "lucide-react";
 
 const KEY = "gh05t3.whisper.enabled";

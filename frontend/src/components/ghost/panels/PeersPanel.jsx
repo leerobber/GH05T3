@@ -10,14 +10,14 @@ import {
   WifiOff,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Panel, Dot } from "./primitives";
+import { Panel, Dot } from "../primitives/primitives";
 import {
   gw3MeshPeers,
   gw3MeshSync,
   gw3Peers,
   gw3PeersPing,
   gw3PeersRefresh,
-} from "../../lib/ghostApi";
+} from "../../../lib/ghostApi";
 
 const roleClass = (role) => {
   if (role === "primary") return "text-amber-400 border-amber-500/40";

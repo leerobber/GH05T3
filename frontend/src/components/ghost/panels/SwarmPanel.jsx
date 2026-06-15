@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Panel } from "./primitives";
-import { swarmState, swarmRun, swarmValidate, swarmReset } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { swarmState, swarmRun, swarmValidate, swarmReset } from "../../../lib/ghostApi";
 import {
   Users, Play, RotateCcw, CheckCircle2, AlertCircle, Loader2, Zap,
 } from "lucide-react";

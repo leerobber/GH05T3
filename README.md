@@ -89,12 +89,13 @@ GH05T3/
 ├── frontend/               React 19 + Vite 8 + Tailwind 3, port 3000 (dev) / 3210 (preview)
 │   └── src/components/ghost/   All UI panels
 ├── kairos/                 KAIROS framework — Kickoff/Align/Implement/Refine/Optimize/Scale
-├── bridge/                 Multi-provider mesh (Claude, Gemini, NVIDIA roles)
 ├── swarm/                  Top-level swarm bus + agents
 ├── sovereignnation/        SovereignNation product surface
 ├── scripts/                Training, runtime, and utility scripts
-│   ├── training/           Training pipelines (Avery, Sovereign, RunPod, Kairos gen)
-│   └── runtime/            Operational scripts (herald, listeners, push, deploy)
+│   ├── training/           Training pipelines (Avery, Sovereign, RunPod, Kairos gen, data_gen)
+│   └── runtime/            Ops scripts + standalone agents
+│       ├── bridge/         Multi-provider LLM mesh (Claude, Gemini, NVIDIA roles)
+│       └── companion/      Standalone local companion agent (own requirements.txt)
 ├── native/                 Platform-specific launchers
 │   ├── windows/            install.ps1, train.bat, run.bat, .ps1, .bat
 │   └── android/            termux_setup.sh

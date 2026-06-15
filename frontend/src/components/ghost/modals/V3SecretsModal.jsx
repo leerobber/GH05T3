@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle, Eye, EyeOff, ExternalLink, KeyRound, Loader2, X } from "lucide-react";
-import { gw3SecretsStatus, gw3SaveSecrets } from "../../lib/ghostApi";
+import { gw3SecretsStatus, gw3SaveSecrets } from "../../../lib/ghostApi";
 
 const DISMISSED_KEY = "gh05t3.v3secrets.dismissed";
 

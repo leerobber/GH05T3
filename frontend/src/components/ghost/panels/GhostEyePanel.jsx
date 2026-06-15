@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Panel } from "./primitives";
-import { api } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { api } from "../../../lib/ghostApi";
 import { Eye, EyeOff, Image as ImageIcon } from "lucide-react";
 
 export const GhostEyePanel = ({ liveFrame }) => {

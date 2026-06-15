@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { api } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { api } from "../../../lib/ghostApi";
 import { Zap, CheckCircle2, AlertCircle } from "lucide-react";
 
 export const LlmConfigPanel = () => {

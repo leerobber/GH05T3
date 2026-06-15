@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { ollamaStatus, ollamaConfigure, ollamaPull } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { ollamaStatus, ollamaConfigure, ollamaPull } from "../../../lib/ghostApi";
 import { Cpu, CheckCircle2, AlertCircle, Download } from "lucide-react";
 
 /** Ollama gateway panel — LOQ / TatorTot local runtime. */

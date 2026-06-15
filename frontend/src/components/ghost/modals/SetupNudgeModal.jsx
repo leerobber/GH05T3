@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { setupStatus } from "../../lib/ghostApi";
+import { setupStatus } from "../../../lib/ghostApi";
 import { AlertTriangle, X, ExternalLink } from "lucide-react";
 
 /**

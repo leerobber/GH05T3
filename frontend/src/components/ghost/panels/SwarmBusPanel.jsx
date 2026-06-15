@@ -3,12 +3,12 @@ import {
   Activity, Bot, Github, Send, Zap, Search, RefreshCw,
   AlertTriangle, CheckCircle, Loader2, KeyRound, Eye, EyeOff,
 } from "lucide-react";
-import { Panel } from "./primitives";
+import { Panel } from "../primitives/primitives";
 import {
   gw3WsUrl, gw3Agents, gw3Delegate, gw3Convos, gw3ConvoSearch,
   gw3GithubStatus, gw3GithubSyncMemory, gw3ClaudeTrain, gw3KairosElite,
   gw3SecretsStatus, gw3SaveSecrets,
-} from "../../lib/ghostApi";
+} from "../../../lib/ghostApi";
 
 // ── constants ─────────────────────────────────────────────────────
 const AGENT_COLORS = {

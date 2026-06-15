@@ -1,0 +1,153 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump (patch/minor/major)'
+        required: false
+        default: 'patch'
+        type: choice
+        options: [patch, minor, major]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Auto-tag + GitHub Release
+    runs-on: ubuntu-latest
+    # Skip release commits and the cleanup chores (avoid recursion)
+    if: |
+      !startsWith(github.event.head_commit.message, 'chore(release):') &&
+      !startsWith(github.event.head_commit.message, 'Merge pull request')
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine next version
+        id: version
+        run: |
+          # Find the latest semver tag (vX.Y.Z) or default to v0.0.0
+          LAST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)
+          if [ -z "$LAST_TAG" ]; then
+            LAST_TAG="v0.0.0"
+          fi
+          echo "Last tag: $LAST_TAG"
+
+          # Strip leading 'v'
+          VERSION=${LAST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          # Decide bump from workflow_dispatch input, commit message conventions, or default to patch
+          BUMP="${{ github.event.inputs.version_bump }}"
+          if [ -z "$BUMP" ]; then
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=%s 2>/dev/null || git log --pretty=%s)
+            if echo "$COMMITS" | grep -qE '^(feat!|fix!|refactor!|BREAKING CHANGE)'; then
+              BUMP=major
+            elif echo "$COMMITS" | grep -qE '^feat(\(|:)'; then
+              BUMP=minor
+            else
+              BUMP=patch
+            fi
+          fi
+          echo "Bump type: $BUMP"
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH+1)) ;;
+          esac
+
+          NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "New tag: $NEW_TAG"
+          echo "new_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Generate "what changed" notes
+        id: notes
+        run: |
+          LAST_TAG="${{ steps.version.outputs.last_tag }}"
+          NEW_TAG="${{ steps.version.outputs.new_tag }}"
+
+          # If no previous tag, log everything
+          if [ "$LAST_TAG" = "v0.0.0" ]; then
+            RANGE=""
+          else
+            RANGE="${LAST_TAG}..HEAD"
+          fi
+
+          {
+            echo "## ${NEW_TAG} — $(date -u +%Y-%m-%d)"
+            echo ""
+            echo "### What changed since ${LAST_TAG}"
+            echo ""
+
+            FEATS=$(git log $RANGE --pretty='- %s (%h)' --grep='^feat' || true)
+            FIXES=$(git log $RANGE --pretty='- %s (%h)' --grep='^fix'  || true)
+            CHORE=$(git log $RANGE --pretty='- %s (%h)' --grep='^chore' || true)
+            CI=$(git log    $RANGE --pretty='- %s (%h)' --grep='^ci'    || true)
+            DOCS=$(git log  $RANGE --pretty='- %s (%h)' --grep='^docs'  || true)
+            OTHER=$(git log $RANGE --pretty='- %s (%h)' --invert-grep --grep='^(feat|fix|chore|ci|docs|Merge)' --extended-regexp || true)
+
+            if [ -n "$FEATS" ]; then echo "#### Features"; echo "$FEATS"; echo ""; fi
+            if [ -n "$FIXES" ]; then echo "#### Fixes";    echo "$FIXES"; echo ""; fi
+            if [ -n "$CHORE" ]; then echo "#### Maintenance"; echo "$CHORE"; echo ""; fi
+            if [ -n "$CI"    ]; then echo "#### CI";       echo "$CI";    echo ""; fi
+            if [ -n "$DOCS"  ]; then echo "#### Docs";     echo "$DOCS";  echo ""; fi
+            if [ -n "$OTHER" ]; then echo "#### Other";    echo "$OTHER"; echo ""; fi
+
+            echo "### Stats"
+            COUNT=$(git rev-list --count $RANGE 2>/dev/null || git rev-list --count HEAD)
+            echo "- ${COUNT} commits"
+            CONTRIB=$(git log $RANGE --pretty='%an' | sort -u | wc -l)
+            echo "- ${CONTRIB} contributor(s)"
+          } > release_notes.md
+
+          echo "--- notes ---"
+          cat release_notes.md
+          echo "notes_file=release_notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Append to CHANGELOG.md
+        run: |
+          NEW_TAG="${{ steps.version.outputs.new_tag }}"
+          if [ ! -f CHANGELOG.md ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "All notable changes to GH05T3 are tracked here." >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+          # Prepend new entry under header
+          {
+            head -n 4 CHANGELOG.md
+            echo ""
+            cat release_notes.md
+            echo ""
+            tail -n +5 CHANGELOG.md
+          } > CHANGELOG.new
+          mv CHANGELOG.new CHANGELOG.md
+
+      - name: Commit CHANGELOG + tag
+        run: |
+          NEW_TAG="${{ steps.version.outputs.new_tag }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "chore(release): ${NEW_TAG}" || echo "No changes to commit"
+          git tag -a "$NEW_TAG" -m "Release ${NEW_TAG}"
+          git push origin HEAD:main --follow-tags
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.new_tag }}
+          name: ${{ steps.version.outputs.new_tag }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

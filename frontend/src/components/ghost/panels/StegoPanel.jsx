@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { stegoCover, stegoDecode, stegoEncode } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { stegoCover, stegoDecode, stegoEncode } from "../../../lib/ghostApi";
 import { Lock, Unlock } from "lucide-react";
 
 export const StegoPanel = () => {

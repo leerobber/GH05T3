@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Panel } from "./primitives";
-import { cassandraRun } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { cassandraRun } from "../../../lib/ghostApi";
 import { Flame } from "lucide-react";
 
 export const CassandraPanel = () => {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Eye, Zap, Database, RefreshCw, Activity } from "lucide-react";
-import { Panel, Dot } from "./primitives";
+import { Panel, Dot } from "../primitives/primitives";
 
 const GW3 = process.env.REACT_APP_GW3_URL || "http://localhost:8002";
 

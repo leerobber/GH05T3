@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from "react";
 import { CheckCircle, PlusCircle, Trash2, Lightbulb, ChevronDown, ChevronUp } from "lucide-react";
-import { Panel, Bar } from "./primitives";
+import { Panel, Bar } from "../primitives/primitives";
 import {
   createGoal, updateGoal, deleteGoal, completeGoal, suggestGoals,
-} from "../../lib/ghostApi";
+} from "../../../lib/ghostApi";
 import { toast } from "sonner";
 
 const PRIORITY_COLORS = {

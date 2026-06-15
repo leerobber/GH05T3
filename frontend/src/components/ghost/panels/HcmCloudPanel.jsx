@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { hcmCloud } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { hcmCloud } from "../../../lib/ghostApi";
 
 export const HcmCloudPanel = ({ refreshKey }) => {
   const [cloud, setCloud] = useState([]);

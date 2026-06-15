@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { api } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { api } from "../../../lib/ghostApi";
 import { Laptop, Send, Terminal, Camera, X, RotateCw } from "lucide-react";
 
 export const CompanionPanel = () => {

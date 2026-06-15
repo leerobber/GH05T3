@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Panel } from "./primitives";
-import { coderRepos, coderRun, coderRuns } from "../../lib/ghostApi";
+import { Panel } from "../primitives/primitives";
+import { coderRepos, coderRun, coderRuns } from "../../../lib/ghostApi";
 import { GitBranch, Play, CheckCircle2, AlertCircle, ExternalLink, Loader2 } from "lucide-react";
 
 /** Coder sub-agent panel — GitHub + PyTest full loop. */
