@@ -4,7 +4,7 @@ REM Edit the two env vars below, then double-click this file.
 REM GHOST_GATEWAY_URL = your GH05T3 backend (dashboard URL)
 REM PAIR_CODE         = 6-digit code from the Companion panel
 
-set GHOST_GATEWAY_URL=https://tatorot-dashboard.preview.emergentagent.com
+set GHOST_GATEWAY_URL=https://github-fixer-3.preview.emergentagent.com
 set PAIR_CODE=
 
 if "%PAIR_CODE%"=="" (
