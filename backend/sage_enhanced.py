@@ -14,9 +14,14 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from pathlib import Path
 
 LOG = logging.getLogger("ghost.sage_enhanced")
+
+# ── Recent-proposal dedup buffer ───────────────────────────────────────────────
+# Holds the last 10 proposals so the proposer is told not to repeat them.
+_recent_proposals: deque[str] = deque(maxlen=10)
 
 # ── Codebase knowledge snapshot (static — updated on major changes) ────────────
 _CODEBASE_CONTEXT = """
@@ -77,7 +82,11 @@ def _get_elite_examples(n: int = 3) -> str:
         return ""
 
 
-def build_enhanced_proposer_prompt(base_prompt: str, target: dict | None = None) -> str:
+def build_enhanced_proposer_prompt(
+    base_prompt: str,
+    target: dict | None = None,
+    recent_proposals: list[str] | None = None,
+) -> str:
     """Build a knowledge-grounded proposer prompt with elite examples and economy context."""
     parts = [base_prompt, "", _CODEBASE_CONTEXT]
 
@@ -88,6 +97,16 @@ def build_enhanced_proposer_prompt(base_prompt: str, target: dict | None = None)
     elite_examples = _get_elite_examples()
     if elite_examples:
         parts.append(f"\n{elite_examples}")
+
+    # Inject dedup exclusion list — prevents proposal collapse
+    proposals_to_exclude = recent_proposals or list(_recent_proposals)
+    if proposals_to_exclude:
+        exclusion_lines = "\n".join(f"  - {p[:120]}" for p in proposals_to_exclude[-8:])
+        parts.append(
+            "\nRECENT PROPOSALS (already submitted — DO NOT repeat, paraphrase, or reuse these):\n"
+            + exclusion_lines
+            + "\nYou MUST propose something genuinely different from the above."
+        )
 
     if target:
         qt = target.get("quality_target", 0.75)
@@ -136,6 +155,7 @@ async def run_enhanced_sage_cycle(
         "change to GH05T3 that would measurably improve KAIROS, Memory Palace, "
         "Ghost Protocol, or a sub-agent. Technical, specific, shippable.",
         me_target,
+        recent_proposals=list(_recent_proposals),
     )
 
     session = f"sage-enhanced-{cycle_num}"
@@ -144,7 +164,8 @@ async def run_enhanced_sage_cycle(
     # ── Pass 1: Proposer ───────────────────────────────────────────────────────
     proposal, proposer_tag = await _call(
         session, proposer_sys,
-        f"Propose improvement #{cycle_num}. Be distinctive and grounded in the codebase.",
+        f"Propose improvement #{cycle_num}. Be distinctive and grounded in the codebase. "
+        "Do not repeat proposals already listed as recent.",
     )
     proposal = proposal.strip().split("\n")[0][:220]
 
@@ -184,6 +205,9 @@ async def run_enhanced_sage_cycle(
         decision = (cj.get("decision") or "REVISE").upper()
         if decision not in {"APPROVE", "REJECT", "REVISE"}:
             decision = "REVISE"
+
+    # Register the final proposal before verification so the NEXT cycle excludes it
+    _recent_proposals.append(proposal)
 
     # ── Verifier ───────────────────────────────────────────────────────────────
     verifier_raw, verifier_tag = await _call(
