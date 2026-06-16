@@ -146,7 +146,7 @@ class CircuitBreaker:
     def _transition(self, new_state: str) -> None:
         if new_state == self._state:
             return
-        self._probe_in_flight = False  # reset probe token on every state change
+        self._probe_in_flight = 0.0  # reset probe token on every state change
         old = self._state
         self._state = new_state
         LOG.info("[cb] %s: %s → %s", self.name, old, new_state)
