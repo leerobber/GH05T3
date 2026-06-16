@@ -384,6 +384,10 @@ def _start_proc(svc: dict) -> subprocess.Popen:
     log_file = open(_log_path(svc["name"]), "a", encoding="utf-8", buffering=1)
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
+    env["AETHYRO_SKIP_LICENSE"] = "1"  # owner bypass — no external license check needed
+    # Merge any per-service env overrides
+    for k, v in svc.get("env", {}).items():
+        env[k] = v
 
     proc = subprocess.Popen(
         svc["cmd"],
