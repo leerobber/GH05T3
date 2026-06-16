@@ -378,7 +378,7 @@ async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float,
                 repetition_penalty = 1.1,
             ),
             req_id,
-            lora_request=get_lora_farm().get_lora_request(task_domain),
+            lora_request=get_lora_farm().get_lora_request(task_domain) if _has_adapter else None,
         ):
             if out.finished and out.outputs:
                 full_text = out.outputs[0].text.strip()
