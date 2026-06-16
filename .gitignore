@@ -27,8 +27,12 @@ next-env.d.ts
 
 # Production builds
 /build
+frontend/build/
 dist/
 dist
+
+# Hermes Agent venv (superseded by sovereignnation/ghost_chat.py)
+hermes/
 
 # Environment files (comprehensive coverage)
 .env
