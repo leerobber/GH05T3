@@ -338,7 +338,7 @@ def _inject_system(messages: list[dict]) -> list[dict]:
 async def _vllm_stream_tokens(prompt: str, max_tokens: int, temperature: float,
                                req_id: str, task_domain: str = "default"):
     """Async-yield raw text tokens from vLLM. Aborts the request on cancellation."""
-    lora = get_lora_farm().get_lora_request(task_domain)
+    lora = get_lora_farm().get_lora_request(task_domain) if _has_adapter else None
     prev = ""
     try:
         async for out in _vllm_engine.generate(
