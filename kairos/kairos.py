@@ -268,6 +268,8 @@ class KAIROSEngine:
             KAIROSPhase.SCALE:     "Define how to propagate this across the swarm. What changes need to be deployed? In what order?",
         }
 
+        ctx_block = f"## Additional Context\n{context}" if context else ""
+
         return f"""You are the Aethyro sovereign AI system executing the KAIROS framework.
 
 ## Current Phase: {phase.value}
@@ -279,7 +281,7 @@ class KAIROSEngine:
 ## Improvement Rules for this Phase
 {rules_block}
 {prev_block}
-{('## Additional Context\n' + context) if context else ''}
+{ctx_block}
 
 Respond with:
 1. A concise output for this phase (3-5 sentences or bullet points)
