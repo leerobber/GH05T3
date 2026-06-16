@@ -100,7 +100,7 @@ class CircuitBreaker:
     # ── feedback ──────────────────────────────────────────────────────────────
 
     def success(self) -> None:
-        self._probe_in_flight = False
+        self._probe_in_flight = 0.0
         s = self.state
         if s == self._HALF_OPEN:
             self._successes += 1
