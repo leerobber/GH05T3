@@ -90,9 +90,10 @@ class CircuitBreaker:
                 if time.monotonic() - self._probe_started_at > self.reset_timeout:
                     self._probe_in_flight = False
                 else:
-                    return False  # another probe already in flight
-            self._probe_in_flight  = True
-            self._probe_started_at = time.monotonic()
+            now = time.monotonic()
+            if self._probe_in_flight and now - self._probe_in_flight < 30.0:
+                return False  # another probe already in flight and active
+            self._probe_in_flight = now
             return True
         return False      # OPEN — fast-fail
 
