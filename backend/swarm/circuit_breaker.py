@@ -112,7 +112,7 @@ class CircuitBreaker:
             self._failures = max(0, self._failures - 1)
 
     def failure(self, exc: Exception | None = None) -> None:
-        self._probe_in_flight = False
+        self._probe_in_flight = 0.0
         self._last_failure = str(exc) if exc else "unknown"
         s = self.state
         if s in (self._CLOSED, self._HALF_OPEN):
