@@ -34,6 +34,7 @@ if _aeos.environ.get("AETHYRO_SKIP_LICENSE") != "1":
 # ──────────────────────────────────────────
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -135,7 +136,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer ") or auth[7:].strip() != token:
+        if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:].strip(), token):
             return JSONResponse(
                 {"error": "Unauthorized", "hint": "Set Authorization: Bearer <GH05T3_API_TOKEN>"},
                 status_code=401,

@@ -40,28 +40,20 @@ GH05T3 Codebase Context:
 """.strip()
 
 
-def _get_economy_context() -> str:
+async def _get_economy_context() -> str:
     """Pull live economy stats — gracefully returns empty string if unavailable."""
     try:
-        import httpx, asyncio
-        async def _fetch():
-            async with httpx.AsyncClient(timeout=2.0) as c:
-                r = await c.get("http://localhost:8081/stats")
-                if r.status_code == 200:
-                    s = r.json()
-                    return (
-                        f"Agent Economy: {s.get('total_agents', '?')} agents | "
-                        f"total_wealth={s.get('total_wealth', '?')} | "
-                        f"gini={s.get('gini', '?')} | "
-                        f"tick={s.get('tick', '?')}"
-                    )
-                return ""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                return ""  # Can't nest event loops — skip
-            return loop.run_until_complete(_fetch())
-        except Exception:
+        import httpx
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            r = await c.get("http://localhost:8081/stats")
+            if r.status_code == 200:
+                s = r.json()
+                return (
+                    f"Agent Economy: {s.get('total_agents', '?')} agents | "
+                    f"total_wealth={s.get('total_wealth', '?')} | "
+                    f"gini={s.get('gini', '?')} | "
+                    f"tick={s.get('tick', '?')}"
+                )
             return ""
     except Exception:
         return ""
@@ -86,13 +78,13 @@ def build_enhanced_proposer_prompt(
     base_prompt: str,
     target: dict | None = None,
     recent_proposals: list[str] | None = None,
+    economy_context: str = "",
 ) -> str:
     """Build a knowledge-grounded proposer prompt with elite examples and economy context."""
     parts = [base_prompt, "", _CODEBASE_CONTEXT]
 
-    economy = _get_economy_context()
-    if economy:
-        parts.append(f"\nLive Economy:\n{economy}")
+    if economy_context:
+        parts.append(f"\nLive Economy:\n{economy_context}")
 
     elite_examples = _get_elite_examples()
     if elite_examples:
@@ -150,12 +142,14 @@ async def run_enhanced_sage_cycle(
 
     # ── MAP-Elites target ──────────────────────────────────────────────────────
     me_target = _me_next_target()
+    economy_ctx = await _get_economy_context()
     proposer_sys = build_enhanced_proposer_prompt(
         "You are the GH05T3 SAGE Proposer. Propose ONE concrete, self-improvement "
         "change to GH05T3 that would measurably improve KAIROS, Memory Palace, "
         "Ghost Protocol, or a sub-agent. Technical, specific, shippable.",
         me_target,
         recent_proposals=list(_recent_proposals),
+        economy_context=economy_ctx,
     )
 
     session = f"sage-enhanced-{cycle_num}"

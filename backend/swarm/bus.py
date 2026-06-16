@@ -363,7 +363,10 @@ class SwarmAgent:
         except CircuitBreakerOpen:
             log.warning("[%s] circuit OPEN — NACK to %s (type=%s)",
                         self.agent_id, msg.src, msg.msg_type)
-            if msg.src and msg.src not in ("*", self.agent_id):
+            # Don't NACK in response to an ERROR — would create a feedback loop
+            # between two agents with open breakers.
+            if (msg.src and msg.src not in ("*", self.agent_id)
+                    and msg.msg_type != MsgType.ERROR):
                 await self.bus.emit(
                     src=self.agent_id,
                     content=f"[NACK] {self.agent_id} circuit breaker open — message rejected",

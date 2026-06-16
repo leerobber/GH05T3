@@ -1,6 +1,7 @@
 """GH05T3 — Ghost Protocol: adversarial input screening + kill switch."""
 from __future__ import annotations
 import hashlib
+import hmac
 import os
 import time
 from enum import Enum
@@ -23,7 +24,7 @@ class KillSwitch:
     def _verify(self, key: str) -> bool:
         if not self._key_hash:
             return True
-        return hashlib.sha256(key.encode()).hexdigest() == self._key_hash
+        return hmac.compare_digest(hashlib.sha256(key.encode()).hexdigest(), self._key_hash)
 
     def execute(self, mode: KillSwitchMode, key: str) -> dict:
         if not self._verify(key):

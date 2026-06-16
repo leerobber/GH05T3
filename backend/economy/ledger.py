@@ -52,17 +52,18 @@ def _conn(immediate: bool = False):
     """
     c = sqlite3.connect(_DB_PATH, timeout=10, check_same_thread=False,
                         isolation_level=None)
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
     try:
-        yield c
-        c.execute("COMMIT")
-    except Exception:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
         try:
-            c.execute("ROLLBACK")
+            yield c
+            c.execute("COMMIT")
         except Exception:
-            pass
-        raise
+            try:
+                c.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
     finally:
         c.close()
 

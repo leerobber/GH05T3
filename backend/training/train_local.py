@@ -649,10 +649,12 @@ def main():
     loss  = stats.training_loss
     log.info("Done — loss: %.4f | steps: %d", loss, stats.global_step)
 
-    # RULE 3 — Collapse detection. Loss outside 0.3–10 means the adapter is useless.
+    # RULE 3 — Collapse detection. Loss <= 0, NaN, or >10 means the adapter is useless.
     # 0.0 = gradient collapse (NaN killed updates), >10 = diverged, never converged.
-    if not (0.3 < loss < 10):
-        log.error("Training failed (loss=%.4f). Expected 0.3 < loss < 10.", loss)
+    # Lower bound is <= 0.0 / NaN rather than 0.3 to allow low-loss domains.
+    import math as _math
+    if loss <= 0.0 or _math.isnan(loss) or loss > 10:
+        log.error("Training failed (loss=%.4f). Expected 0 < loss < 10.", loss)
         log.error("loss=0.0 → gradient collapse: check bitsandbytes>=0.44, use_reentrant=False")
         log.error("loss>10  → diverged: lower lr, check dataset quality")
         sys.exit(1)
