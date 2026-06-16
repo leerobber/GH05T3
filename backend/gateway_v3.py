@@ -1413,7 +1413,7 @@ async def chronicle_scan():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "integrations.gateway_v3:app",
+        "backend.gateway_v3:app",
         host=GATEWAY_HOST,
         port=GATEWAY_PORT,
         log_level="info",

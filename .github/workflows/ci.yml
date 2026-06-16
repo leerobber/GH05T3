@@ -37,10 +37,18 @@ jobs:
 
       - name: Syntax check — training pipeline
         run: |
-          for f in pre_train.py runpod_launcher.py kairos_dataset_gen.py \
-                   mentor_trainer.py avery_flywheel.py merge_on_runpod.py \
-                   herald.py cmd_listener.py train_sovereign_sft.py \
-                   multiturn_gen.py ghost_trainer.py push_hf_cards.py; do
+          for f in scripts/training/pre_train.py \
+                   scripts/training/runpod_launcher.py \
+                   scripts/training/kairos_dataset_gen.py \
+                   scripts/training/mentor_trainer.py \
+                   scripts/training/avery_flywheel.py \
+                   scripts/training/merge_on_runpod.py \
+                   scripts/runtime/herald.py \
+                   scripts/runtime/cmd_listener.py \
+                   scripts/training/train_sovereign_sft.py \
+                   scripts/training/multiturn_gen.py \
+                   scripts/training/ghost_trainer.py \
+                   scripts/training/push_hf_cards.py; do
             if [ -f "$f" ]; then
               echo "  py_compile $f"
               python -m py_compile "$f"
