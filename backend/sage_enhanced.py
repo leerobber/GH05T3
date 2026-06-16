@@ -234,6 +234,8 @@ async def run_enhanced_sage_cycle(
                 verdict=verdict,
                 score=final,
                 agent_id=proposer_tag,
+                latency_s=latency_s,
+                token_count=token_est,
             )
         except Exception:
             pass

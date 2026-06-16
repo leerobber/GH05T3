@@ -961,7 +961,13 @@ Respond strict JSON: {"verdict":"PASS|PARTIAL|FAIL","rationale":"<<=20 words>>"}
 # MAP-Elites batch state — targets from ask(), results awaiting tell()
 _me_targets: list[dict] = []
 _me_pending: list[tuple[float, float, int]] = []   # (objective, latency_s, tokens)
-_ME_BATCH = int(os.environ.get("ME_BATCH_SIZE", "10"))
+# Must equal evolution.map_elites.BATCH_SIZE exactly — tell() validates the
+# accumulated batch against the scheduler's most recent ask() size and raises
+# if they don't match, so this can't be independently configured.
+try:
+    from evolution.map_elites import BATCH_SIZE as _ME_BATCH
+except Exception:
+    _ME_BATCH = 8
 
 
 def _me_next_target() -> dict | None:

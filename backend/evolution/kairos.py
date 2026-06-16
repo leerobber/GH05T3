@@ -9,6 +9,16 @@ from pathlib import Path
 KAIROS_LOG      = Path("evolution/kairos_log.jsonl")
 ELITE_THRESHOLD = float(os.environ.get("SAGE_ELITE_THRESHOLD", "0.90"))
 
+# Strong refs for fire-and-forget background tasks (notify/auto-PR) so they
+# aren't garbage-collected mid-flight — asyncio only holds a weak reference.
+_background_tasks: set = set()
+
+
+def _track_task(task) -> None:
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
 @dataclass
 class KAIROSCycle:
     id:                   int
@@ -21,6 +31,9 @@ class KAIROSCycle:
     sentinel_viability:   float = 0.0
     entropy_drift:        float = 0.0
     agent_id:             str   = "unknown"
+    # Per-cycle telemetry — populated by sage_enhanced.run_enhanced_sage_cycle
+    latency_s:            float = 0.0
+    token_count:          int   = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -43,6 +56,8 @@ class KAIROS:
         sentinel_viability: float = 0.0,
         entropy_drift:      float = 0.0,
         agent_id:           str   = "unknown",
+        latency_s:          float = 0.0,
+        token_count:        int   = 0,
     ) -> KAIROSCycle:
         cycle = KAIROSCycle(
             id                  = len(self._cycles) + 1,
@@ -53,6 +68,8 @@ class KAIROS:
             sentinel_viability  = sentinel_viability,
             entropy_drift       = entropy_drift,
             agent_id            = agent_id,
+            latency_s           = latency_s,
+            token_count         = token_count,
         )
         self._cycles.append(cycle)
         if cycle.is_elite:
@@ -62,8 +79,8 @@ class KAIROS:
         if score >= 0.70:
             try:
                 from evolution.map_elites import add as me_add
-                latency_ms  = getattr(cycle, "_latency_s", 0.0) * 1000
-                token_count = float(getattr(cycle, "_token_count", 0))
+                latency_ms  = cycle.latency_s * 1000
+                token_count = float(cycle.token_count)
                 me_add(
                     solution  = [min(score, 1.0), token_count, latency_ms, 0.65, 0.90],
                     objective = score,
@@ -98,8 +115,8 @@ class KAIROS:
                 from integrations.notifier import notify_elite_cycle
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.create_task(notify_elite_cycle(
-                        cycle.id, cycle.score, cycle.proposal))
+                    _track_task(loop.create_task(notify_elite_cycle(
+                        cycle.id, cycle.score, cycle.proposal)))
                 except RuntimeError:
                     pass
             except Exception:
@@ -119,7 +136,7 @@ class KAIROS:
                     )
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.create_task(_fire_pr())
+                    _track_task(loop.create_task(_fire_pr()))
                 except RuntimeError:
                     pass
             except Exception:
@@ -178,6 +195,7 @@ def record_cycle(proposal: str = "", verdict: str = "PARTIAL", score: float = 0.
         sentinel_viability = sentinel_viability,
         entropy_drift      = entropy_drift,
         agent_id           = agent_id,
+        **kwargs,
     )
     return cycle.to_dict()
 

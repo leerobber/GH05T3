@@ -5,6 +5,7 @@ from .map_elites import (
     archive_stats,
     get_archive,
     get_scheduler,
+    BATCH_SIZE,
 )
 
 from .sage import (

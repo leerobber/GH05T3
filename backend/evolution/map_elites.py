@@ -41,7 +41,9 @@ LOG = logging.getLogger("ghost.evolution.map_elites")
 _QUALITY_BINS = 20
 _LATENCY_BINS = 15
 _TOKEN_BINS   = 15
-_BATCH_SIZE   = 8   # total per ask(); split evenly between emitters
+BATCH_SIZE    = 8   # total per ask(); split evenly between emitters — tell()
+                     # callers MUST batch in this exact size or risk
+                     # desyncing the scheduler's ask/tell pairing
 
 _archive:              Optional[GridArchive] = None
 _scheduler:            Optional[Scheduler]   = None
@@ -66,7 +68,7 @@ def _build_archive() -> GridArchive:
 
 
 def _build_emitters(archive: GridArchive) -> list:
-    half = max(1, _BATCH_SIZE // 2)
+    half = max(1, BATCH_SIZE // 2)
     return [
         EvolutionStrategyEmitter(
             archive,
@@ -138,10 +140,15 @@ def ask() -> list[dict]:
 def tell(objectives: list[float], measures: list[list[float]]) -> None:
     """Feed evaluation results back to the scheduler.
 
+    Must be called with exactly len(ask()) results from the most recent ask()
+    — the scheduler pairs tell() with the solutions it most recently handed
+    out, so a mismatched batch size silently corrupts archive state.
+
     Args:
         objectives: one float per solution (composite score)
         measures:   one [quality, latency_ms, token_count] list per solution
     """
+    global _last_ask_solutions
     scheduler = get_scheduler()
     obj_arr = np.asarray(objectives, dtype=np.float64)
     msr_arr = np.asarray(measures,   dtype=np.float64)
@@ -149,7 +156,13 @@ def tell(objectives: list[float], measures: list[list[float]]) -> None:
         raise ValueError("measures must be shaped [[quality, latency_ms, token_count], ...]")
     if len(obj_arr) != len(msr_arr):
         raise ValueError("objectives and measures must have the same length")
+    if _last_ask_solutions is None or len(obj_arr) != len(_last_ask_solutions):
+        raise RuntimeError(
+            f"tell() batch size ({len(obj_arr)}) does not match the most "
+            f"recent ask() batch ({0 if _last_ask_solutions is None else len(_last_ask_solutions)})"
+        )
     scheduler.tell(obj_arr, msr_arr)
+    _last_ask_solutions = None
     LOG.debug("[map-elites] tell() flushed %d results", len(obj_arr))
 
 

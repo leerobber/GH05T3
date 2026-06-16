@@ -13,6 +13,7 @@ Sandboxing (RunShellTool):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -346,3 +347,20 @@ OPENAI_TOOLS = [
     }
     for t in _REGISTRY.values()
 ]
+
+# ---------------------------------------------------------------------------
+# agent_loop.py compatibility shim — ReAct loop expects a TOOL_DESCRIPTIONS
+# string for prompt injection and a dispatch(name, raw_input, db=...) entry
+# point that takes the LLM's raw <input> text instead of a parsed dict.
+# ---------------------------------------------------------------------------
+TOOL_DESCRIPTIONS = "\n".join(
+    f"- {t.name}: {t.description}" for t in _REGISTRY.values()
+)
+
+
+async def dispatch(name: str, raw_input: str, db=None) -> str:
+    try:
+        inputs = json.loads(raw_input) if raw_input.strip() else {}
+    except json.JSONDecodeError as e:
+        return f"ERROR: tool input must be valid JSON — {e}"
+    return await execute_tool(name, inputs)
