@@ -59,6 +59,19 @@ if errorlevel 1 (
     timeout /t 4 >nul
 )
 
+REM ── Lemonade: load model into AMD Radeon 780M iGPU (port 13305) ──────────
+REM Lemonade server starts automatically as a Windows service (installed by MSI).
+REM We just need to load the model into VRAM — runs in background, ready in ~30s.
+set LEMONADE_BIN=%LOCALAPPDATA%\lemonade_server\bin\lemonade.exe
+if exist "%LEMONADE_BIN%" (
+    echo Loading Lemonade chat model on 780M iGPU ^(background^)...
+    start "lemonade-load" /min "%LEMONADE_BIN%" load Gemma-4-E2B-it-GGUF
+) else (
+    echo   [SKIP] Lemonade not found - install from https://github.com/lemonade-sdk/lemonade
+)
+REM Note: max_loaded_models=1, so Lemonade auto-swaps models on demand
+REM (e.g. Whisper-Small loads for STT, Gemma reloads for next chat request)
+
 REM ── MongoDB ───────────────────────────────────────────────────────────────
 echo Starting MongoDB...
 if not exist "%APP%mongo-data" mkdir "%APP%mongo-data"
@@ -101,6 +114,7 @@ echo   Remote     : http://%REMOTE_IP%:3210
 echo   Gateway    : http://%REMOTE_IP%:8002
 echo   Mesh peers : http://%REMOTE_IP%:8002/peers
 echo   MCP (SSE)  : http://%REMOTE_IP%:8002/mcp/sse
+echo   Lemonade   : http://localhost:13305  ^(780M iGPU — chat/STT/TTS/image^)
 echo.
 if "%GH05T3_API_TOKEN%"=="" (
     echo   [!] OPEN MODE - set GH05T3_API_TOKEN in backend\.env to secure

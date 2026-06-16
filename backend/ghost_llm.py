@@ -40,6 +40,9 @@ ANTHROPIC_MODEL = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
 # GH05T3 fine-tuned model — served by gh05t3_inference.py on port 8010
 GH05T3_MODEL_URL = os.environ.get("GH05T3_MODEL_URL", "http://localhost:8010")
 
+# Lemonade — AMD Radeon 780M iGPU (port 13305)
+LEMONADE_URL = os.environ.get("LEMONADE_URL", "http://localhost:13305")
+
 _LOCAL_ONLY_PROVIDERS = {"ollama", "local", "free", "cost_free", "cost-free", "gh05t3"}
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 _FALSE_VALUES = {"0", "false", "no", "off"}
@@ -283,13 +286,36 @@ async def _call_gh05t3(system: str, user: str) -> str:
 # ---------------------------------------------------------------------------
 # Availability helpers
 # ---------------------------------------------------------------------------
+async def lemonade_available() -> bool:
+    """True if Lemonade server is running (AMD Radeon 780M iGPU, port 13305)."""
+    if not LEMONADE_URL:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            r = await c.get(f"{LEMONADE_URL}/api/v1/models")
+            return r.status_code == 200
+    except Exception:
+        return False
+
+
+async def _call_lemonade(system: str, user: str) -> str:
+    model = os.environ.get("LEMONADE_MODEL", "Gemma-4-E2B-it-GGUF")
+    return await _openai_compat(
+        base    = f"{LEMONADE_URL}/api/v1",
+        api_key = "lemonade",
+        model   = model,
+        system  = system,
+        user    = user,
+    )
+
+
 async def ollama_available() -> bool:
     url = ollama_resolved_url()
     if not url:
         return False
     try:
         async with httpx.AsyncClient(timeout=2.0) as c:
-            r = await c.get(f"{url}/v1/models")
+            r = await c.get(f"{url}/api/tags")
             return r.status_code == 200
     except Exception:
         return False
@@ -378,17 +404,82 @@ def _paid_llm_allowed() -> bool:
     return os.environ.get("ALLOW_PAID_LLM", "").strip().lower() in _TRUE_VALUES
 
 
+async def _ollama_loaded_models() -> list[str]:
+    """Return models currently loaded in Ollama VRAM (via /api/ps)."""
+    url = ollama_resolved_url()
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as c:
+            r = await c.get(f"{url}/api/ps")
+            if r.status_code == 200:
+                return [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        pass
+    return []
+
+
+async def _ollama_available_models() -> list[str]:
+    """Return all models listed in Ollama (/api/tags)."""
+    url = ollama_resolved_url()
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as c:
+            r = await c.get(f"{url}/api/tags")
+            if r.status_code == 200:
+                return [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        pass
+    return []
+
+
 async def _call_ollama_preferred(system: str, user: str, role: str = "proposer",
                                  model_override: str | None = None) -> tuple[str, str]:
     if not await ollama_available():
         raise RuntimeError("Ollama is not reachable at OLLAMA_GATEWAY_URL")
-    await ollama_ensure_model("qwen2.5:0.5b")
-    model = (model_override
-             or OLLAMA_PREFERRED.get(role)
-             or OLLAMA_PREFERRED.get("proposer")
-             or "qwen2.5:0.5b")
-    text = await ollama_call(model, system, user)
-    return text, f"ollama:{model}"
+
+    primary = (model_override
+               or os.environ.get("OLLAMA_SAGE_MODEL")
+               or OLLAMA_PREFERRED.get(role)
+               or OLLAMA_PREFERRED.get("proposer")
+               or "qwen2.5:0.5b")
+
+    try:
+        text = await ollama_call(primary, system, user)
+        return text, f"ollama:{primary}"
+    except Exception as e:
+        if "404" not in str(e):
+            raise  # not a model-missing error — propagate
+
+    LOG.debug("[ollama] %s → 404 (VRAM full?), trying loaded models first", primary)
+
+    # Try whatever is already in VRAM (no reload cost, instant)
+    for m in await _ollama_loaded_models():
+        if m == primary:
+            continue
+        try:
+            text = await ollama_call(m, system, user)
+            LOG.debug("[ollama] fallback to loaded model %s succeeded", m)
+            return text, f"ollama:{m}"
+        except Exception:
+            pass
+
+    # Try other available models in preference order (smallest-first sovereign roster)
+    _SOVEREIGN_FALLBACK = [
+        "codex-sovereign:latest", "oracle-sovereign:latest", "nexus-sovereign:latest",
+        "forge-sovereign:latest", "sentinel-sovereign:latest", "avery-sovereign:latest",
+    ]
+    available = set(await _ollama_available_models())
+    for m in _SOVEREIGN_FALLBACK:
+        if m in available and m != primary:
+            try:
+                text = await ollama_call(m, system, user)
+                LOG.debug("[ollama] fallback to %s succeeded", m)
+                return text, f"ollama:{m}"
+            except Exception:
+                pass
+
+    raise RuntimeError(
+        f"Ollama model {primary} returned 404 (VRAM full — close LM Studio to free space) "
+        "and no fallback models responded."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -424,8 +515,10 @@ async def chat_once(session: str, system: str, user: str,
     _prefer_small = task == "quick"
 
     # ── Tier -1: GH05T3 fine-tuned local model (highest priority) ─────────────
+    # Research tasks (_prefer_cloud) skip local models in auto mode to reach
+    # cloud LLMs with broader training data; explicit provider="gh05t3" always wins.
     if (provider == "gh05t3"
-            or (provider in {"auto"} and await gh05t3_available())
+            or (provider == "auto" and not _prefer_cloud and await gh05t3_available())
             or (_prefer_local and not _prefer_cloud and await gh05t3_available())):
         try:
             text = await _call_gh05t3(system, user)
@@ -448,8 +541,8 @@ async def chat_once(session: str, system: str, user: str,
     # ── Tier 0a: SovereignCore gateway (OpenAI-compat, local GPU cluster) ─────
     # Routes inference across RTX 5050 → Radeon 780M → Ryzen 7 CPU via Ollama.
     # Preferred over direct Ollama because the gateway handles load balancing and
-    # health-aware routing automatically.
-    if _provider_ok("sovereign"):
+    # health-aware routing automatically. Skipped for research tasks (_prefer_cloud).
+    if not _prefer_cloud and _provider_ok("sovereign"):
         try:
             from sovereign_economy import sovereign_available as _sov_ok, sovereign_chat
             if await _sov_ok():
@@ -467,21 +560,34 @@ async def chat_once(session: str, system: str, user: str,
     if _provider_ok("ollama") and await ollama_available():
         try:
             if _prefer_small:
-                text = await _call_ollama_preferred(system, user, role,
-                                                    model_override="qwen2.5:0.5b")
+                text, _ = await _call_ollama_preferred(system, user, role,
+                                                       model_override="qwen2.5:0.5b")
                 return text, "ollama:qwen2.5:0.5b"
             elif not _prefer_cloud:
                 return await _call_ollama_preferred(system, user, role)
         except Exception as e:
             if _is_rate_limit(e):
                 _mark_rl("ollama", 30)
-            LOG.warning("[cascade] ollama failed: %s", e)
+            LOG.debug("[cascade] ollama failed: %s", e)
             if _cost_free_only():
                 raise NoLLMError(
                     "Ollama unavailable and COST_FREE_ONLY=1. "
                     "Start Ollama (ollama serve) or set COST_FREE_ONLY=0 to enable "
                     "free cloud fallbacks (Groq, Gemini)."
                 ) from e
+
+    # ── Tier 0c: Lemonade (AMD Radeon 780M iGPU — free, local, always-on) ────
+    # Kicks in when Ollama is down or the task was already handled above.
+    # Uses Lemonade's optimised GGUF/Vulkan pipeline on the 780M.
+    # Skipped for research tasks (_prefer_cloud) just like the other local tiers.
+    if not _prefer_cloud and _provider_ok("lemonade") and await lemonade_available():
+        try:
+            text = await _call_lemonade(system, user)
+            return text, "lemonade:780M"
+        except Exception as e:
+            if _is_rate_limit(e):
+                _mark_rl("lemonade", 30)
+            LOG.warning("[cascade] lemonade failed: %s", e)
 
     # ── Tier 1: Groq free tier (key rotation — tries all configured keys) ────
     # research tasks start here, skipping local models for broader knowledge
@@ -818,9 +924,11 @@ async def nightly_status() -> dict:
         "has_groq_key":      bool(cfg.get("groq_api_key")   or _groq_key()),
         "google_model":      cfg.get("google_model",  "gemini-2.0-flash"),
         "groq_model":        cfg.get("groq_model",    "llama-3.3-70b-versatile"),
-        "ollama_reachable":  await ollama_available(),
+        "ollama_reachable":    await ollama_available(),
+        "lemonade_reachable":  await lemonade_available(),
         "sovereign_available": await sovereign_available(),
-        "fallback_chain":    ["sovereign-core (local GPU)", "ollama (local)", "groq (free)", "google (free)", "anthropic"],
+        "fallback_chain":    ["sovereign-core (local GPU)", "ollama (local)",
+                              "lemonade (780M iGPU)", "groq (free)", "google (free)", "anthropic"],
     }
 
 
@@ -835,7 +943,7 @@ def _json_block(s: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# SAGE cycle
+# SAGE cycle — MAP-Elites emitter integration
 # ---------------------------------------------------------------------------
 PROPOSER_SYS = """You are the GH05T3 SAGE Proposer agent.
 Propose ONE concrete, self-improvement change to GH05T3 that would measurably
@@ -850,6 +958,79 @@ VERIFIER_SYS = """You are the GH05T3 SAGE Verifier.
 Decide if the proposal is technically coherent and sound.
 Respond strict JSON: {"verdict":"PASS|PARTIAL|FAIL","rationale":"<<=20 words>>"}"""
 
+# MAP-Elites batch state — targets from ask(), results awaiting tell()
+_me_targets: list[dict] = []
+_me_pending: list[tuple[float, float, int]] = []   # (objective, latency_s, tokens)
+# Must equal evolution.map_elites.BATCH_SIZE exactly — tell() validates the
+# accumulated batch against the scheduler's most recent ask() size and raises
+# if they don't match, so this can't be independently configured.
+try:
+    from evolution.map_elites import BATCH_SIZE as _ME_BATCH
+except Exception:
+    _ME_BATCH = 8
+
+
+def _me_next_target() -> dict | None:
+    """Pop next emitter target, refilling from archive.ask() when buffer is empty."""
+    global _me_targets
+    if not _me_targets:
+        try:
+            from evolution.map_elites import ask
+            targets = ask()
+            if targets:
+                _me_targets = list(targets)
+                LOG.debug("[sage/me] refilled %d targets from emitter", len(_me_targets))
+        except Exception as e:
+            LOG.debug("[sage/me] ask() skipped: %s", e)
+    return _me_targets.pop(0) if _me_targets else None
+
+
+def _me_record(objective: float, latency_s: float, tokens: int) -> None:
+    """Accumulate one result; flush tell() when a full batch is ready."""
+    global _me_pending
+    _me_pending.append((objective, latency_s, tokens))
+    if len(_me_pending) >= _ME_BATCH:
+        try:
+            from evolution.map_elites import tell
+            objectives = [r[0] for r in _me_pending]
+            measures   = [[r[0], r[1] * 1000, r[2]] for r in _me_pending]  # latency_s→ms
+            tell(objectives, measures)
+            LOG.debug("[sage/me] tell() flushed %d results to emitter", len(_me_pending))
+        except Exception as e:
+            LOG.debug("[sage/me] tell() failed: %s", e)
+        finally:
+            _me_pending.clear()
+
+
+def _proposer_sys_for_target(target: dict | None) -> str:
+    """Inject MAP-Elites target constraints into the proposer system prompt.
+
+    quality_target drives specificity:  high → exploit known good regions
+                                        low  → explore novel approaches
+    token_budget drives brevity: tighter budget → shorter, punchier proposals
+    """
+    if not target:
+        return PROPOSER_SYS
+
+    qt = target.get("quality_target", 0.75)
+    tb = int(target.get("token_budget", 500))
+
+    if qt >= 0.85:
+        style = "Be maximally specific and immediately implementable — exploit known good patterns."
+    elif qt >= 0.60:
+        style = "Be concrete but try a novel approach area not explored recently."
+    else:
+        style = "Be bold and exploratory — propose an unconventional angle even if uncertain."
+
+    word_limit = max(10, min(25, tb // 20))
+
+    return (
+        f"You are the GH05T3 SAGE Proposer agent.\n"
+        f"Propose ONE concrete, self-improvement change to GH05T3 that would measurably\n"
+        f"improve KAIROS, HCM, Memory Palace, Ghost Protocol, or a sub-agent.\n"
+        f"Under {word_limit} words. {style}"
+    )
+
 
 async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
     async def _call(session, system, user, role="proposer"):
@@ -857,10 +1038,17 @@ async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
             return await nightly_chat(session, system, user)
         return await chat_once(session, system, user, role)
 
-    session = f"sage-{cycle_num}"
-    proposal, proposer_tag = await _call(session, PROPOSER_SYS,
+    # ── MAP-Elites: get target for this cycle ──────────────────────────────────
+    me_target   = _me_next_target()
+    proposer_sys = _proposer_sys_for_target(me_target)
+
+    session    = f"sage-{cycle_num}"
+    t0         = time.monotonic()
+    proposal, proposer_tag = await _call(session, proposer_sys,
                                          f"Propose improvement #{cycle_num}. Be distinctive.")
-    proposal = proposal.strip().split("\n")[0][:220]
+    latency_s  = round(time.monotonic() - t0, 3)
+    proposal   = proposal.strip().split("\n")[0][:220]
+    token_est  = int(len(proposal.split()) * 1.3)   # fast token estimate
 
     critic_raw, critic_tag = await _call(f"{session}-critic", CRITIC_SYS,
                                          f"Proposal: {proposal}\nRespond with JSON only.", "critic")
@@ -882,21 +1070,28 @@ async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
     elite    = final >= 0.85
     archived = final >= 0.70 or verdict == "PASS"
 
+    # ── MAP-Elites: feed result back to emitter ────────────────────────────────
+    _me_record(final, latency_s, token_est)
+
     return {
-        "cycle_num":         cycle_num,
-        "proposer":          proposer_tag,
-        "critic":            critic_tag,
-        "verifier":          verifier_tag,
-        "proposal":          proposal,
-        "critic_decision":   decision,
-        "critic_reason":     cj.get("reason", "")[:200],
-        "verdict":           verdict,
+        "cycle_num":          cycle_num,
+        "proposer":           proposer_tag,
+        "critic":             critic_tag,
+        "verifier":           verifier_tag,
+        "proposal":           proposal,
+        "critic_decision":    decision,
+        "critic_reason":      cj.get("reason", "")[:200],
+        "verdict":            verdict,
         "verifier_rationale": vj.get("rationale", "")[:200],
-        "base_score":        base,
-        "multiplier":        mult,
-        "final_score":       final,
-        "archived":          archived,
-        "elite":             elite,
+        "base_score":         base,
+        "multiplier":         mult,
+        "final_score":        final,
+        "archived":           archived,
+        "elite":              elite,
+        # MAP-Elites telemetry
+        "me_target":          me_target,
+        "latency_s":          latency_s,
+        "token_est":          token_est,
     }
 
 

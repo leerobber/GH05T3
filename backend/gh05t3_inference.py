@@ -152,10 +152,10 @@ class LoRAFarm:
         "ops": 4, "quick": 5, "default": 6,
     }
 
-    def __init__(self, base_dir: Path = None):
+    def __init__(self, base_dir: Path | None = None):
         self._base = base_dir or (Path(__file__).parent / "models")
 
-    def get_lora_request(self, task_domain: str) -> "Optional[LoRARequest]":
+    def get_lora_request(self, task_domain: str) -> LoRARequest | None:
         if not _VLLM:
             return None
         domain = task_domain if task_domain in self._DOMAIN_DIRS else "default"
@@ -177,7 +177,7 @@ class LoRAFarm:
         }
 
 
-_lora_farm: "Optional[LoRAFarm]" = None
+_lora_farm: LoRAFarm | None = None
 
 
 def get_lora_farm() -> "LoRAFarm":
@@ -561,8 +561,10 @@ async def chat_completions(req: ChatRequest):
     if not req.task_domain:
         try:
             from ghost_llm import _classify_task
-            user_text = " ".join(m.content for m in req.messages if m.role == "user")
-            domain = _classify_task(user_text)
+            combined = " ".join(
+                m.content for m in req.messages if m.role in ("system", "user")
+            )
+            domain = _classify_task(combined)
         except Exception:
             pass
 

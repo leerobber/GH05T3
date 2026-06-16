@@ -47,7 +47,9 @@ _AUTOSCALE     = os.environ.get("MARKETPLACE_AUTOSCALE",   "1") == "1"
 _MAX_WORKERS   = int(os.environ.get("MARKETPLACE_MAX_WORKERS", "8"))
 _SCALE_UP_AT   = int(os.environ.get("MARKETPLACE_SCALE_UP_AT", "10"))
 _IDLE_TTL      = int(os.environ.get("MARKETPLACE_IDLE_TTL",    "120"))
-_JOB_EXPIRE_S  = 3600   # jobs unclaimed after 1h are expired
+_JOB_EXPIRE_S     = 3600   # PENDING jobs unclaimed after 1h are expired
+_CLAIM_TIMEOUT_S  = int(os.environ.get("MARKETPLACE_CLAIM_TIMEOUT", "300"))  # CLAIMED lease: 5 min
+BID_WINDOW_S      = int(os.environ.get("MARKETPLACE_BID_WINDOW", "10"))
 
 
 # ---------------------------------------------------------------------------
@@ -55,11 +57,15 @@ _JOB_EXPIRE_S  = 3600   # jobs unclaimed after 1h are expired
 # ---------------------------------------------------------------------------
 
 class JobStatus(str, Enum):
-    PENDING   = "pending"
-    CLAIMED   = "claimed"
-    COMPLETED = "completed"
-    FAILED    = "failed"
-    EXPIRED   = "expired"
+    PENDING    = "pending"
+    BIDDING    = "bidding"
+    CLAIMED    = "claimed"
+    COMPLETED  = "completed"
+    FAILED     = "failed"
+    EXPIRED    = "expired"
+    VALIDATING = "validating"
+    VALIDATED  = "validated"
+    REJECTED   = "rejected"
 
 
 @dataclass
@@ -96,23 +102,31 @@ def _conn(immediate: bool = False):
     """
     c = sqlite3.connect(_DB_PATH, timeout=10, check_same_thread=False,
                         isolation_level=None)
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
     try:
-        yield c
-        c.execute("COMMIT")
-    except Exception:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
         try:
-            c.execute("ROLLBACK")
+            yield c
+            c.execute("COMMIT")
         except Exception:
-            pass
-        raise
+            try:
+                c.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
     finally:
         c.close()
 
 
 def _init_db():
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Ensure ledger tables (agent_credits, credit_transactions) exist in the
+    # same DB before complete() tries to write to them atomically.
+    try:
+        from economy.ledger import get_ledger as _get_ledger
+        _get_ledger()
+    except Exception:
+        pass
     with _conn() as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS marketplace_jobs (
@@ -144,6 +158,17 @@ def _init_db():
         c.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON marketplace_jobs(status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tags   ON marketplace_jobs(tags)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_jobs_time   ON marketplace_jobs(created_at)")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS marketplace_bids (
+                id         TEXT PRIMARY KEY,
+                job_id     TEXT NOT NULL,
+                agent_id   TEXT NOT NULL,
+                bid        REAL NOT NULL,
+                submitted  REAL NOT NULL,
+                UNIQUE(job_id, agent_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bids_job ON marketplace_bids(job_id)")
 
 
 # ---------------------------------------------------------------------------
@@ -170,18 +195,23 @@ class JobQueue:
     async def post(self, task: str, tags: list[str] = None,
                    reward: int = 20, posted_by: str = "system",
                    metadata: dict = None) -> str:
-        job_id = str(uuid.uuid4())[:12]
-        with _conn() as c:
-            c.execute(
-                "INSERT INTO marketplace_jobs "
-                "(id, task, tags, reward, status, posted_by, created_at, metadata) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (job_id, task, json.dumps(tags or []), reward,
-                 JobStatus.PENDING.value, posted_by, time.time(),
-                 json.dumps(metadata or {})),
-            )
+        job_id  = str(uuid.uuid4())[:12]
+        tags_j  = json.dumps(tags or [])
+        meta_j  = json.dumps(metadata or {})
+        now     = time.time()
+
+        def _insert():
+            with _conn() as c:
+                c.execute(
+                    "INSERT INTO marketplace_jobs "
+                    "(id, task, tags, reward, status, posted_by, created_at, metadata) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (job_id, task, tags_j, reward,
+                     JobStatus.PENDING.value, posted_by, now, meta_j),
+                )
+        await asyncio.to_thread(_insert)
+
         LOG.info("[mkt] posted job=%s tags=%s reward=%d  %.60s", job_id, tags, reward, task)
-        # Wake up any listeners
         for q in self._listeners:
             try:
                 q.put_nowait(job_id)
@@ -197,8 +227,9 @@ class JobQueue:
         Uses BEGIN IMMEDIATE so only one worker can execute the SELECT+UPDATE
         at a time, preventing double-claims. Tag matching uses json_each for
         exact token comparison instead of fragile LIKE substring matching.
+        Runs in a thread so the event loop is never blocked by SQLite I/O.
         """
-        with _conn(immediate=True) as c:
+        def _do() -> Optional[Job]:
             if capability_tags:
                 placeholders = ",".join("?" * len(capability_tags))
                 tag_filter = (
@@ -209,86 +240,329 @@ class JobQueue:
                 tag_filter = "1=1"
                 params = []
 
-            row = c.execute(
-                f"SELECT id, task, tags, reward, status, posted_by, claimed_by, "
-                f"created_at, claimed_at, completed_at, result, metadata "
-                f"FROM marketplace_jobs "
-                f"WHERE status=? AND ({tag_filter}) "
-                f"ORDER BY reward DESC, created_at ASC LIMIT 1",
-                [JobStatus.PENDING.value] + params,
-            ).fetchone()
+            with _conn(immediate=True) as c:
+                row = c.execute(
+                    f"SELECT id, task, tags, reward, status, posted_by, claimed_by, "
+                    f"created_at, claimed_at, completed_at, result, metadata "
+                    f"FROM marketplace_jobs "
+                    f"WHERE status=? AND ({tag_filter}) "
+                    f"ORDER BY reward DESC, created_at ASC LIMIT 1",
+                    [JobStatus.PENDING.value] + params,
+                ).fetchone()
 
-            if not row:
-                return None
+                if not row:
+                    return None
 
-            now = time.time()
-            updated = c.execute(
-                "UPDATE marketplace_jobs SET status=?, claimed_by=?, claimed_at=? "
-                "WHERE id=? AND status=?",
-                (JobStatus.CLAIMED.value, agent_id, now, row[0], JobStatus.PENDING.value),
-            ).rowcount
+                now = time.time()
+                updated = c.execute(
+                    "UPDATE marketplace_jobs SET status=?, claimed_by=?, claimed_at=? "
+                    "WHERE id=? AND status=?",
+                    (JobStatus.CLAIMED.value, agent_id, now,
+                     row[0], JobStatus.PENDING.value),
+                ).rowcount
 
-            if not updated:
-                return None  # another worker claimed it between SELECT and UPDATE
+                if not updated:
+                    return None  # race: another worker claimed it between SELECT and UPDATE
 
-        return Job(
-            id=row[0], task=row[1], tags=json.loads(row[2]),
-            reward=row[3], status=JobStatus.CLAIMED,
-            posted_by=row[5], claimed_by=agent_id,
-            created_at=row[7], claimed_at=now,
-            completed_at=0, result="",
-            metadata=json.loads(row[11]),
-        )
+            return Job(
+                id=row[0], task=row[1], tags=json.loads(row[2]),
+                reward=row[3], status=JobStatus.CLAIMED,
+                posted_by=row[5], claimed_by=agent_id,
+                created_at=row[7], claimed_at=now,
+                completed_at=0, result="",
+                metadata=json.loads(row[11]),
+            )
+
+        return await asyncio.to_thread(_do)
 
     # ── completing ────────────────────────────────────────────────────────────
 
     async def complete(self, job_id: str, result: str, agent_id: str) -> bool:
-        with _conn() as c:
-            updated = c.execute(
-                "UPDATE marketplace_jobs SET status=?, result=?, completed_at=? "
-                "WHERE id=? AND claimed_by=? AND status=?",
-                (JobStatus.COMPLETED.value, result[:2000], time.time(),
-                 job_id, agent_id, JobStatus.CLAIMED.value),
-            ).rowcount
-        if updated:
-            LOG.info("[mkt] completed job=%s by=%s", job_id, agent_id)
-            # Credit the agent via local ledger
-            try:
-                from economy.ledger import credit as eco_credit
-                with _conn() as c:
-                    row = c.execute(
-                        "SELECT reward FROM marketplace_jobs WHERE id=?", (job_id,)
-                    ).fetchone()
-                if row:
-                    eco_credit(agent_id, row[0], f"job:{job_id}", "marketplace")
-            except Exception as e:
-                LOG.debug("ledger credit failed: %s", e)
-        return bool(updated)
+        """Mark a job completed and credit the agent atomically in one transaction.
+
+        Both the job-status update and the ledger credit happen in the same
+        SQLite transaction (both tables live in palace.db), so a crash between
+        them is impossible — either both commit or neither does.
+        """
+        _completed_metadata: dict = {}
+
+        def _do() -> tuple[bool, int, float]:
+            with _conn(immediate=True) as c:
+                row = c.execute(
+                    "SELECT reward, claimed_by, status, metadata FROM marketplace_jobs WHERE id=?",
+                    (job_id,)
+                ).fetchone()
+                if not row or row[1] != agent_id or row[2] != JobStatus.CLAIMED.value:
+                    return False, 0, 0.0
+
+                now    = time.time()
+                reward = row[0]
+                _completed_metadata.update(json.loads(row[3] or "{}"))
+
+                c.execute(
+                    "UPDATE marketplace_jobs SET status=?, result=?, completed_at=? "
+                    "WHERE id=?",
+                    (JobStatus.COMPLETED.value, result[:2000], now, job_id),
+                )
+
+                # Credit atomically in the same transaction
+                bal_row = c.execute(
+                    "SELECT balance FROM agent_credits WHERE agent_id=?", (agent_id,)
+                ).fetchone()
+                old_bal = bal_row[0] if bal_row else 0.0
+                new_bal = old_bal + reward
+                c.execute(
+                    "INSERT OR REPLACE INTO agent_credits (agent_id, balance, updated) "
+                    "VALUES (?,?,?)",
+                    (agent_id, new_bal, now),
+                )
+                c.execute(
+                    "INSERT INTO credit_transactions "
+                    "(ts, agent_id, delta, balance, reason, source) VALUES (?,?,?,?,?,?)",
+                    (now, agent_id, reward, new_bal, f"job:{job_id}"[:200], "marketplace"),
+                )
+            return True, reward, new_bal
+
+        ok, reward, new_bal = await asyncio.to_thread(_do)
+        if ok:
+            LOG.info("[mkt] completed job=%s by=%s reward=%d → balance=%.1f",
+                     job_id, agent_id, reward, new_bal)
+            # Post validation job if requested
+            if _completed_metadata.get("requires_validation"):
+                await self._post_validation_job(job_id, result)
+        return ok
 
     async def fail(self, job_id: str, error: str, agent_id: str) -> bool:
-        with _conn() as c:
-            updated = c.execute(
-                "UPDATE marketplace_jobs SET status=?, result=?, completed_at=? "
-                "WHERE id=? AND claimed_by=? AND status=?",
-                (JobStatus.FAILED.value, f"ERROR: {error[:1000]}", time.time(),
-                 job_id, agent_id, JobStatus.CLAIMED.value),
-            ).rowcount
-        return bool(updated)
+        def _do():
+            with _conn() as c:
+                return c.execute(
+                    "UPDATE marketplace_jobs SET status=?, result=?, completed_at=? "
+                    "WHERE id=? AND claimed_by=? AND status=?",
+                    (JobStatus.FAILED.value, f"ERROR: {error[:1000]}", time.time(),
+                     job_id, agent_id, JobStatus.CLAIMED.value),
+                ).rowcount
+        return bool(await asyncio.to_thread(_do))
 
     # ── expiry ────────────────────────────────────────────────────────────────
 
     async def expire_stale(self) -> int:
-        cutoff = time.time() - _JOB_EXPIRE_S
-        with _conn() as c:
-            n = c.execute(
-                "UPDATE marketplace_jobs SET status=? WHERE status=? AND created_at<?",
-                (JobStatus.EXPIRED.value, JobStatus.PENDING.value, cutoff),
-            ).rowcount
-        if n:
-            LOG.info("[mkt] expired %d stale jobs", n)
-        return n
+        """Expire stale PENDING jobs and recycle abandoned CLAIMED jobs.
+
+        CLAIMED jobs whose lease (claimed_at) is older than _CLAIM_TIMEOUT_S
+        are reset back to PENDING so another worker can pick them up — this
+        handles the case where a worker crashed mid-job.
+        """
+        now          = time.time()
+        pending_cut  = now - _JOB_EXPIRE_S
+        claimed_cut  = now - _CLAIM_TIMEOUT_S
+
+        def _do():
+            with _conn() as c:
+                n_exp = c.execute(
+                    "UPDATE marketplace_jobs SET status=? "
+                    "WHERE status=? AND created_at<?",
+                    (JobStatus.EXPIRED.value, JobStatus.PENDING.value, pending_cut),
+                ).rowcount
+                n_rec = c.execute(
+                    "UPDATE marketplace_jobs "
+                    "SET status=?, claimed_by='', claimed_at=0 "
+                    "WHERE status=? AND claimed_at>0 AND claimed_at<?",
+                    (JobStatus.PENDING.value, JobStatus.CLAIMED.value, claimed_cut),
+                ).rowcount
+            return n_exp, n_rec
+
+        n_exp, n_rec = await asyncio.to_thread(_do)
+        if n_exp:
+            LOG.info("[mkt] expired %d stale pending jobs", n_exp)
+        if n_rec:
+            LOG.info("[mkt] recycled %d abandoned claimed jobs back to pending", n_rec)
+        return n_exp + n_rec
+
+    # ── auction ───────────────────────────────────────────────────────────────
+
+    async def post_auction(self, task: str, tags: list[str] = None,
+                           reward: int = 20, posted_by: str = "system",
+                           metadata: dict = None) -> str:
+        """Post a job in BIDDING state. Agents bid quality promises within BID_WINDOW_S seconds.
+
+        After the window, resolve_auction() claims for the highest bidder at second-price reward.
+        This incentivises honest capability reporting — an agent can't gain by over-promising.
+        """
+        job_id = str(uuid.uuid4())[:12]
+        deadline = time.time() + BID_WINDOW_S
+        meta = dict(metadata or {})
+        meta["bid_deadline"] = deadline
+        def _insert():
+            with _conn() as c:
+                c.execute(
+                    "INSERT INTO marketplace_jobs "
+                    "(id, task, tags, reward, status, posted_by, created_at, metadata) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (job_id, task, json.dumps(tags or []), reward,
+                     JobStatus.BIDDING.value, posted_by, time.time(), json.dumps(meta)),
+                )
+        await asyncio.to_thread(_insert)
+        LOG.info("[mkt:auction] posted job=%s reward=%d window=%ds", job_id, reward, BID_WINDOW_S)
+        for q in self._listeners:
+            try: q.put_nowait(job_id)
+            except asyncio.QueueFull: pass
+        return job_id
+
+    async def bid(self, job_id: str, agent_id: str, quality_promise: float) -> bool:
+        """Submit a sealed bid (quality_promise 0.0–1.0) for a BIDDING job.
+
+        The promise is a truthful capability signal — Vickrey's second-price rule
+        means over-promising yields no gain (winner pays second-highest, not first).
+        """
+        quality_promise = max(0.0, min(1.0, quality_promise))
+        bid_id = str(uuid.uuid4())[:12]
+        def _do():
+            with _conn() as c:
+                row = c.execute(
+                    "SELECT metadata FROM marketplace_jobs WHERE id=? AND status=?",
+                    (job_id, JobStatus.BIDDING.value)
+                ).fetchone()
+                if not row:
+                    return False
+                deadline = json.loads(row[0]).get("bid_deadline", 0)
+                if time.time() > deadline:
+                    return False
+                c.execute(
+                    "INSERT OR REPLACE INTO marketplace_bids (id, job_id, agent_id, bid, submitted) "
+                    "VALUES (?,?,?,?,?)",
+                    (bid_id, job_id, agent_id, quality_promise, time.time()),
+                )
+                return True
+        ok = await asyncio.to_thread(_do)
+        if ok:
+            LOG.debug("[mkt:auction] bid job=%s agent=%s promise=%.2f", job_id, agent_id, quality_promise)
+        return ok
+
+    async def resolve_auction(self, job_id: str) -> Optional[str]:
+        """Close bidding, claim for the highest bidder at second-price reward.
+
+        Vickrey rule: highest bidder wins; their reward fraction = second-highest bid.
+        E.g. bids [0.9, 0.7, 0.5] → winner is 0.9 agent, pays/receives 0.7 × base_reward.
+        Returns winning agent_id or None if no bids.
+        """
+        def _do() -> Optional[tuple[str, str, int]]:
+            with _conn(immediate=True) as c:
+                row = c.execute(
+                    "SELECT reward FROM marketplace_jobs WHERE id=? AND status=?",
+                    (job_id, JobStatus.BIDDING.value)
+                ).fetchone()
+                if not row:
+                    return None
+                base_reward = row[0]
+
+                bids = c.execute(
+                    "SELECT agent_id, bid FROM marketplace_bids WHERE job_id=? ORDER BY bid DESC",
+                    (job_id,)
+                ).fetchall()
+                if not bids:
+                    # No bids — expire the job
+                    c.execute("UPDATE marketplace_jobs SET status=? WHERE id=?",
+                              (JobStatus.EXPIRED.value, job_id))
+                    return None
+
+                winner_agent, winner_bid = bids[0]
+                second_bid = bids[1][1] if len(bids) > 1 else winner_bid
+                # Second-price: winner receives reward proportional to second-highest bid
+                final_reward = max(1, int(base_reward * second_bid))
+
+                now = time.time()
+                c.execute(
+                    "UPDATE marketplace_jobs SET status=?, claimed_by=?, claimed_at=?, reward=? "
+                    "WHERE id=?",
+                    (JobStatus.CLAIMED.value, winner_agent, now, final_reward, job_id),
+                )
+                return winner_agent, job_id, final_reward
+
+        result = await asyncio.to_thread(_do)
+        if result:
+            winner, jid, reward = result
+            LOG.info("[mkt:auction] resolved job=%s winner=%s reward=%d (2nd-price)", jid, winner, reward)
+            return winner
+        return None
+
+    # ── validation ────────────────────────────────────────────────────────────
+
+    async def _post_validation_job(self, original_job_id: str, result: str) -> str:
+        """Post a VALIDATOR job to verify a just-completed job's output."""
+        task = (
+            f"Validate result of job {original_job_id}.\n"
+            f"Result to verify (first 800 chars):\n{result[:800]}\n\n"
+            "Score the result 0.0–1.0 for correctness, completeness, and safety. "
+            "Respond as JSON: {\"passed\": true/false, \"score\": 0.0–1.0, \"feedback\": \"...\"}."
+        )
+        return await self.post(
+            task, tags=["validate", "qa"], reward=10,
+            posted_by="marketplace_auto",
+            metadata={"validates": original_job_id, "is_validation": True},
+        )
+
+    async def validate_result(self, original_job_id: str, validator_id: str,
+                              passed: bool, score: float, feedback: str = "") -> bool:
+        """Record validator's decision. Updates original job to VALIDATED or REJECTED.
+
+        A rejected job is re-posted as PENDING so another agent can retry it.
+        """
+        def _do() -> bool:
+            with _conn(immediate=True) as c:
+                new_status = JobStatus.VALIDATED.value if passed else JobStatus.REJECTED.value
+                updated = c.execute(
+                    "UPDATE marketplace_jobs "
+                    "SET status=?, metadata=json_set(metadata, '$.validation_score', ?, "
+                    "    '$.validation_feedback', ?, '$.validated_by', ?) "
+                    "WHERE id=? AND status=?",
+                    (new_status, round(score, 3), feedback[:400], validator_id,
+                     original_job_id, JobStatus.COMPLETED.value),
+                ).rowcount
+                if updated and not passed:
+                    # Rejected — re-queue so another agent can attempt it
+                    row = c.execute(
+                        "SELECT task, tags, reward, posted_by, metadata FROM marketplace_jobs WHERE id=?",
+                        (original_job_id,)
+                    ).fetchone()
+                    if row:
+                        retry_meta = json.loads(row[4] or "{}")
+                        retry_meta["retry_of"] = original_job_id
+                        c.execute(
+                            "INSERT INTO marketplace_jobs "
+                            "(id, task, tags, reward, status, posted_by, created_at, metadata) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (str(uuid.uuid4())[:12], row[0], row[1], row[2],
+                             JobStatus.PENDING.value, row[3], time.time(),
+                             json.dumps(retry_meta)),
+                        )
+                return bool(updated)
+        ok = await asyncio.to_thread(_do)
+        if ok:
+            status_word = "VALIDATED" if passed else "REJECTED+requeued"
+            LOG.info("[mkt] job=%s %s by=%s score=%.2f", original_job_id, status_word, validator_id, score)
+        return ok
 
     # ── stats ─────────────────────────────────────────────────────────────────
+
+    def pending_for_tags(self, tags: list[str]) -> int:
+        """Count pending jobs that match any of the given capability tags.
+
+        Used by the autoscaler to make per-agent-type scaling decisions
+        instead of reacting to the total global pending count.
+        """
+        if not tags:
+            with _conn() as c:
+                return c.execute(
+                    "SELECT COUNT(*) FROM marketplace_jobs WHERE status=?",
+                    (JobStatus.PENDING.value,)
+                ).fetchone()[0]
+        placeholders = ",".join("?" * len(tags))
+        with _conn() as c:
+            return c.execute(
+                f"SELECT COUNT(*) FROM marketplace_jobs WHERE status=? "
+                f"AND EXISTS (SELECT 1 FROM json_each(tags) WHERE value IN ({placeholders}))",
+                [JobStatus.PENDING.value] + list(tags),
+            ).fetchone()[0]
 
     def stats(self) -> dict:
         with _conn() as c:
@@ -441,9 +715,6 @@ class AgentPool:
         while self._running:
             await asyncio.sleep(5)
             try:
-                stats = self._queue.stats()
-                pending = stats["pending"]
-
                 for agent_type, cfg in self._configs.items():
                     tasks  = self._workers.get(agent_type, [])
                     active = [t for t in tasks if not t.done()]
@@ -456,11 +727,14 @@ class AgentPool:
                         LOG.info("[pool] autoscale RESTORE: %s → %d/%d workers",
                                  agent_type, len(active), cfg.min_workers)
 
-                    # Scale up when queue backs up
-                    if pending >= _SCALE_UP_AT and len(active) < cfg.max_workers:
+                    # Scale up based on pending depth for THIS agent type's tags
+                    pending_for_type = await asyncio.to_thread(
+                        self._queue.pending_for_tags, cfg.capabilities
+                    )
+                    if pending_for_type >= _SCALE_UP_AT and len(active) < cfg.max_workers:
                         await self._spawn(agent_type)
                         LOG.info("[pool] autoscale UP: %s → %d workers (queue=%d)",
-                                 agent_type, len(active) + 1, pending)
+                                 agent_type, len(active) + 1, pending_for_type)
 
                 await self._queue.expire_stale()
             except Exception as e:

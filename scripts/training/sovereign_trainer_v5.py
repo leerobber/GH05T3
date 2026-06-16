@@ -459,6 +459,12 @@ def run_training(jsonl_path: Path) -> None:
     from datasets import Dataset
     from transformers import TrainingArguments
 
+    # TF32 — Blackwell/Ampere tensor cores run matmul in TF32; ~10× FP32 throughput
+    if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        print("[OPT] TF32 matmul enabled")
+
     # Load dataset
     print("[3/4] Loading dataset...")
     rows = []
@@ -524,6 +530,8 @@ def run_training(jsonl_path: Path) -> None:
         save_total_limit            = 2,
         report_to                   = "none",
         optim                       = "adamw_8bit",
+        dataloader_pin_memory       = True,
+        dataloader_num_workers      = 2,
     )
 
     # ORPO (odds-ratio preference optimization) — needs only chosen/rejected, no SFT warmup
