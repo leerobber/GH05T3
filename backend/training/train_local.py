@@ -244,6 +244,24 @@ def build_dataset(data_dir: Path):
     if forge_count:
         log.info("Omni Forge: +%d gold examples from %s", forge_count, forge_file)
 
+    # ── OmniStrand Elite export (genetic selection, methylation-weighted) ─────
+    elite_file = REPO / "backend" / "data" / "training" / "forge_elite_strands.jsonl"
+    elite_count = 0
+    for rec in read_jsonl(elite_file):
+        text = rec.get("chatml") or rec.get("text", "")
+        if not text or "<|im_start|>user" not in text:
+            continue
+        weight = int(rec.get("methylation", {}).get("transcription_weight", 1))
+        repeats = max(1, min(weight, 4))
+        for _ in range(repeats):
+            texts.append(text)
+        elite_count += 1
+    if elite_count:
+        log.info(
+            "OmniStrand Elite: +%d strands (methylation-weighted) from %s",
+            elite_count, elite_file,
+        )
+
     if not texts:
         log.error("No training examples found in %s", data_dir)
         sys.exit(1)
@@ -251,8 +269,8 @@ def build_dataset(data_dir: Path):
     random.seed(42)
     random.shuffle(texts)
     log.info(
-        "Dataset: %d examples (%d recall, %d forge gold)",
-        len(texts), recall_count, forge_count,
+        "Dataset: %d examples (%d recall, %d forge, %d elite strands)",
+        len(texts), recall_count, forge_count, elite_count,
     )
     return Dataset.from_dict({"text": texts})
 

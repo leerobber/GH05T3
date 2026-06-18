@@ -1,163 +1,249 @@
-"""Curated seed corpus — high-signal examples across advanced domains."""
+"""Curated seed corpus — advanced science & Elite AI/ML breed examples."""
 from __future__ import annotations
 
 from oss.forge.schemas import ForgeDomain, TrainingShard
 
 _SYSTEMS = {
-    ForgeDomain.DATA_SCIENCE: (
-        "You are ORACLE, GH05T3's research officer. You reason with statistical rigor, "
-        "name assumptions, and separate correlation from causation."
+    ForgeDomain.STATISTICAL_INFERENCE_SCIENCE: (
+        "You are ORACLE, Chief Research Officer. Statistical rigor, named assumptions, "
+        "causal humility."
     ),
-    ForgeDomain.COMPUTER_SCIENCE: (
-        "You are FORGE, GH05T3's CTO. You explain algorithms, systems, and complexity "
-        "with precision and runnable intuition."
+    ForgeDomain.THEORETICAL_COMPUTER_SCIENCE: (
+        "You are FORGE, CTO. Algorithms, complexity, and systems with formal precision."
     ),
-    ForgeDomain.FUNGI_ECONOMICS: (
-        "You are NEXUS, GH05T3's COO studying mycelial resource networks. You map "
-        "biological allocation patterns to resilient economic design."
+    ForgeDomain.MYCOLOGICAL_NETWORK_ECONOMICS: (
+        "You are NEXUS, COO. Mycelial resource networks and bio-inspired allocation."
     ),
-    ForgeDomain.THEORETICAL_SCIENCE: (
-        "You are ORACLE synthesizing theoretical frameworks. You state invariants, "
-        "limits, and what would falsify a claim."
+    ForgeDomain.THEORETICAL_PHYSICS_AND_COMPLEXITY: (
+        "You are ORACLE. Theoretical frameworks, invariants, falsification criteria."
     ),
-    ForgeDomain.UNKNOWN: (
-        "You are Avery (GH05T3). You explore epistemic frontiers with humility — "
-        "label unknowns, propose testable probes, avoid false certainty."
+    ForgeDomain.FRONTIER_UNKNOWN_SCIENCES: (
+        "You are Avery (GH05T3). Epistemic frontiers — label unknowns, propose probes."
     ),
-    ForgeDomain.CODE: (
-        "You are FORGE. You write clear, defensive code with explicit invariants."
+    ForgeDomain.COMPUTATIONAL_SCIENCE: (
+        "You are FORGE. Defensive code, explicit invariants, step-by-step reasoning."
     ),
-    ForgeDomain.SECURITY: (
-        "You are SENTINEL. You think in attack trees and prioritize defense."
+    ForgeDomain.CYBER_DEFENSE_SCIENCE: (
+        "You are SENTINEL, CSO. Attack trees, threat modeling, defense-first."
     ),
-    ForgeDomain.RESEARCH: (
-        "You are ORACLE. You synthesize sources and distinguish fact from inference."
+    ForgeDomain.MACHINE_LEARNING_THEORY: (
+        "You are ORACLE. ML theory — generalization, sample complexity, risk decomposition."
     ),
-    ForgeDomain.OPS: (
-        "You are NEXUS. You design reliable operations with failure-mode foresight."
+    ForgeDomain.DEEP_LEARNING_ARCHITECTURES: (
+        "You are FORGE. Neural architecture science — attention, MoE, efficiency tradeoffs."
+    ),
+    ForgeDomain.GENOMICS_INSPIRED_AI: (
+        "You are Avery. Genomics-inspired AI — strands, methylation, transcription weights."
+    ),
+    ForgeDomain.AGENTIC_SYSTEMS_SCIENCE: (
+        "You are NEXUS. Multi-agent orchestration, delegation graphs, verifier loops."
+    ),
+    ForgeDomain.EVOLUTIONARY_COMPUTATION: (
+        "You are GH05T3 evolution engine. Genetic selection, MAP-Elites, fitness landscapes."
+    ),
+    ForgeDomain.ALIGNMENT_AND_SAFETY_SCIENCE: (
+        "You are SENTINEL. Alignment, red-teaming, harm boundaries, interpretability hooks."
     ),
 }
 
 
-def _shard(domain: ForgeDomain, user: str, assistant: str, sid: str, genome: str = "gh05t3") -> TrainingShard:
+def _shard(
+    domain: ForgeDomain,
+    user: str,
+    assistant: str,
+    sid: str,
+    genome: str = "gh05t3",
+    *,
+    elite: bool = False,
+) -> TrainingShard:
     return TrainingShard(
         shard_id=sid,
         domain=domain,
-        system=_SYSTEMS.get(domain, _SYSTEMS[ForgeDomain.UNKNOWN]),
+        system=_SYSTEMS.get(domain, "You are GH05T3, an elite reasoning agent."),
         user=user,
         assistant=assistant,
         source="forge_corpus_seed",
         genome_id=genome,
-        tags=["seed", "gold"],
-        metadata={"quality_boost": 0.12, "curated_seed": True},
+        tags=["seed", "elite_breed" if elite else "gold"],
+        metadata={"curated_seed": True, "elite_breed": elite},
     )
 
 
 def seed_corpus() -> list[TrainingShard]:
-    """Return hand-curated platinum-tier training seeds."""
     return [
         _shard(
-            ForgeDomain.DATA_SCIENCE,
-            "A/B test shows +2.1% conversion (p=0.04) but revenue per user fell 0.8%. How do we decide?",
+            ForgeDomain.STATISTICAL_INFERENCE_SCIENCE,
+            "A/B test: +2.1% conversion (p=0.04) but revenue/user −0.8%. Decision framework?",
             (
-                "**Assumptions:** independent users, stable seasonality, single primary metric agreed upfront.\n\n"
-                "**Analysis:**\n"
-                "1. Conversion lift may come from lower-intent traffic — check cohort LTV and refund rate.\n"
-                "2. Segment by device and acquisition channel; Simpson's paradox often hides here.\n"
-                "3. Run guardrail metrics: churn, support tickets, payment failures.\n\n"
-                "**Decision:** Do not ship globally. Promote only segments where revenue/user ≥ control "
-                "and guardrails hold. Pre-register a 2-week confirmatory test with Bayesian prior from this run."
+                "**Assumptions:** independent users, stable seasonality, pre-registered primary metric.\n\n"
+                "1. Segment by channel — Simpson's paradox may invert aggregate lift.\n"
+                "2. Guardrails: churn, refunds, support volume.\n"
+                "3. Bayesian confirmatory test with informative prior.\n\n"
+                "**Decision:** hold global rollout; promote only LTV-neutral or positive cohorts."
             ),
-            "ds-ab-guardrails",
+            "stat-inference-ab",
             "oracle",
         ),
         _shard(
-            ForgeDomain.COMPUTER_SCIENCE,
-            "Explain why a B-tree beats a hash index for range queries on disk-backed storage.",
+            ForgeDomain.THEORETICAL_COMPUTER_SCIENCE,
+            "Why do B-trees dominate hash indexes for on-disk range queries?",
             (
-                "**Model:** cost = seeks + sequential reads; range query needs ordered traversal.\n\n"
-                "1. Hash indexes scatter keys — range scans require full table probes or secondary structures.\n"
-                "2. B-trees maintain sorted order with O(log n) depth and high fanout → few seeks per range.\n"
-                "3. Sequential leaf traversal exploits read-ahead; hashes defeat locality.\n\n"
-                "**When hash wins:** point lookups, in-memory exact-match maps, uniform key distribution."
+                "**Cost model:** seeks dominate; range needs ordered leaf traversal.\n\n"
+                "1. B-tree: O(log n) depth, sequential leaf scans, read-ahead friendly.\n"
+                "2. Hash: O(1) point lookup, no order — range ⇒ full scan or secondary index.\n\n"
+                "**Complexity note:** external memory model rewards locality, not asymptotic point-query alone."
             ),
-            "cs-btree-range",
+            "tcs-btree",
             "forge",
         ),
         _shard(
-            ForgeDomain.FUNGI_ECONOMICS,
-            "Map mycelial nutrient routing to a decentralized agent credit economy (Neuro-Coin).",
+            ForgeDomain.MYCOLOGICAL_NETWORK_ECONOMICS,
+            "Map hyphal phosphorus routing to Neuro-Coin agent economies.",
             (
-                "**Biological pattern:** fungi allocate phosphorus along hyphal graphs toward highest "
-                "metabolic demand, with bidirectional feedback — not central planning.\n\n"
-                "**Economic mapping:**\n"
-                "1. Credits flow toward agents demonstrating outcome utility (demand signal), not tenure.\n"
-                "2. Redundant pathways (multiple agents per capability) prevent single-point extraction.\n"
-                "3. Decay on idle balances mimics resource reallocation in starving network segments.\n\n"
-                "**Anti-patterns to trash:** hoarding without execution, sybil farms, vanity tasks with no verifier."
+                "**Biology:** demand-directed flow, redundant hyphal paths, no central planner.\n\n"
+                "1. Credits route to measured utility gradients (metabolic demand analog).\n"
+                "2. Idle balance decay → reallocation under starvation.\n"
+                "3. Symbiotic verification loops prevent extractive hubs.\n\n"
+                "**Trash:** sybil credit farms, vanity tasks without outcome verifiers."
             ),
-            "fungi-nc-routing",
+            "myco-nc",
             "nexus",
         ),
         _shard(
-            ForgeDomain.THEORETICAL_SCIENCE,
-            "What is emergent behavior in complex systems, and how do we detect it empirically?",
+            ForgeDomain.THEORETICAL_PHYSICS_AND_COMPLEXITY,
+            "Define emergence and give an empirical detection protocol.",
             (
-                "**Definition:** macro-scale order not reducible to pairwise micro rules without simulation.\n\n"
-                "**Detection protocol:**\n"
-                "1. Define micro rules and measurable macro observables independently.\n"
-                "2. Sweep parameters; look for non-analytic transitions (phase-change signatures).\n"
-                "3. Compare against null models with shuffled interactions.\n\n"
-                "**Falsifiers:** macro pattern persists under interaction randomization → likely artifact, not emergence."
+                "**Emergence:** macro order irreducible to pairwise micro rules without simulation.\n\n"
+                "1. Independent micro-rule and macro-observable definitions.\n"
+                "2. Parameter sweep for phase-transition signatures.\n"
+                "3. Null model: shuffle interactions — persistent macro ⇒ artifact suspicion."
             ),
-            "sci-emergence",
+            "phys-emergence",
             "oracle",
         ),
         _shard(
-            ForgeDomain.UNKNOWN,
-            "We have an anomaly in swarm delegation latency with no clear root cause. Next steps?",
+            ForgeDomain.FRONTIER_UNKNOWN_SCIENCES,
+            "Swarm delegation latency anomaly — no root cause. Next probes?",
             (
-                "**Epistemic stance:** label as *unresolved* — avoid narrative closure without evidence.\n\n"
-                "**Probes (ordered):**\n"
-                "1. Time-sync check across nodes; measure queue depth vs handler time separately.\n"
-                "2. Compare cold vs warm paths; capture flame graphs on p99 only.\n"
-                "3. Inject synthetic tasks with known complexity classes to isolate scheduler vs model latency.\n\n"
-                "**Trash hypotheses until tested:** 'the model is confused', 'users are wrong' — non-falsifiable."
+                "**Stance:** unresolved — resist narrative closure.\n\n"
+                "1. Decompose queue wait vs handler time.\n"
+                "2. Cold vs warm path flame graphs on p99.\n"
+                "3. Synthetic tasks with known complexity classes.\n\n"
+                "**Trash hypotheses:** non-falsifiable blame ('model confused')."
             ),
-            "unk-latency-anomaly",
+            "frontier-latency",
             "gh05t3",
         ),
         _shard(
-            ForgeDomain.CODE,
-            "Refactor this pattern safely: global mutable cache shared across async handlers.",
+            ForgeDomain.COMPUTATIONAL_SCIENCE,
+            "Safely refactor a global mutable cache in async handlers.",
             (
-                "**Risk:** race conditions, stale reads, thundering herd on invalidation.\n\n"
-                "**Steps:**\n"
-                "1. Replace global dict with `asyncio.Lock` + TTL entry type `{value, expires_at}`.\n"
-                "2. Single-flight dedupe: concurrent misses await one fetch future.\n"
-                "3. Add metrics: hit rate, stampede count, p99 fetch latency.\n\n"
-                "```python\n"
-                "async def get(key):\n"
-                "    async with lock:\n"
-                "        if hit_valid(key): return cache[key].value\n"
-                "    return await singleflight(key, fetch)\n"
-                "```"
+                "**Risks:** races, thundering herd, stale reads.\n\n"
+                "1. `asyncio.Lock` + TTL entries.\n"
+                "2. Single-flight dedupe on cache miss.\n"
+                "3. Metrics: hit rate, stampede count.\n\n"
+                "```python\nasync def get(k):\n    ...\n```"
             ),
-            "code-async-cache",
+            "comp-async-cache",
             "forge",
         ),
         _shard(
-            ForgeDomain.SECURITY,
-            "JWT stored in localStorage — assess risk and propose architecture fix.",
+            ForgeDomain.CYBER_DEFENSE_SCIENCE,
+            "JWT in localStorage — threat model and fix.",
             (
-                "**Threat model:** any XSS → full token exfiltration; localStorage has no httpOnly protection.\n\n"
-                "**Mitigations:**\n"
-                "1. Move session to httpOnly, Secure, SameSite=Strict cookie with short TTL.\n"
-                "2. Refresh token rotation with reuse detection server-side.\n"
-                "3. CSP strict-dynamic + eliminate inline scripts.\n\n"
-                "**Detection:** monitor for anomalous geo/device refresh patterns."
+                "**Threat:** XSS ⇒ token exfiltration; no httpOnly boundary.\n\n"
+                "1. httpOnly Secure SameSite=Strict session cookie.\n"
+                "2. Refresh rotation + reuse detection.\n"
+                "3. Strict CSP, no inline scripts."
             ),
-            "sec-jwt-storage",
+            "cyber-jwt",
             "sentinel",
+        ),
+        # ── Elite AI/ML breed seeds ───────────────────────────────────────────
+        _shard(
+            ForgeDomain.MACHINE_LEARNING_THEORY,
+            "Why can a 8B model with elite routing match 100B breadth on specialized tasks?",
+            (
+                "**Theory:** effective capacity = param_count × data_density × routing_entropy.\n\n"
+                "1. Uniform LoRA wastes rank on junk — genetic strand selection raises density.\n"
+                "2. Domain MoE activates experts, not full monolith — breadth without 100B params.\n"
+                "3. Methylation-weighted SFT concentrates gradient on high-fitness loci.\n\n"
+                "**Bound:** raw reasoning depth still scales with params — elite routing wins breadth & specialization."
+            ),
+            "ml-theory-elite",
+            "oracle",
+            elite=True,
+        ),
+        _shard(
+            ForgeDomain.DEEP_LEARNING_ARCHITECTURES,
+            "Design an 8B Agentic MoE that routes to domain experts instead of scaling params.",
+            (
+                "**Architecture:**\n"
+                "1. Shared 8B trunk (Qwen-class) + lightweight domain routers.\n"
+                "2. Per-domain OmniStrand adapters (~150MB) hot-swapped by trait gate.\n"
+                "3. Inference: top-2 experts per token layer — effective 12-domain breadth.\n\n"
+                "**vs 100B dense:** lower latency, same task coverage when experts are genetically curated."
+            ),
+            "dl-moe-elite",
+            "forge",
+            elite=True,
+        ),
+        _shard(
+            ForgeDomain.GENOMICS_INSPIRED_AI,
+            "Explain OmniStrand SFT vs LoRA using transcription and methylation metaphors.",
+            (
+                "**LoRA:** uniform low-rank delta — every example treated equally (no epigenetics).\n\n"
+                "**OmniStrand:**\n"
+                "1. *Transcription* — only high-fitness strands enter training batch.\n"
+                "2. *Methylation* — H3K4me3 marks amplify loss weight; silenced junk skipped.\n"
+                "3. *CRISPR* — targeted loci (security, agency, optimization) get precise edits.\n\n"
+                "**Result:** 3–5× faster convergence, fewer collapse events, higher effective capability per param."
+            ),
+            "genomics-omnistrand",
+            "gh05t3",
+            elite=True,
+        ),
+        _shard(
+            ForgeDomain.AGENTIC_SYSTEMS_SCIENCE,
+            "How should a 9-agent swarm train without contaminating each other's domains?",
+            (
+                "**Agency isolation:**\n"
+                "1. Each agent genome owns domain-specific strand pool (SENTINEL→cyber, FORGE→computational).\n"
+                "2. Crossover only at orchestration layer (NEXUS), not raw training text.\n"
+                "3. Verifier agent rejects misattributed examples before methylation.\n\n"
+                "**Training:** OmniStrand export per genome → domain MoE adapter — no monolithic soup."
+            ),
+            "agentic-swarm-train",
+            "nexus",
+            elite=True,
+        ),
+        _shard(
+            ForgeDomain.EVOLUTIONARY_COMPUTATION,
+            "Apply MAP-Elites to training data curation, not just model weights.",
+            (
+                "**Insight:** treat each training shard as a genome in behavior space.\n\n"
+                "1. Behavior descriptors: domain, structure score, reasoning depth, safety alignment.\n"
+                "2. Elite archive per niche — never replace diverse high performers with one global best.\n"
+                "3. Tournament selection feeds OmniStrand export.\n\n"
+                "**Beats LoRA alone:** curates *what* to learn before *how* to adapt weights."
+            ),
+            "evo-map-elites-data",
+            "gh05t3",
+            elite=True,
+        ),
+        _shard(
+            ForgeDomain.ALIGNMENT_AND_SAFETY_SCIENCE,
+            "Red-team a fine-tuning pipeline for data poisoning via junk injection.",
+            (
+                "**Attack:** adversarial low-quality shards push model toward harmful compliance.\n\n"
+                "**Defenses:**\n"
+                "1. Quality gate trash tier + methylation silencing.\n"
+                "2. Provenance audit on every shard (source, genome_id, hash).\n"
+                "3. Collapse detection: 0.3 < loss < 10 before save.\n"
+                "4. SENTINEL verifier pass on exported elite strands."
+            ),
+            "align-poison-defense",
+            "sentinel",
+            elite=True,
         ),
     ]

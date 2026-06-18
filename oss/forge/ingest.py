@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Iterator
 
+from oss.forge.domains import LEGACY_ALIASES, resolve_domain
 from oss.forge.schemas import ForgeDomain, TrainingShard
 
 LOG = logging.getLogger("oss.forge.ingest")
@@ -15,14 +16,6 @@ _REPO = Path(__file__).resolve().parents[2]
 _PIPELINE_DATASETS = _REPO / "backend" / "training" / "datasets"
 _LEGACY_DATA = _REPO / "backend" / "data" / "training"
 _RECALL = _LEGACY_DATA / "sovereign_recall.jsonl"
-
-_DOMAIN_MAP = {
-    "adversarial_defense": ForgeDomain.SECURITY,
-    "cve_patterns": ForgeDomain.SECURITY,
-    "bug_bounty": ForgeDomain.SECURITY,
-    "reasoning_chains": ForgeDomain.RESEARCH,
-    "sovereign_recall": ForgeDomain.RESEARCH,
-}
 
 _SYSTEM_DEFAULT = (
     "You are GH05T3, an autonomous reasoning agent. Think step-by-step with rigor."
@@ -43,9 +36,13 @@ def _iter_jsonl(path: Path) -> Iterator[dict]:
                 continue
 
 
+def _pipeline_domain(name: str) -> ForgeDomain:
+    return LEGACY_ALIASES.get(name, ForgeDomain.GENERAL_COGNITION)
+
+
 def _from_pipeline_record(name: str, rec: dict) -> TrainingShard | None:
-    domain = _DOMAIN_MAP.get(name, ForgeDomain.DEFAULT)
-    if name == "adversarial_defense":
+    domain = _pipeline_domain(name)
+    if name in ("adversarial_defense",):
         user = rec.get("threat_vector", "")
         if not user:
             return None
@@ -98,20 +95,19 @@ def _from_recall(rec: dict) -> TrainingShard | None:
     if quality < 4 or "<|im_start|>user" not in text:
         return None
     user_part = assistant_part = ""
-    if "<|im_start|>user" in text:
-        try:
-            user_part = text.split("<|im_start|>user", 1)[1].split("<|im_end|>", 1)[0].strip()
-            rest = text.split("<|im_end|>", 1)[-1]
-            if "<|im_start|>assistant" in rest:
-                assistant_part = rest.split("<|im_start|>assistant", 1)[1].split("<|im_end|>", 1)[0].strip()
-        except IndexError:
-            return None
+    try:
+        user_part = text.split("<|im_start|>user", 1)[1].split("<|im_end|>", 1)[0].strip()
+        rest = text.split("<|im_end|>", 1)[-1]
+        if "<|im_start|>assistant" in rest:
+            assistant_part = rest.split("<|im_start|>assistant", 1)[1].split("<|im_end|>", 1)[0].strip()
+    except IndexError:
+        return None
     if not user_part or not assistant_part:
         return None
     sid = uuid.uuid5(uuid.NAMESPACE_URL, f"recall:{user_part[:120]}").hex[:16]
     return TrainingShard(
         shard_id=sid,
-        domain=ForgeDomain.RESEARCH,
+        domain=ForgeDomain.EPISTEMOLOGY_AND_DISCOVERY,
         system=_SYSTEM_DEFAULT,
         user=user_part,
         assistant=assistant_part,
@@ -132,11 +128,10 @@ def ingest_pipeline(max_per_file: int = 500) -> list[TrainingShard]:
                 count += 1
             if count >= max_per_file:
                 break
-        LOG.info("ingested %d from %s", count, path.name)
 
     if _LEGACY_DATA.exists():
         for path in sorted(_LEGACY_DATA.glob("*.jsonl")):
-            if path.name == "sovereign_recall.jsonl":
+            if path.name in ("sovereign_recall.jsonl", "forge_gold.jsonl", "forge_elite_strands.jsonl"):
                 continue
             count = 0
             for rec in _iter_jsonl(path):
@@ -159,17 +154,18 @@ def ingest_pipeline(max_per_file: int = 500) -> list[TrainingShard]:
 
 def ingest_submission(
     *,
-    domain: ForgeDomain,
+    domain: str | ForgeDomain,
     user: str,
     assistant: str,
     system: str = "",
     genome_id: str = "gh05t3",
     tags: list[str] | None = None,
 ) -> TrainingShard:
+    resolved = domain if isinstance(domain, ForgeDomain) else resolve_domain(str(domain))
     sid = uuid.uuid4().hex[:16]
     return TrainingShard(
         shard_id=sid,
-        domain=domain,
+        domain=resolved,
         system=system or _SYSTEM_DEFAULT,
         user=user.strip(),
         assistant=assistant.strip(),

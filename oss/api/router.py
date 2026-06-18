@@ -262,11 +262,8 @@ async def forge_cycle(body: ForgeCycleRequest) -> dict[str, Any]:
 @router.post("/forge/submit")
 async def forge_submit(body: ForgeSubmitRequest) -> dict[str, Any]:
     from oss.forge.agency import get_agency
-    from oss.forge.schemas import ForgeDomain
-    try:
-        domain = ForgeDomain(body.domain.lower())
-    except ValueError:
-        raise HTTPException(400, f"Unknown domain: {body.domain}")
+    from oss.forge.domains import resolve_domain
+    domain = resolve_domain(body.domain)
     return get_agency().submit_and_curate(
         domain=domain,
         user=body.user,
@@ -280,3 +277,31 @@ async def forge_submit(body: ForgeSubmitRequest) -> dict[str, Any]:
 async def forge_preflight() -> dict[str, Any]:
     from oss.forge.train_bridge import preflight_report
     return preflight_report()
+
+
+@router.get("/forge/domains")
+async def forge_domains_list(q: str = "") -> dict[str, Any]:
+    from oss.forge.domains import list_domains, search_domains
+    items = search_domains(q) if q else list_domains()
+    return {"domains": items, "count": len(items)}
+
+
+@router.get("/forge/elite/profile")
+async def forge_elite_profile() -> dict[str, Any]:
+    from pathlib import Path
+    import json
+    manifest = Path(__file__).resolve().parents[2] / "backend" / "data" / "training" / "forge_elite_manifest.json"
+    if not manifest.exists():
+        return {"status": "no_elite_export", "paradigm": "omni_strand_sft"}
+    return json.loads(manifest.read_text(encoding="utf-8"))
+
+
+@router.post("/forge/elite/export")
+async def forge_elite_export(min_tier: str = "gold") -> dict[str, Any]:
+    from oss.forge.elite_train import export_elite_strands
+    from oss.forge.schemas import QualityTier
+    try:
+        tier = QualityTier(min_tier.lower())
+    except ValueError:
+        raise HTTPException(400, f"Unknown tier: {min_tier}")
+    return export_elite_strands(min_tier=tier)

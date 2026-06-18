@@ -1,10 +1,11 @@
-"""Multi-signal quality gate — filters trash, promotes gold training shards."""
+"""Multi-signal quality gate — filters trash, promotes gold/elite training shards."""
 from __future__ import annotations
 
 import hashlib
 import re
 from collections import Counter
 
+from oss.forge.domains import domain_keywords
 from oss.forge.schemas import ForgeDomain, QualityTier, QualityVerdict, TrainingShard
 
 _JUNK_PATTERNS = (
@@ -17,18 +18,6 @@ _JUNK_PATTERNS = (
     r"test test test",
     r"^\s*N/A\s*$",
 )
-
-_DOMAIN_KEYWORDS: dict[ForgeDomain, tuple[str, ...]] = {
-    ForgeDomain.SECURITY: ("cve", "exploit", "mitigation", "threat", "vulnerability", "owasp"),
-    ForgeDomain.CODE: ("function", "class", "refactor", "debug", "api", "algorithm", "python"),
-    ForgeDomain.RESEARCH: ("hypothesis", "methodology", "literature", "synthesis", "evidence"),
-    ForgeDomain.OPS: ("deploy", "incident", "runbook", "sla", "capacity", "rollback"),
-    ForgeDomain.DATA_SCIENCE: ("feature", "model", "bias", "variance", "dataset", "regression", "cluster"),
-    ForgeDomain.COMPUTER_SCIENCE: ("complexity", "compiler", "distributed", "cache", "protocol", "graph"),
-    ForgeDomain.FUNGI_ECONOMICS: ("mycelium", "network", "resource", "exchange", "symbiosis", "allocation"),
-    ForgeDomain.THEORETICAL_SCIENCE: ("theorem", "entropy", "field", "symmetry", "quantum", "emergence"),
-    ForgeDomain.UNKNOWN: ("uncertainty", "frontier", "unknown", "explore", "epistemic", "anomaly"),
-}
 
 
 def _word_stats(text: str) -> tuple[int, float, float]:
@@ -43,11 +32,11 @@ def _word_stats(text: str) -> tuple[int, float, float]:
 
 def _domain_relevance(shard: TrainingShard) -> float:
     blob = f"{shard.user} {shard.assistant}".lower()
-    keywords = _DOMAIN_KEYWORDS.get(shard.domain, ())
+    keywords = domain_keywords(shard.domain)
     if not keywords:
         return 0.5
     hits = sum(1 for kw in keywords if kw in blob)
-    return min(1.0, hits / max(3, len(keywords) * 0.4))
+    return min(1.0, hits / max(3, len(keywords) * 0.35))
 
 
 def _structure_score(text: str) -> float:
@@ -85,7 +74,6 @@ def _junk_hits(text: str) -> list[str]:
 
 
 def score_shard(shard: TrainingShard, min_tier: QualityTier = QualityTier.SILVER) -> QualityVerdict:
-    """Score a shard; trash tier is rejected from training export."""
     combined = f"{shard.user}\n{shard.assistant}"
     reasons = _junk_hits(combined)
 
@@ -118,10 +106,14 @@ def score_shard(shard: TrainingShard, min_tier: QualityTier = QualityTier.SILVER
         raw = min(1.0, raw + 0.15)
     elif shard.metadata.get("quality_boost"):
         raw = min(1.0, raw + float(shard.metadata["quality_boost"]))
+    if shard.metadata.get("elite_breed"):
+        raw = min(1.0, raw + 0.1)
 
     score = round(max(0.0, min(1.0, raw)), 4)
 
-    if score >= 0.88 and not reasons:
+    if score >= 0.92 and not reasons and domain_rel >= 0.5:
+        tier = QualityTier.ELITE
+    elif score >= 0.88 and not reasons:
         tier = QualityTier.PLATINUM
     elif score >= 0.75:
         tier = QualityTier.GOLD
@@ -135,7 +127,7 @@ def score_shard(shard: TrainingShard, min_tier: QualityTier = QualityTier.SILVER
     if any(r.startswith("junk_pattern") or r in ("too_short", "url_spam", "excessive_na") for r in reasons):
         tier = QualityTier.TRASH
 
-    tier_order = [QualityTier.TRASH, QualityTier.BRONZE, QualityTier.SILVER, QualityTier.GOLD, QualityTier.PLATINUM]
+    tier_order = list(QualityTier)
     keep = tier_order.index(tier) >= tier_order.index(min_tier)
 
     return QualityVerdict(score=score, tier=tier, signals=signals, reasons=reasons, keep=keep)

@@ -10,6 +10,7 @@ from oss.forge.ingest import ingest_pipeline, ingest_submission
 from oss.forge.quality_gate import content_hash, score_shard
 from oss.forge.schemas import ForgeDomain, ForgeRunRecord, QualityTier, TrainingShard
 from oss.forge.store import get_store
+from oss.forge.elite_train import export_elite_strands
 from oss.forge.train_bridge import export_gold, preflight_report
 
 LOG = logging.getLogger("oss.forge.agency")
@@ -71,9 +72,14 @@ class AgencyForge:
         if export and record.kept > 0:
             manifest = export_gold(min_tier=min_tier)
             record.exported = manifest.get("exported", 0)
+            elite_manifest = export_elite_strands(min_tier=QualityTier.GOLD)
+            record.elite_strands = elite_manifest.get("exported", 0)
 
         record.status = "complete"
-        record.notes = f"min_tier={min_tier.value} pipeline={include_pipeline} seeds={include_seeds}"
+        record.notes = (
+            f"min_tier={min_tier.value} pipeline={include_pipeline} seeds={include_seeds} "
+            f"paradigm=omni_strand_sft"
+        )
         self.store.save_run(record)
         LOG.info(
             "forge cycle %s: ingested=%d kept=%d trashed=%d exported=%d",
@@ -107,9 +113,16 @@ class AgencyForge:
         }
 
     def status(self) -> dict[str, Any]:
+        from oss.forge.elite_train import _ELITE_MANIFEST
+        elite_profile = None
+        if _ELITE_MANIFEST.exists():
+            import json
+            elite_profile = json.loads(_ELITE_MANIFEST.read_text(encoding="utf-8"))
         return {
             "store": self.store.stats(),
             "preflight": preflight_report(),
+            "elite_profile": elite_profile,
+            "paradigm": "omni_strand_sft",
             "last_run": self.store.last_run().to_dict() if self.store.last_run() else None,
         }
 
