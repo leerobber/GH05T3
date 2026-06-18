@@ -327,6 +327,20 @@ class RecallRequest(BaseModel):
     room: Optional[str] = None
     top_k: int = 5
 
+class MemoryStoreRequest(BaseModel):
+    content: str
+    type: Optional[str] = None
+    source: Optional[str] = None
+    domain: Optional[str] = None
+    confidence: Optional[float] = None
+    tags: list = []
+
+class BroadcastRequest(BaseModel):
+    content: str
+    src: str = "API"
+    channel: str = "#broadcast"
+    msg_type: str = "chat"
+
 class KillSwitchRequest(BaseModel):
     mode: str
     key: str
@@ -377,6 +391,14 @@ def _peer_self_info() -> dict:
         "ip": ip or None,
         "discovery": "tailscale",
     }
+
+
+def _parse_msg_type(value: str) -> MsgType:
+    """Map caller string (e.g. 'thought', 'chat') to SwarmBus MsgType."""
+    try:
+        return MsgType(value.lower())
+    except ValueError:
+        return MsgType.CHAT
 
 
 def _mesh_contract() -> dict:
@@ -527,6 +549,13 @@ async def recall_memory(req: RecallRequest):
     return {"results": results, "count": len(results)}
 
 
+@app.post("/memory/store")
+async def store_memory(req: MemoryStoreRequest):
+    room = req.type or req.domain or "general"
+    shard = memory.store(content=req.content, room=room, tags=req.tags)
+    return shard
+
+
 @app.post("/killswitch")
 async def killswitch(req: KillSwitchRequest):
     try:
@@ -557,8 +586,13 @@ async def delegate_task(req: DelegateRequest):
 
 
 @app.post("/swarm/broadcast")
-async def broadcast(content: str, src: str = "API"):
-    await bus.emit(src=src, content=content, channel="#broadcast", msg_type=MsgType.CHAT)
+async def broadcast(req: BroadcastRequest):
+    await bus.emit(
+        src=req.src,
+        content=req.content,
+        channel=req.channel,
+        msg_type=_parse_msg_type(req.msg_type),
+    )
     return {"ok": True}
 
 

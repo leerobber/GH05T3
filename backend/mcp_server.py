@@ -19,6 +19,12 @@ from __future__ import annotations
 
 import json
 import logging
+
+try:
+    from run_logger import RunLogger
+    _run_logger = RunLogger()
+except Exception:
+    _run_logger = None
 import os
 from typing import Optional
 
@@ -385,7 +391,12 @@ try:
                 try:
                     r = await client.post(
                         f"{peer['url']}/swarm/broadcast",
-                        params={"content": content, "src": "MESH"},
+                        json={
+                            "content": content,
+                            "src": "MESH",
+                            "channel": channel,
+                            "msg_type": "chat",
+                        },
                         headers=headers,
                     )
                     results.append({"peer": peer["label"], "ok": r.status_code == 200})

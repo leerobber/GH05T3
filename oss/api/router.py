@@ -191,3 +191,30 @@ async def world_start_session(body: WorldSessionRequest) -> dict[str, Any]:
     runtime = get_runtime()
     session = runtime.start_session(domain=body.domain, metadata=body.metadata)
     return runtime.snapshot(session.session_id)
+
+
+class WorldStepRequest(BaseModel):
+    action: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.get("/world/session/{session_id}")
+async def world_session_snapshot(session_id: str) -> dict[str, Any]:
+    from oss.world.runtime import get_runtime
+    runtime = get_runtime()
+    try:
+        return runtime.snapshot(session_id)
+    except KeyError:
+        raise HTTPException(404, f"Session {session_id} not found")
+
+
+@router.post("/world/session/{session_id}/step")
+async def world_session_step(session_id: str, body: WorldStepRequest) -> dict[str, Any]:
+    from oss.world.runtime import get_runtime
+    runtime = get_runtime()
+    try:
+        await runtime.step(session_id, action=body.action)
+    except KeyError:
+        raise HTTPException(404, f"Session {session_id} not found")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return runtime.snapshot(session_id)
