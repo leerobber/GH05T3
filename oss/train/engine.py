@@ -12,6 +12,7 @@ from oss.train.constitution import (
     assert_gpu_allowed,
 )
 from oss.train.dataset import build_examples
+from oss.train.intelligence import IntelligenceConfig, build_intelligence_dataset
 from oss.train.loader import load_train_stack
 from oss.train.loop import SovereignLoop
 from oss.train.schemas import TrainJob, TrainResult, TrainSource
@@ -19,6 +20,94 @@ from oss.train.tokenize import build_tokenized_dataset
 
 LOG = logging.getLogger("oss.train.engine")
 _REPO = Path(__file__).resolve().parents[2]
+
+
+def run_intelligence_training(
+    job: TrainJob,
+    intel_cfg: IntelligenceConfig | None = None,
+) -> TrainResult:
+    """Full intelligence run — systems, code, data mega-dataset."""
+    profile = resolve_agent(job.agent_id)
+    out_dir = job.output_dir or profile.output_path
+    out_dir = Path(out_dir)
+    cfg = job.config
+    icfg = intel_cfg or IntelligenceConfig()
+
+    gpu_info = assert_gpu_allowed()
+    examples, manifest = build_intelligence_dataset(profile.agent_id, icfg)
+
+    if job.dry_run:
+        return TrainResult(
+            agent_id=profile.agent_id,
+            success=True,
+            final_loss=0.0,
+            steps=0,
+            examples=len(examples),
+            output_dir=str(out_dir),
+            adapter_path=str(out_dir),
+            gpu=gpu_info.get("gpu", ""),
+            notes=f"intelligence dry_run {manifest}",
+            paradigm="intelligence_systems_code_data",
+        )
+
+    model, tokenizer, load_info = load_train_stack(cfg)
+    tokenized = build_tokenized_dataset(tokenizer, examples, max_seq_len=cfg.max_seq_len)
+
+    loop = SovereignLoop(
+        model, tokenizer, tokenized,
+        max_steps=cfg.max_steps,
+        learning_rate=cfg.learning_rate,
+        max_grad_norm=cfg.max_grad_norm,
+        batch_size=cfg.batch_size,
+        grad_accum=cfg.grad_accum,
+        warmup_steps=cfg.resolved_warmup(),
+        use_bf16=load_info["use_bf16"],
+        log_every=cfg.log_every,
+        seed=cfg.seed,
+    )
+
+    stats = loop.run()
+    final_loss = float(stats["final_loss"])
+    assert_final_loss(final_loss)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(str(out_dir))
+    tokenizer.save_pretrained(str(out_dir))
+
+    meta = {
+        "paradigm": "intelligence_systems_code_data",
+        "agent_id": profile.agent_id,
+        "model": load_info["model_id"],
+        "lora_rank": cfg.lora_rank,
+        "steps": stats["steps"],
+        "final_loss": final_loss,
+        "dataset_size": len(examples),
+        "manifest": manifest,
+        "gpu": load_info["name"],
+        "sm": load_info["sm"],
+        "trainer": "sovereign_loop",
+        "intelligence": True,
+    }
+    (out_dir / "training_config.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    (out_dir / "intelligence_manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8",
+    )
+
+    LOG.info("Intelligence train complete — loss=%.4f → %s", final_loss, out_dir)
+
+    return TrainResult(
+        agent_id=profile.agent_id,
+        success=True,
+        final_loss=final_loss,
+        steps=stats["steps"],
+        examples=len(examples),
+        output_dir=str(out_dir),
+        adapter_path=str(out_dir),
+        gpu=load_info["name"],
+        notes="intelligence_systems_code_data",
+        loss_history=list(stats.get("loss_history", [])),
+        paradigm="intelligence_systems_code_data",
+    )
 
 
 def run_training(job: TrainJob) -> TrainResult:
