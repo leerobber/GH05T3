@@ -135,6 +135,68 @@ def test_forge_domains_api():
     assert resp.json()["count"] >= 1
 
 
+def test_inference_router_spectral_genomics():
+    from oss.forge.inference_router import plan_inference_route
+
+    route = plan_inference_route(
+        [{"role": "user", "content": "design methylation transcription strand training"}],
+        session_id="test-genomics",
+    )
+    assert route.domain == ForgeDomain.GENOMICS_INSPIRED_AI
+    assert "spectral_classify" in route.novel_methods
+    assert route.adapter_bucket in {"research", "default"}
+
+
+def test_inference_router_entropy_and_counterfactual():
+    from oss.forge.inference_router import plan_inference_route
+
+    route = plan_inference_route(
+        [{"role": "user", "content": "compare quantum alignment swarm economics"}],
+        session_id="test-entropy",
+    )
+    assert route.spectral_entropy >= 0.0
+    assert "methylation_temperature" in route.novel_methods
+
+
+def test_moe_farm_resolve_nested_adapter():
+    from oss.forge.moe_farm import resolve_adapter_path
+
+    models = Path(__file__).parents[1] / "backend" / "models"
+    bucket, path = resolve_adapter_path(models, ForgeDomain.GENERAL_COGNITION)
+    assert bucket in {"default", "quick"}
+    assert path.exists()
+
+
+def test_neuro_symbolic_verifier():
+    from oss.forge.inference_router import neuro_symbolic_verify
+
+    ok = neuro_symbolic_verify(
+        "Methylation gates transcription weights across elite training strands.",
+        ForgeDomain.GENOMICS_INSPIRED_AI,
+    )
+    assert ok["passed"] is True
+    bad = neuro_symbolic_verify("N/A", ForgeDomain.GENERAL_COGNITION)
+    assert bad["passed"] is False
+
+
+def test_forge_route_api():
+    app = FastAPI()
+    app.include_router(oss_router, prefix="/oss")
+    client = TestClient(app)
+    resp = client.post(
+        "/oss/forge/route",
+        json={
+            "text": "implement transformer attention for agentic swarm delegation",
+            "session_id": "api-route-test",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "route" in body
+    assert body["route"]["domain"] in {d.value for d in ForgeDomain}
+    assert len(body["novel_methods"]) >= 2
+
+
 def test_forge_submit_accepts_legacy_slug():
     app = FastAPI()
     app.include_router(oss_router, prefix="/oss")

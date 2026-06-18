@@ -162,8 +162,18 @@ class LoRAFarm:
     def get_lora_request(self, task_domain: str) -> LoRARequest | None:
         if not _VLLM:
             return None
-        domain = task_domain if task_domain in self._DOMAIN_DIRS else "default"
-        adapter_path = self._base / self._DOMAIN_DIRS[domain]
+        # Omni MoE: scientific domain → adapter path (20 disciplines)
+        try:
+            from oss.forge.domains import resolve_domain
+            from oss.forge.moe_farm import resolve_adapter_path
+            sci_domain = resolve_domain(task_domain)
+            bucket, adapter_path = resolve_adapter_path(self._base, sci_domain)
+            domain = bucket if bucket in self._LORA_INT_IDS else "default"
+        except Exception:
+            domain = task_domain if task_domain in self._DOMAIN_DIRS else "default"
+            adapter_path = self._base / self._DOMAIN_DIRS[domain]
+            if not (adapter_path / "adapter_config.json").exists():
+                adapter_path = self._base / "gh05t3_lora_adapter"
         if not (adapter_path / "adapter_config.json").exists():
             adapter_path = self._base / "gh05t3_lora_adapter"
         if not (adapter_path / "adapter_config.json").exists():
@@ -175,10 +185,14 @@ class LoRAFarm:
         )
 
     def available_domains(self) -> dict[str, bool]:
-        return {
-            domain: (self._base / subdir / "adapter_config.json").exists()
-            for domain, subdir in self._DOMAIN_DIRS.items()
-        }
+        try:
+            from oss.forge.moe_farm import list_moe_status
+            return {k: v["trained"] for k, v in list_moe_status(self._base).items()}
+        except Exception:
+            return {
+                domain: (self._base / subdir / "adapter_config.json").exists()
+                for domain, subdir in self._DOMAIN_DIRS.items()
+            }
 
 
 _lora_farm: LoRAFarm | None = None
@@ -190,11 +204,41 @@ def get_lora_farm() -> "LoRAFarm":
         _lora_farm = LoRAFarm()
     return _lora_farm
 # ── model loading ──────────────────────────────────────────────────────────────
+def _resolve_adapter_dir(base: Path | None = None) -> Path:
+    """Find adapter_config.json — handles nested training output layouts."""
+    root = base or Path(ADAPTER_PATH)
+    if (root / "adapter_config.json").exists():
+        return root
+    nested = root / root.name
+    if (nested / "adapter_config.json").exists():
+        return nested
+    outputs = root / "outputs"
+    if outputs.is_dir():
+        for ckpt in sorted(outputs.glob("checkpoint-*"), reverse=True):
+            if (ckpt / "adapter_config.json").exists():
+                return ckpt
+    return root
+
+
 def load_model() -> None:
     global _tokenizer, _ready, _model_id, _has_adapter
 
-    adapter_dir  = Path(ADAPTER_PATH)
+    adapter_dir  = _resolve_adapter_dir()
     _has_adapter = adapter_dir.exists() and (adapter_dir / "adapter_config.json").exists()
+    if not _has_adapter:
+        # weights at root, config nested — symlink-less copy path for PEFT
+        root = Path(ADAPTER_PATH)
+        nested = root / root.name
+        if (root / "adapter_model.safetensors").exists() and (nested / "adapter_config.json").exists():
+            import shutil
+            for name in ("adapter_config.json", "training_config.json"):
+                src = nested / name
+                if src.exists() and not (root / name).exists():
+                    shutil.copy2(src, root / name)
+            _has_adapter = (root / "adapter_config.json").exists()
+            if _has_adapter:
+                adapter_dir = root
+                log.info("Adapter layout fixed: copied config to %s", root)
 
     training_cfg: dict = {}
     cfg_path = adapter_dir / "training_config.json"
@@ -419,7 +463,8 @@ async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float,
 # ── HF generation ───────────────────────────────────────────────────────────────
 def _hf_generate_sync(messages: list[dict], max_tokens: int, temperature: float
                        ) -> tuple[str, int, int]:
-    prompt = _build_chatml(_inject_system(messages))
+    msgs = messages if (messages and messages[0].get("role") == "system") else _inject_system(messages)
+    prompt = _build_chatml(msgs)
     inputs = _tokenizer(prompt, return_tensors="pt").to(DEVICE)
     p_len  = inputs["input_ids"].shape[1]
     gen_kw = dict(**inputs, max_new_tokens=max_tokens,
@@ -508,11 +553,16 @@ async def _sse_stream(messages: list[dict], max_tokens: int, temperature: float,
     base = {"id": cid, "object": "chat.completion.chunk", "created": ts, "model": "gh05t3"}
 
     if _backend == "vllm":
-        prompt = _build_chatml(_inject_system(messages))
+        prompt = _build_chatml(
+            messages if (messages and messages[0].get("role") == "system") else _inject_system(messages)
+        )
         source = _vllm_stream_tokens(prompt, max_tokens, temperature,
                                       str(uuid.uuid4()), task_domain)
     else:
-        source = _hf_stream_tokens(messages, max_tokens, temperature)
+        source = _hf_stream_tokens(
+            messages if (messages and messages[0].get("role") == "system") else _inject_system(messages),
+            max_tokens, temperature,
+        )
 
     async for token in source:
         chunk = {**base, "choices": [{"index": 0, "delta": {"content": token},
@@ -546,11 +596,31 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens:  int   = MAX_NEW_TOKENS
     stream:      bool  = False
-    task_domain: str   = ""   # optional: "security"|"code"|"research"|"ops" — routes LoRAFarm
+    task_domain: str   = ""   # scientific or legacy domain slug — Omni MoE routes adapter
+    session_id:  str   = ""   # epigenetic session affinity across turns
 
 
 @app.get("/health")
 async def health():
+    omni_moe: dict = {}
+    try:
+        from oss.forge.inference_router import _load_elite_strands
+        from oss.forge.moe_farm import list_moe_status
+        strands = _load_elite_strands()
+        omni_moe = {
+            "paradigm": "omni_strand_moe",
+            "elite_strands": len(strands),
+            "scientific_domains": len(list_moe_status(Path(__file__).parent / "models")),
+            "novel_methods": [
+                "spectral_classify", "superposition_blend", "holographic_context",
+                "epigenetic_session", "attractor_hysteresis", "methylation_temperature",
+                "crispr_splice", "fractal_drill_down", "entropy_gated_exploration",
+                "memetic_allele_vote", "topological_persistence", "causal_counterfactual_route",
+                "neuro_symbolic_verify",
+            ],
+        }
+    except Exception as exc:
+        omni_moe = {"error": str(exc)}
     return {
         "status":        "ready" if _ready else "loading",
         "model":         _model_id,
@@ -559,6 +629,7 @@ async def health():
         "quant":         _quant_type,
         "tok_s":         round(_tok_s_ema, 1),
         "lora_adapters": get_lora_farm().available_domains(),
+        "omni_moe":      omni_moe,
     }
 
 
@@ -576,51 +647,91 @@ async def list_models():
     }
 
 
+def _plan_route(req: ChatRequest) -> tuple[list[dict], str, float, dict]:
+    """Omni MoE routing — spectral classify, holographic context, epigenetic bias."""
+    messages = [{"role": m.role, "content": m.content} for m in req.messages]
+    try:
+        from oss.forge.inference_router import plan_inference_route
+        route = plan_inference_route(
+            messages,
+            task_domain=req.task_domain,
+            session_id=req.session_id,
+            base_temperature=req.temperature,
+        )
+        return (
+            route.augmented_messages,
+            route.adapter_bucket,
+            route.scaled_temperature,
+            route.to_dict(),
+        )
+    except Exception as exc:
+        log.warning("Omni MoE route fallback: %s", exc)
+        domain = req.task_domain or "default"
+        if not req.task_domain:
+            try:
+                from ghost_llm import _classify_task
+                combined = " ".join(
+                    m["content"] for m in messages if m["role"] in ("system", "user")
+                )
+                domain = _classify_task(combined)
+            except Exception:
+                pass
+        return messages, domain, req.temperature, {"fallback": True, "adapter_bucket": domain}
+
+
+@app.post("/v1/route/plan")
+async def route_plan(req: ChatRequest):
+    """Preview Omni MoE routing without generation."""
+    _, bucket, temp, meta = _plan_route(req)
+    return {"adapter_bucket": bucket, "scaled_temperature": temp, "route": meta}
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatRequest):
     if not _ready:
         raise HTTPException(status_code=503, detail="Model still loading")
 
-    messages = [{"role": m.role, "content": m.content} for m in req.messages]
-
-    # Auto-classify task domain if not provided
-    domain = req.task_domain or "default"
-    if not req.task_domain:
-        try:
-            from ghost_llm import _classify_task
-            combined = " ".join(
-                m.content for m in req.messages if m.role in ("system", "user")
-            )
-            domain = _classify_task(combined)
-        except Exception:
-            pass
+    messages, domain, temperature, route_meta = _plan_route(req)
 
     if req.stream:
         return StreamingResponse(
-            _sse_stream(messages, req.max_tokens, req.temperature, domain),
+            _sse_stream(messages, req.max_tokens, temperature, domain),
             media_type="text/event-stream",
-            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+                "X-Omni-Domain": route_meta.get("domain", domain),
+            },
         )
 
     start = time.monotonic()
     try:
         if _backend == "vllm":
-            prompt = _build_chatml(_inject_system(messages))
+            prompt = _build_chatml(messages)
             text, p_toks, c_toks = await _vllm_generate_full(
-                prompt, req.max_tokens, req.temperature, domain
+                prompt, req.max_tokens, temperature, domain
             )
         else:
             global _hf_lock
             if _hf_lock is None:
                 _hf_lock = asyncio.Lock()
-            async with _hf_lock:   # serialize HF requests — prevents CUDA OOM on 8 GB
+            async with _hf_lock:
                 loop = asyncio.get_event_loop()
                 text, p_toks, c_toks = await loop.run_in_executor(
-                    None, _hf_generate_sync, messages, req.max_tokens, req.temperature,
+                    None, _hf_generate_sync, messages, req.max_tokens, temperature,
                 )
     except Exception as exc:
         log.error("Generation error: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
+
+    # Neuro-symbolic verifier (novel post-generation gate)
+    verify: dict = {}
+    try:
+        from oss.forge.inference_router import neuro_symbolic_verify
+        from oss.forge.domains import resolve_domain
+        verify = neuro_symbolic_verify(text, resolve_domain(route_meta.get("domain", domain)))
+    except Exception:
+        pass
 
     elapsed = time.monotonic() - start
     if elapsed > 0 and c_toks > 0:
@@ -641,6 +752,7 @@ async def chat_completions(req: ChatRequest):
             "completion_tokens": c_toks,
             "total_tokens":      p_toks + c_toks,
         },
+        "omni_moe": {**route_meta, "verifier": verify},
     }
 
 

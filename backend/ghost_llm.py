@@ -16,6 +16,7 @@ Set LLM_PROVIDER=ollama to force Ollama for all calls.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -41,6 +42,22 @@ ANTHROPIC_MODEL = os.environ.get("LLM_MODEL",       "claude-sonnet-4-6")
 GH05T3_MODEL_URL = os.environ.get("GH05T3_MODEL_URL", "http://localhost:8010")
 
 # Lemonade — AMD Radeon 780M iGPU (port 13305)
+
+SOVEREIGN_MODELS_DIR = os.environ.get("SOVEREIGN_MODELS_DIR", "/home/leer4/sovereign-project/models")
+AGENT_MODEL_MAP = {
+    "FORGE":  os.environ.get("FORGE_MODEL",  "forge-sovereign"),
+    "ORACLE": os.environ.get("ORACLE_MODEL", "oracle-sovereign"),
+    "CODEX":  os.environ.get("CODEX_MODEL",  "codex-sovereign"),
+    "NEXUS":  os.environ.get("NEXUS_MODEL",  "nexus-sovereign"),
+    "AVERY":  os.environ.get("AVERY_MODEL",  "avery-sovereign"),
+    "SENTINEL": os.environ.get("SENTINEL_MODEL", "sentinel-sovereign"),
+}
+
+def resolve_agent_model(agent: str | None) -> str | None:
+    if not agent:
+        return None
+    return AGENT_MODEL_MAP.get(agent.upper())
+
 LEMONADE_URL = os.environ.get("LEMONADE_URL", "http://localhost:13305")
 
 _LOCAL_ONLY_PROVIDERS = {"ollama", "local", "free", "cost_free", "cost-free", "gh05t3"}
@@ -273,14 +290,34 @@ async def gh05t3_available() -> bool:
         return False
 
 
-async def _call_gh05t3(system: str, user: str) -> str:
-    return await _openai_compat(
-        base    = GH05T3_MODEL_URL,
-        api_key = None,
-        model   = "gh05t3",
-        system  = system,
-        user    = user,
-    )
+async def _call_gh05t3(
+    system: str,
+    user: str,
+    *,
+    task_domain: str = "",
+    session_id: str = "",
+    temperature: float = 0.6,
+) -> str:
+    """Call local GH05T3 inference with Omni MoE routing (/v1/chat/completions)."""
+    base = GH05T3_MODEL_URL.rstrip("/")
+    url = f"{base}/v1/chat/completions" if not base.endswith("/v1") else f"{base}/chat/completions"
+    async with httpx.AsyncClient(timeout=120) as c:
+        r = await c.post(
+            url,
+            headers={"Content-Type": "application/json"},
+            json={
+                "model": "gh05t3",
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "temperature": temperature,
+                "task_domain": task_domain,
+                "session_id": session_id,
+            },
+        )
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -375,18 +412,6 @@ def _env_key(name: str) -> str:
     except Exception:
         pass
     return val
-
-
-def _anthropic_key() -> str:
-    return _env_key("ANTHROPIC_API_KEY")
-
-
-def _groq_key() -> str:
-    return _env_key("GROQ_API_KEY")
-
-
-def _google_key() -> str:
-    return _env_key("GOOGLE_AI_KEY")
 
 
 def _llm_provider() -> str:
@@ -521,7 +546,12 @@ async def chat_once(session: str, system: str, user: str,
             or (provider == "auto" and not _prefer_cloud and await gh05t3_available())
             or (_prefer_local and not _prefer_cloud and await gh05t3_available())):
         try:
-            text = await _call_gh05t3(system, user)
+            text = await _call_gh05t3(
+                system,
+                user,
+                task_domain=task if task != "default" else "",
+                session_id=session,
+            )
             return text, "gh05t3:local"
         except Exception as e:
             LOG.warning("gh05t3 local inference failed: %s", e)
@@ -611,7 +641,7 @@ async def chat_once(session: str, system: str, user: str,
 
     # ── Tier 2: Google Gemini free tier ──────────────────────────────────────
     if _provider_ok("google"):
-        google_key   = _google_key() or cfg.get("google_api_key", "")
+        google_key   = _env_key("GOOGLE_AI_KEY") or cfg.get("google_api_key", "")
         google_model = cfg.get("google_model", "gemini-2.0-flash")
         if google_key:
             try:
@@ -638,7 +668,7 @@ async def chat_once(session: str, system: str, user: str,
                     LOG.warning("[cascade] openrouter failed: %s", e)
 
     # ── Tier 4: Anthropic — paid, explicit opt-in only ────────────────────────
-    if _paid_llm_allowed() and _anthropic_key() and _provider_ok("anthropic"):
+    if _paid_llm_allowed() and _env_key("ANTHROPIC_API_KEY") and _provider_ok("anthropic"):
         try:
             text = await _call_anthropic(system, user)
             tag  = LLM_MODEL.split("-2025")[0].split("-2026")[0]
@@ -787,11 +817,11 @@ async def chat_with_tools(session: str, system: str, user: str,
                 LOG.warning("[tools] openrouter %s failed: %s", model, e)
 
     # ── Tier 3: Anthropic — paid, explicit opt-in only ───────────────────────
-    if _paid_llm_allowed() and _anthropic_key() and _provider_ok("anthropic"):
+    if _paid_llm_allowed() and _env_key("ANTHROPIC_API_KEY") and _provider_ok("anthropic"):
         try:
             from ghost_tools import ANTHROPIC_TOOLS, execute_tool as _et
             import anthropic
-            client = anthropic.AsyncAnthropic(api_key=_anthropic_key())
+            client = anthropic.AsyncAnthropic(api_key=_env_key("ANTHROPIC_API_KEY"))
             messages: list[dict] = [{"role": "user", "content": user}]
             tag = f"anthropic:{ANTHROPIC_MODEL}"
             for _ in range(8):
@@ -872,7 +902,7 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
             LOG.warning("auto ollama failed: %s", e)
 
     # Groq env key — free tier (pass key explicitly so hot-reload works)
-    groq_key = _groq_key()
+    groq_key = _env_key("GROQ_API_KEY")
     if groq_key:
         try:
             text = await _call_groq(system, user, api_key=groq_key)
@@ -881,7 +911,7 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
             LOG.warning("env groq failed: %s", e)
 
     # Google env key — free tier
-    google_key = _google_key()
+    google_key = _env_key("GOOGLE_AI_KEY")
     if google_key:
         try:
             text = await _call_google(system, user, api_key=google_key)
@@ -891,7 +921,7 @@ async def nightly_chat(session: str, system: str, user: str) -> tuple[str, str]:
 
     # Anthropic — paid, last resort for nightly and explicit opt-in only
     _fail_reason = ""
-    if _paid_llm_allowed() and _anthropic_key():
+    if _paid_llm_allowed() and _env_key("ANTHROPIC_API_KEY"):
         try:
             text = await _call_anthropic(system, user)
             tag = LLM_MODEL.split("-2025")[0].split("-2026")[0]
@@ -917,18 +947,21 @@ def _auto_pick_provider(cfg: dict) -> str:
 
 async def nightly_status() -> dict:
     cfg = await get_nightly_config()
+    ollama_ok, lemonade_ok, sovereign_ok = await asyncio.gather(
+        ollama_available(), lemonade_available(), sovereign_available(),
+    )
     return {
-        "provider":          cfg.get("nightly_provider") or _auto_pick_provider(cfg),
-        "has_anthropic_key": bool(_anthropic_key()),
-        "has_google_key":    bool(cfg.get("google_api_key") or _google_key()),
-        "has_groq_key":      bool(cfg.get("groq_api_key")   or _groq_key()),
-        "google_model":      cfg.get("google_model",  "gemini-2.0-flash"),
-        "groq_model":        cfg.get("groq_model",    "llama-3.3-70b-versatile"),
-        "ollama_reachable":    await ollama_available(),
-        "lemonade_reachable":  await lemonade_available(),
-        "sovereign_available": await sovereign_available(),
-        "fallback_chain":    ["sovereign-core (local GPU)", "ollama (local)",
-                              "lemonade (780M iGPU)", "groq (free)", "google (free)", "anthropic"],
+        "provider":            cfg.get("nightly_provider") or _auto_pick_provider(cfg),
+        "has_anthropic_key":   bool(_env_key("ANTHROPIC_API_KEY")),
+        "has_google_key":      bool(cfg.get("google_api_key") or _env_key("GOOGLE_AI_KEY")),
+        "has_groq_key":        bool(cfg.get("groq_api_key")   or _env_key("GROQ_API_KEY")),
+        "google_model":        cfg.get("google_model",  "gemini-2.0-flash"),
+        "groq_model":          cfg.get("groq_model",    "llama-3.3-70b-versatile"),
+        "ollama_reachable":    ollama_ok,
+        "lemonade_reachable":  lemonade_ok,
+        "sovereign_available": sovereign_ok,
+        "fallback_chain":      ["sovereign-core (local GPU)", "ollama (local)",
+                                "lemonade (780M iGPU)", "groq (free)", "google (free)", "anthropic"],
     }
 
 
@@ -961,18 +994,19 @@ Respond strict JSON: {"verdict":"PASS|PARTIAL|FAIL","rationale":"<<=20 words>>"}
 # MAP-Elites batch state — targets from ask(), results awaiting tell()
 _me_targets: list[dict] = []
 _me_pending: list[tuple[float, float, int]] = []   # (objective, latency_s, tokens)
-_ME_BATCH = int(os.environ.get("ME_BATCH_SIZE", "10"))
+_me_ask_count: int = 0
 
 
 def _me_next_target() -> dict | None:
     """Pop next emitter target, refilling from archive.ask() when buffer is empty."""
-    global _me_targets
+    global _me_targets, _me_ask_count
     if not _me_targets:
         try:
             from evolution.map_elites import ask
             targets = ask()
             if targets:
                 _me_targets = list(targets)
+                _me_ask_count = len(_me_targets)
                 LOG.debug("[sage/me] refilled %d targets from emitter", len(_me_targets))
         except Exception as e:
             LOG.debug("[sage/me] ask() skipped: %s", e)
@@ -980,20 +1014,26 @@ def _me_next_target() -> dict | None:
 
 
 def _me_record(objective: float, latency_s: float, tokens: int) -> None:
-    """Accumulate one result; flush tell() when a full batch is ready."""
-    global _me_pending
+    """Accumulate one result; flush tell() when a full batch is ready.
+
+    The batch size matches what the last ask() returned -- tell() requires
+    exactly the same number of results as the last ask() gave targets.
+    """
+    global _me_pending, _me_ask_count
     _me_pending.append((objective, latency_s, tokens))
-    if len(_me_pending) >= _ME_BATCH:
+    if _me_ask_count > 0 and len(_me_pending) >= _me_ask_count:
         try:
             from evolution.map_elites import tell
             objectives = [r[0] for r in _me_pending]
-            measures   = [[r[0], r[1] * 1000, r[2]] for r in _me_pending]  # latency_s→ms
+            measures = [[r[0], r[1] * 1000, r[2]] for r in _me_pending]  # latency_s -> ms
+            me_batch = _me_ask_count
             tell(objectives, measures)
             LOG.debug("[sage/me] tell() flushed %d results to emitter", len(_me_pending))
         except Exception as e:
             LOG.debug("[sage/me] tell() failed: %s", e)
         finally:
             _me_pending.clear()
+            _me_ask_count = 0
 
 
 def _proposer_sys_for_target(target: dict | None) -> str:
@@ -1044,15 +1084,17 @@ async def run_sage_cycle(cycle_num: int, use_nightly: bool = True) -> dict:
     proposal   = proposal.strip().split("\n")[0][:220]
     token_est  = int(len(proposal.split()) * 1.3)   # fast token estimate
 
-    critic_raw, critic_tag = await _call(f"{session}-critic", CRITIC_SYS,
-                                         f"Proposal: {proposal}\nRespond with JSON only.", "critic")
+    # critic + verifier are independent — run them in parallel (saves ~1 LLM round-trip per cycle)
+    (critic_raw, critic_tag), (verifier_raw, verifier_tag) = await asyncio.gather(
+        _call(f"{session}-critic",   CRITIC_SYS,   f"Proposal: {proposal}\nRespond with JSON only.", "critic"),
+        _call(f"{session}-verifier", VERIFIER_SYS, f"Proposal: {proposal}\nRespond with JSON only.", "verifier"),
+    )
+
     cj = _json_block(critic_raw) or {"decision": "REVISE", "reason": "critic parse failed"}
     decision = (cj.get("decision") or "REVISE").upper()
     if decision not in {"APPROVE", "REJECT", "REVISE"}:
         decision = "REVISE"
 
-    verifier_raw, verifier_tag = await _call(f"{session}-verifier", VERIFIER_SYS,
-                                             f"Proposal: {proposal}\nRespond with JSON only.", "verifier")
     vj = _json_block(verifier_raw) or {"verdict": "PARTIAL", "rationale": "verifier parse failed"}
     verdict = (vj.get("verdict") or "PARTIAL").upper()
     if verdict not in {"PASS", "PARTIAL", "FAIL"}:
