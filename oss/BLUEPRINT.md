@@ -208,9 +208,13 @@ The stack is organized into nine logical layers. Each maps to existing GH05T3 mo
 - `backend/aethyro_license.py`
 - `backend/site_agents/agents/stripe_agent.py`
 
-**OSS status.** Facade planned at `oss/monetization/stripe.py`. Stripe events reach SwarmBus today; full NC settlement on payment is not wired.
+**OSS implementation.**
 
-**Maturity: Partial.**
+- `oss/monetization/stripe.py` — PLAN_CREDITS map, `settle_payment`, invoice/checkout wrappers
+- Wired from `backend/integrations/stripe_integration.py` on checkout + invoice payment
+- `GET/POST /oss/monetization/{status,settle}` for ops and smoke tests
+
+**Maturity: Foundation-complete** for Phase 1 NC settlement on subscription events.
 
 ---
 
@@ -243,9 +247,9 @@ The stack is organized into nine logical layers. Each maps to existing GH05T3 mo
 - `frontier/` + `continuous_learner.py` — domain learning
 - Training domain JSONL under `backend/training_data/`
 
-**OSS status.** `oss/world/` reserved for Phase 2+. No runtime loop yet.
+**OSS status.** `oss/world/runtime.py` provides in-memory session stubs (`start_session`, `step`, `snapshot`) and domain listing. Backend integrations (story editor, training, frontier) are not yet wired.
 
-**Maturity: Not started** for OSS purposes.
+**Maturity: Scaffolded** — API surface and runtime contract exist; domain backends pending.
 
 ---
 
@@ -268,14 +272,14 @@ Phase 1 means: identity, messaging, memory hooks, evolution recording, gateway A
 | OSS collective orchestration | ✅ Complete | `oss/mind/`, `/oss/swarm/solve` |
 | OSS Platform Credits | ✅ Complete | `oss/economy/neuro_coin.py` |
 | External mesh discovery | ⚠️ Partial | `peer_registry.py`, Tailscale |
-| Billing → credit settlement | ⚠️ Partial | Stripe → bus, not NC ledger |
+| Billing → credit settlement | ✅ Complete | `oss/monetization/stripe.py` → NC ledger |
 | Orchestration language default | ⚠️ Partial | GhostScript optional |
-| Registry ↔ genome sync | ❌ Pending | Adapter not yet shipped |
-| Unified memory facade | ❌ Pending | `oss/adapters/memory.py` |
-| External economy bridge | ❌ Pending | `:8081` adapter |
-| Canonical mesh contract | ❌ Pending | `oss/grid/mesh.py` |
+| Registry ↔ genome sync | ✅ Complete | `oss/adapters/registry.py` |
+| Unified memory facade | ✅ Complete | `oss/adapters/memory.py` |
+| External economy bridge | ✅ Complete | `oss/adapters/sovereign.py` |
+| Canonical mesh contract | ✅ Complete | `oss/grid/mesh.py` |
 
-**Overall Phase 1 alignment: approximately 55–60%.** Evolution and gateway exceed Foundation bar. Genome unification, economy bridge, and mesh contract are the critical path to 80%+.
+**Overall Phase 1 alignment: approximately 80%.** Evolution and gateway exceed Foundation bar. Registry sync, economy bridge, mesh contract, and memory facade are shipped; environment runtime scaffold is Phase 2 in progress.
 
 ---
 
@@ -311,7 +315,7 @@ oss/
   grid/
     mesh.py                          ← Mesh convergence implementation
   monetization/
-    stripe.py                        ← Commerce facade
+    stripe.py                        ← Commerce facade ✅
   world/
     runtime.py                       ← Environment loop (Phase 2+)
 ```
@@ -424,7 +428,7 @@ Code module names (`omni_dna`, `neuro_coin`, etc.) remain stable. Documentation 
 | Genome | **Foundation-partial** | Needs registry sync |
 | Credit | **Foundation-partial** | Needs `:8081` bridge |
 | Protocol | **Foundation-partial** | GhostScript not default |
-| Commerce | **Foundation-partial** | Webhook ≠ NC settlement |
+| Commerce | **Foundation-complete** | Stripe webhooks → NC via `oss/monetization/` |
 | Mesh | **Early** | Convergence doc open |
 | Environment | **Not started** | Phase 2+ |
 | Memory (unified) | **Early** | Dual stack, no facade |

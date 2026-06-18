@@ -147,3 +147,47 @@ async def registry_sync() -> dict[str, Any]:
 async def registry_status_endpoint() -> dict[str, Any]:
     from oss.adapters.registry import registry_status
     return registry_status(get_store())
+
+
+class SettleRequest(BaseModel):
+    customer_id: str = Field(..., min_length=1, max_length=128)
+    amount_usd: float = Field(default=0.0, ge=0.0)
+    plan: str = Field(default="starter", max_length=32)
+
+
+@router.get("/monetization/status")
+async def monetization_status() -> dict[str, Any]:
+    from oss.monetization.stripe import settlement_status
+    return settlement_status()
+
+
+@router.post("/monetization/settle")
+async def monetization_settle(body: SettleRequest) -> dict[str, Any]:
+    from oss.monetization.stripe import settle_payment
+    return settle_payment(
+        body.customer_id,
+        body.amount_usd,
+        body.plan,
+        "manual.test",
+    )
+
+
+class WorldSessionRequest(BaseModel):
+    domain: str = Field(..., min_length=3, max_length=64)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.get("/world/domains")
+async def world_domains() -> dict[str, Any]:
+    from oss.world.runtime import list_domains
+    return {"domains": list_domains()}
+
+
+@router.post("/world/session")
+async def world_start_session(body: WorldSessionRequest) -> dict[str, Any]:
+    from oss.world.runtime import get_runtime, list_domains
+    if body.domain not in list_domains():
+        raise HTTPException(400, f"Unknown domain: {body.domain}")
+    runtime = get_runtime()
+    session = runtime.start_session(domain=body.domain, metadata=body.metadata)
+    return runtime.snapshot(session.session_id)

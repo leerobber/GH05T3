@@ -104,7 +104,16 @@ def _handle_checkout_completed(data: dict) -> dict:
     }
     _save_subs(subs)
     log.info("New subscriber: %s (%s) — plan: %s", customer_email, customer_id, plan)
-    return {"action": "subscriber_created", "customer": customer_id, "plan": plan}
+    result = {"action": "subscriber_created", "customer": customer_id, "plan": plan}
+    try:
+        from oss.monetization.stripe import settle_payment
+        amount_usd = float(session.get("amount_total", 0) or 0) / 100.0
+        result["settlement"] = settle_payment(
+            customer_id, amount_usd, plan, "checkout.session.completed"
+        )
+    except Exception as exc:
+        log.warning("OSS NC settlement skipped on checkout: %s", exc)
+    return result
 
 
 def _handle_subscription_created(data: dict) -> dict:
@@ -153,7 +162,13 @@ def _handle_payment_succeeded(data: dict) -> dict:
     inv         = data.get("object", {})
     customer_id = inv.get("customer")
     amount      = inv.get("amount_paid", 0) / 100
-    return {"action": "payment_received", "customer": customer_id, "amount_usd": amount}
+    result = {"action": "payment_received", "customer": customer_id, "amount_usd": amount}
+    try:
+        from oss.monetization.stripe import settle_invoice_payment
+        result["settlement"] = settle_invoice_payment(data)
+    except Exception as exc:
+        log.warning("OSS NC settlement skipped on invoice payment: %s", exc)
+    return result
 
 
 def _handle_payment_failed(data: dict) -> dict:

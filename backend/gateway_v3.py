@@ -49,7 +49,8 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import (BACKENDS, GATEWAY_HOST, GATEWAY_PORT,
-                          GITHUB_PAT, GITHUB_REPO, GITHUB_BRANCH)
+                          GITHUB_PAT, GITHUB_REPO, GITHUB_BRANCH,
+                          OLLAMA_BASE, GH05T3_MODEL_URL)
 from core.omega_loop import OmegaLoop
 from memory.memory_palace import MemoryPalace
 from evolution.kairos import KAIROS
@@ -82,6 +83,7 @@ from integrations.lemonade_integration import (
     generate_image as _lemonade_generate_image,
     lemonade_status as _lemonade_status,
 )
+import v1_router
 
 # ── Marketplace API key — protects internal write endpoints ───────────────────
 _MARKETPLACE_KEY = os.environ.get("MARKETPLACE_API_KEY", "")
@@ -159,7 +161,11 @@ github         = None
 claude         = None
 
 # Cached backend health — updated by background task, never blocks /health
-_backend_cache: dict = {name: "unknown" for name in BACKENDS}
+_backend_cache: dict = {
+    **{name: "unknown" for name in BACKENDS},
+    "ollama": "unknown",
+    "gh05t3": "unknown",
+}
 _boot_time: float = time.time()
 
 
@@ -196,13 +202,39 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 async with httpx.AsyncClient(timeout=2.0) as client:
-                    async def _check(name, url):
+                    async def _check_vllm(name, url):
                         try:
                             r = await client.get(f"{url}/health", timeout=1.5)
                             _backend_cache[name] = "online" if r.status_code == 200 else "degraded"
                         except Exception:
                             _backend_cache[name] = "offline"
-                    await _asyncio.gather(*[_check(n, u) for n, u in BACKENDS.items()])
+
+                    async def _check_ollama():
+                        try:
+                            r = await client.get(f"{OLLAMA_BASE}/api/tags", timeout=1.5)
+                            _backend_cache["ollama"] = "online" if r.status_code == 200 else "degraded"
+                        except Exception:
+                            _backend_cache["ollama"] = "offline"
+
+                    async def _check_gh05t3():
+                        try:
+                            r = await client.get(f"{GH05T3_MODEL_URL}/health", timeout=1.5)
+                            if r.status_code == 200:
+                                _backend_cache["gh05t3"] = "online"
+                                return
+                        except Exception:
+                            pass
+                        try:
+                            r = await client.get(f"{GH05T3_MODEL_URL}/v1/models", timeout=1.5)
+                            _backend_cache["gh05t3"] = "online" if r.status_code == 200 else "degraded"
+                        except Exception:
+                            _backend_cache["gh05t3"] = "offline"
+
+                    await _asyncio.gather(
+                        *[_check_vllm(n, u) for n, u in BACKENDS.items()],
+                        _check_ollama(),
+                        _check_gh05t3(),
+                    )
             except Exception:
                 pass
             await _asyncio.sleep(30)
@@ -239,6 +271,23 @@ app.add_middleware(
 
 # Mount GitHub webhook router
 app.include_router(create_github_webhook_router())
+
+# Mount Aethyro AIOS v1 API (agents, sessions, memory cortex) — same
+# BearerAuthMiddleware protection as the rest of this app, no separate auth needed
+app.include_router(v1_router.router)
+
+# Mount OSS Omni-Sentient Singularity API (Phase 1 — DNA + Mind swarm)
+try:
+    import sys as _oss_sys
+    from pathlib import Path as _OssPath
+    _oss_root = str(_OssPath(__file__).resolve().parent.parent)
+    if _oss_root not in _oss_sys.path:
+        _oss_sys.path.insert(0, _oss_root)
+    from oss.api.router import router as _oss_router
+    app.include_router(_oss_router, prefix="/oss")
+    log.info("OSS router mounted at /oss")
+except Exception as _oss_err:
+    log.warning("OSS router not mounted: %s", _oss_err)
 
 # Mount MCP SSE server at /mcp (Claude Code connects to /mcp/sse)
 _mcp_asgi = get_mcp_asgi()
@@ -379,9 +428,14 @@ async def health():
     any_online = any(v == "online" for v in _backend_cache.values())
     all_unknown = all(v == "unknown" for v in _backend_cache.values())
     status = "starting" if all_unknown else ("operational" if any_online else "degraded")
+    online_backends = [name for name, state in _backend_cache.items() if state == "online"]
     return {
         "status": status,
         "backends": _backend_cache,
+        "inference": {
+            "online": online_backends,
+            "any_online": any_online,
+        },
         "swarm_agents": len(bus.agents),
         "ws_clients": bus.stats["ws_clients"],
         "uptime_s": round(time.time() - _boot_time, 1),

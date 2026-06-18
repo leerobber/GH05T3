@@ -123,6 +123,8 @@ backend\.venv\Scripts\python.exe oss\cli\demo_swarm.py ^
 | `POST` | `/oss/swarm/solve` | Trait-gated collective task execution |
 | `GET` | `/oss/economy/stats` | Platform Credits + pending job count |
 | `POST` | `/oss/economy/delegate` | Post marketplace sub-job with NC reward |
+| `GET` | `/oss/world/domains` | Supported environment domains |
+| `POST` | `/oss/world/session` | Start in-memory environment session |
 
 Example:
 
@@ -182,7 +184,7 @@ OSS does not replace these—it wraps them:
 | Phase | Focus | Status |
 |-------|-------|--------|
 | **1 — Foundation** | Genomes, orchestration, credits, gateway API | **In progress** — core paths operational |
-| **2 — Unification** | Registry sync, mesh contract, memory facade, external ledger bridge | Planned |
+| **2 — Unification** | Registry sync, mesh contract, memory facade, external ledger bridge, world runtime | **In progress** — adapters shipped, world scaffold live |
 | **3 — Advanced** | Configuration patches, incentive model production use, holographic memory | Scaffolded |
 
 Full maturity assessment and gap analysis: **[BLUEPRINT.md](./BLUEPRINT.md)**.
