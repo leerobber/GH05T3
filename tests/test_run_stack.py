@@ -8,7 +8,9 @@ import pytest
 
 from run_stack import (
     CORE_PORTS,
+    INFERENCE_ENV,
     ROOT,
+    SMOKE_CHECKS,
     _frontend_build_ok,
     _read_env,
     review_ports,
@@ -49,6 +51,16 @@ def test_frontend_build_ok_false_when_index_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(run_stack, "ROOT", fake_root)
     monkeypatch.setattr(run_stack, "BUILD_DIR", fake_root / "frontend" / "build")
     assert run_stack._frontend_build_ok() is False
+
+
+def test_inference_env_has_windows_hf_flags():
+    assert INFERENCE_ENV["GH05T3_FORCE_HF"] == "1"
+    assert INFERENCE_ENV["HF_DEACTIVATE_ASYNC_LOAD"] == "1"
+
+
+def test_smoke_checks_cover_core_services():
+    names = {name for name, _, _ in SMOKE_CHECKS}
+    assert {"gateway", "backend", "frontend", "inference", "oss"} <= names
 
 
 def test_built_index_references_existing_assets():

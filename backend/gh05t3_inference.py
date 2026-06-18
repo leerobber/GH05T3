@@ -22,10 +22,14 @@ Env vars:
 """
 from __future__ import annotations
 
+import os
+
+# Windows: parallel safetensor materialization causes access violations (torch 2.11 + transformers)
+os.environ.setdefault("HF_DEACTIVATE_ASYNC_LOAD", "1")
+
 import asyncio
 import json
 import logging
-import os
 import threading
 import time
 import uuid
@@ -270,6 +274,29 @@ def _load_hf(base_model: str, adapter_dir, training_cfg: dict) -> None:
     _quant_type = "nf4" if use_4bit else "none"
     log.info("HF model: %s  4-bit=%s", base_model, use_4bit)
 
+    # Stream weights to GPU — avoids Windows page-file exhaustion (os error 1455)
+    import gc
+    gc.collect()
+    if DEVICE == "cuda" and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        vram = torch.cuda.get_device_properties(0).total_memory
+        _dev_map = "auto"
+        _max_mem = {0: f"{int(vram * 0.85 / (1024**3))}GiB", "cpu": "2GiB"}
+    else:
+        _dev_map = DEVICE
+        _max_mem = None
+    _offload = _BASE_DIR / "models" / "_offload"
+    _offload.mkdir(parents=True, exist_ok=True)
+    _load_kw: dict = {
+        "trust_remote_code": True,
+        "low_cpu_mem_usage": True,
+        "local_files_only": True,
+        # Let transformers lazy-load slices (lower peak RAM than disable_mmap full read)
+        "offload_folder": str(_offload),
+    }
+    if _max_mem is not None:
+        _load_kw["max_memory"] = _max_mem
+
     if use_4bit:
         from transformers import BitsAndBytesConfig
         c_dtype = (torch.bfloat16 if training_cfg.get("compute_dtype") == "bf16"
@@ -282,13 +309,13 @@ def _load_hf(base_model: str, adapter_dir, training_cfg: dict) -> None:
                 bnb_4bit_compute_dtype=c_dtype,
                 bnb_4bit_use_double_quant=True,
             ),
-            device_map=DEVICE,
-            trust_remote_code=True,
+            device_map=_dev_map,
+            **_load_kw,
         )
     else:
         dtype = torch.float16 if DEVICE == "cuda" else torch.float32
         base  = AutoModelForCausalLM.from_pretrained(
-            base_model, torch_dtype=dtype, device_map=DEVICE, trust_remote_code=True,
+            base_model, torch_dtype=dtype, device_map=_dev_map, **_load_kw,
         )
 
     if adapter_dir is not None:

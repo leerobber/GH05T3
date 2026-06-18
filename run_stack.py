@@ -10,10 +10,12 @@ Ports managed:
   8010   gh05t3_inference.py (optional — skipped if torch missing)
 
 Usage:
-    python run_stack.py              # stop core ports, start stack, open browser
-    python run_stack.py --stop       # stop core stack only
-    python run_stack.py --review     # print port table, exit
-    python run_stack.py --no-browser # start without opening dashboard
+    python run_stack.py                  # stop core ports, start stack, open browser
+    python run_stack.py --start-missing  # start only DOWN services (keep running ones)
+    python run_stack.py --smoke          # HTTP smoke tests on live stack
+    python run_stack.py --stop           # stop core stack only
+    python run_stack.py --review         # print port table, exit
+    python run_stack.py --no-browser     # start without opening dashboard
 """
 from __future__ import annotations
 
@@ -49,6 +51,21 @@ OPTIONAL_PORTS = {
     "ollama": 11434,
     "lemonade": 13305,
 }
+
+# Reliable HF inference on Windows (RTX 5050 / torch 2.11)
+INFERENCE_ENV = {
+    "GH05T3_FORCE_HF": "1",
+    "GH05T3_LOAD_4BIT": "1",
+    "HF_DEACTIVATE_ASYNC_LOAD": "1",
+}
+
+SMOKE_CHECKS: list[tuple[str, str, str]] = [
+    ("gateway", "GET", "http://localhost:8002/health"),
+    ("inference", "GET", "http://localhost:8010/health"),
+    ("backend", "GET", "http://localhost:8001/api/health"),
+    ("frontend", "GET", "http://localhost:3210/"),
+    ("oss", "GET", "http://localhost:8002/oss/health"),
+]
 
 
 def _find_py() -> Path:
@@ -339,7 +356,7 @@ def print_port_review():
         "backend": "server.py — economy, Telegram, CFO",
         "gateway": "gateway_v3 — SwarmBus, MCP, agents",
         "frontend": "React build — dashboard UI",
-        "inference": "LoRA model — needs torch in venv",
+        "inference": "gh05t3 LoRA — torch + HF_DEACTIVATE_ASYNC_LOAD",
         "ollama": "Local LLM fallback",
         "lemonade": "AMD 780M iGPU — chat/STT/TTS",
     }
@@ -381,6 +398,165 @@ def stop_stack(kill_mongo: bool = True):
 
     PIDFILE.unlink(missing_ok=True)
     print("Done.\n")
+
+
+def run_smoke() -> tuple[int, list[tuple[str, str, int, str]]]:
+    """HTTP smoke tests against a live stack. Returns (fail_count, rows)."""
+    import json
+
+    rows: list[tuple[str, str, int, str]] = []
+    fails = 0
+    for name, method, url in SMOKE_CHECKS:
+        status, detail = 0, "connection refused"
+        try:
+            req = urllib.request.Request(url, method=method)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                status = resp.status
+                body = resp.read(4096).decode("utf-8", errors="replace")
+                if "health" in url or "oss" in url:
+                    try:
+                        data = json.loads(body)
+                        detail = data.get("status", body[:80])
+                    except json.JSONDecodeError:
+                        detail = body[:80]
+                else:
+                    detail = "ok" if status < 400 else body[:80]
+        except Exception as exc:
+            detail = str(exc)[:80]
+            fails += 1
+        else:
+            if status >= 400:
+                fails += 1
+        rows.append((name, url, status, detail))
+    return fails, rows
+
+
+def print_smoke_report() -> int:
+    fails, rows = run_smoke()
+    print("\n=== GH05T3 Smoke Tests ===\n")
+    print(f"{'CHECK':<12}  {'STATUS':<6}  DETAIL")
+    print("-" * 60)
+    for name, url, status, detail in rows:
+        mark = "PASS" if status and status < 400 else "FAIL"
+        print(f"{name:<12}  {mark:<6}  {detail}  ({url})")
+    print(f"\n{len(rows) - fails}/{len(rows)} passed\n")
+    return 0 if fails == 0 else 1
+
+
+def _start_backend(results: list) -> None:
+    if _tcp_open(CORE_PORTS["backend"]):
+        results.append(("backend", "8001", "up (existing)"))
+        return
+    proc = _spawn(
+        "backend",
+        [str(PY), "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"],
+        ROOT / "backend",
+    )
+    _procs["backend"] = proc
+    status = _wait_health("backend", proc, lambda: _http_ok("http://localhost:8001/api/health"), 30)
+    results.append(("backend", "8001", status))
+
+
+def _start_gateway(results: list, extra: dict) -> None:
+    if _tcp_open(CORE_PORTS["gateway"]):
+        results.append(("gateway", "8002", "up (existing)"))
+        return
+    proc = _spawn(
+        "gateway",
+        [str(PY), "-m", "uvicorn", "gateway_v3:app", "--host", "0.0.0.0", "--port", "8002"],
+        ROOT / "backend",
+        extra_env=extra,
+    )
+    _procs["gateway"] = proc
+    status = _wait_health("gateway", proc, lambda: _http_ok("http://localhost:8002/health"), 30)
+    results.append(("gateway", "8002", status))
+
+
+def _start_frontend(results: list, build: bool) -> None:
+    if _tcp_open(CORE_PORTS["frontend"]):
+        results.append(("frontend", "3210", "up (existing)"))
+        return
+    build_ok, build_msg = _ensure_frontend(build=build)
+    if not build_ok:
+        results.append(("frontend", "3210", f"failed ({build_msg})"))
+        return
+    if build_msg != "ok (existing build)":
+        results.append(("frontend-build", "—", build_msg))
+    proc = _spawn(
+        "frontend",
+        [str(PY), "-m", "http.server", "3210", "--directory", str(BUILD_DIR)],
+        ROOT,
+    )
+    _procs["frontend"] = proc
+    status = _wait_health("frontend", proc, lambda: _http_ok("http://localhost:3210/"), 10)
+    results.append(("frontend", "3210", status))
+
+
+def _start_inference(results: list) -> None:
+    if _tcp_open(CORE_PORTS["inference"]):
+        if _http_ok("http://localhost:8010/health"):
+            results.append(("inference", "8010", "up (existing)"))
+        else:
+            results.append(("inference", "8010", "degraded (port open, health fail)"))
+        return
+    if not _inference_available():
+        results.append(("inference", "8010", "skip (torch not in venv — use Ollama)"))
+        return
+    proc = _spawn(
+        "inference",
+        [str(PY), "gh05t3_inference.py"],
+        ROOT / "backend",
+        extra_env=INFERENCE_ENV,
+    )
+    _procs["inference"] = proc
+    status = _wait_health(
+        "inference",
+        proc,
+        lambda: _http_ok("http://localhost:8010/health"),
+        180,
+    )
+    results.append(("inference", "8010", status))
+
+
+def start_missing(build: bool = False) -> int:
+    """Start only services that are not already listening — no port kills."""
+    print("=== GH05T3 Start Missing ===\n")
+    print(f"Python: {PY}\n")
+
+    results: list[tuple[str, str, str]] = []
+
+    if not _tcp_open(CORE_PORTS["mongo"]):
+        (ROOT / "mongo-data").mkdir(exist_ok=True)
+        proc = _spawn(
+            "mongo",
+            ["mongod", "--dbpath", str(ROOT / "mongo-data"), "--port", "27017", "--bind_ip", "127.0.0.1", "--quiet"],
+            ROOT,
+        )
+        _procs["mongo"] = proc
+        status = _wait_health("mongo", proc, lambda: _tcp_open(CORE_PORTS["mongo"]), 20)
+        results.append(("mongo", "27017", status))
+    else:
+        results.append(("mongo", "27017", "up (existing)"))
+
+    if not _tcp_open(OPTIONAL_PORTS["ollama"]):
+        results.append(("ollama", "11434", _ensure_ollama()))
+    else:
+        results.append(("ollama", "11434", "up (existing)"))
+
+    ts_ip = _tailscale_ip()
+    extra = {"TAILSCALE_OWN_IP": ts_ip} if ts_ip else {}
+
+    _start_backend(results)
+    _start_gateway(results, extra)
+    _start_frontend(results, build)
+    _start_inference(results)
+
+    print(f"\n{'SERVICE':<12}  {'PORT':<6}  STATUS")
+    print("-" * 40)
+    for name, port, status in results:
+        print(f"{name:<12}  {port:<6}  {status}")
+    print(f"\nLogs: {LOGS}\n")
+    return 0 if _core_ok(results) else 1
 
 
 def _core_ok(results: list[tuple[str, str, str]]) -> bool:
@@ -446,51 +622,10 @@ def start_stack(open_browser: bool = True, build: bool = False) -> int:
     ts_ip = _tailscale_ip()
     extra = {"TAILSCALE_OWN_IP": ts_ip} if ts_ip else {}
 
-    # Backend
-    proc = _spawn(
-        "backend",
-        [str(PY), "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"],
-        ROOT / "backend",
-    )
-    _procs["backend"] = proc
-    status = _wait_health("backend", proc, lambda: _http_ok("http://localhost:8001/api/health"), 30)
-    results.append(("backend", "8001", status))
-
-    # Gateway
-    proc = _spawn(
-        "gateway",
-        [str(PY), "-m", "uvicorn", "gateway_v3:app", "--host", "0.0.0.0", "--port", "8002"],
-        ROOT / "backend",
-        extra_env=extra,
-    )
-    _procs["gateway"] = proc
-    status = _wait_health("gateway", proc, lambda: _http_ok("http://localhost:8002/health"), 30)
-    results.append(("gateway", "8002", status))
-
-    # Frontend — verify production build before serving
-    build_ok, build_msg = _ensure_frontend(build=build)
-    if not build_ok:
-        results.append(("frontend", "3210", f"failed ({build_msg})"))
-    else:
-        if build_msg != "ok (existing build)":
-            results.append(("frontend-build", "—", build_msg))
-        proc = _spawn(
-            "frontend",
-            [str(PY), "-m", "http.server", "3210", "--directory", str(BUILD_DIR)],
-            ROOT,
-        )
-        _procs["frontend"] = proc
-        status = _wait_health("frontend", proc, lambda: _http_ok("http://localhost:3210/"), 10)
-        results.append(("frontend", "3210", status))
-
-    # Inference (optional)
-    if _inference_available():
-        proc = _spawn("inference", [str(PY), "gh05t3_inference.py"], ROOT / "backend")
-        _procs["inference"] = proc
-        status = _wait_health("inference", proc, lambda: _tcp_open(CORE_PORTS["inference"]), 120)
-        results.append(("inference", "8010", status))
-    else:
-        results.append(("inference", "8010", "skip (torch not in venv — use Ollama)"))
+    _start_backend(results)
+    _start_gateway(results, extra)
+    _start_frontend(results, build)
+    _start_inference(results)
 
     # Voice listener (non-critical)
     voice = ROOT / "whisper_listener.py"
@@ -548,6 +683,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="GH05T3 core stack launcher")
     ap.add_argument("--stop", action="store_true", help="stop core stack")
     ap.add_argument("--review", action="store_true", help="print port status table")
+    ap.add_argument("--smoke", action="store_true", help="HTTP smoke tests on live stack")
+    ap.add_argument("--start-missing", action="store_true", help="start only DOWN services")
     ap.add_argument("--build", action="store_true", help="build frontend before start")
     ap.add_argument("--no-browser", action="store_true", help="do not open dashboard")
     ap.add_argument("--keep-mongo", action="store_true", help="on --stop, leave MongoDB running")
@@ -559,9 +696,13 @@ def main() -> int:
         print(f"Frontend build: {fb}  ({BUILD_DIR})")
         print()
         return 0
+    if args.smoke:
+        return print_smoke_report()
     if args.stop:
         stop_stack(kill_mongo=not args.keep_mongo)
         return 0
+    if args.start_missing:
+        return start_missing(build=args.build)
     return start_stack(open_browser=not args.no_browser, build=args.build)
 
 
