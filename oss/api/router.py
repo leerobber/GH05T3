@@ -305,3 +305,72 @@ async def forge_elite_export(min_tier: str = "gold") -> dict[str, Any]:
     except ValueError:
         raise HTTPException(400, f"Unknown tier: {min_tier}")
     return export_elite_strands(min_tier=tier)
+
+
+class ForgeRouteRequest(BaseModel):
+    text: str = Field(..., min_length=3, max_length=8000)
+    task_domain: str = Field(default="", max_length=64)
+    session_id: str = Field(default="", max_length=64)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+
+
+@router.get("/train/agents")
+async def train_agents_list() -> dict[str, Any]:
+    from oss.train.agents import list_agents
+    return {"agents": list_agents(), "trainer": "sovereign_loop"}
+
+
+@router.get("/train/constitution")
+async def train_constitution() -> dict[str, Any]:
+    from oss.train.constitution import constitution_report
+    return constitution_report()
+
+
+class TrainRunRequest(BaseModel):
+    agent_id: str = Field(default="GH05T3", max_length=32)
+    steps: int = Field(default=80, ge=10, le=5000)
+    model_id: str = Field(default="Qwen/Qwen2.5-Coder-3B-Instruct", max_length=128)
+    forge_only: bool = True
+    dry_run: bool = False
+
+
+@router.post("/train/run")
+async def train_run(body: TrainRunRequest) -> dict[str, Any]:
+    """Sovereign Train Kernel — agent-native, no TRL."""
+    from pathlib import Path
+    from oss.train.engine import run_training
+    from oss.train.schemas import TrainConfig, TrainJob, TrainSource
+
+    sources = [TrainSource.FORGE, TrainSource.ELITE] if body.forge_only else [TrainSource.ALL]
+    job = TrainJob(
+        agent_id=body.agent_id,
+        dry_run=body.dry_run,
+        config=TrainConfig(
+            model_id=body.model_id,
+            max_steps=body.steps,
+            sources=sources,
+        ),
+    )
+    try:
+        return run_training(job).to_dict()
+    except Exception as exc:
+        raise HTTPException(500, str(exc))
+
+
+@router.post("/forge/route")
+async def forge_route_plan(body: ForgeRouteRequest) -> dict[str, Any]:
+    """Preview Omni MoE inference routing (spectral classify + holographic context)."""
+    from oss.forge.inference_router import plan_inference_route
+    messages = [{"role": "user", "content": body.text}]
+    route = plan_inference_route(
+        messages,
+        task_domain=body.task_domain,
+        session_id=body.session_id,
+        base_temperature=body.temperature,
+    )
+    return {
+        "route": route.to_dict(),
+        "adapter_bucket": route.adapter_bucket,
+        "scaled_temperature": route.scaled_temperature,
+        "novel_methods": route.novel_methods,
+    }
