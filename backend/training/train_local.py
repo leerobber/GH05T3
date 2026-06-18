@@ -22,6 +22,9 @@ import sys
 import warnings
 from pathlib import Path
 
+# Windows: parallel safetensor mmap spikes paging file (WinError 1455)
+os.environ.setdefault("HF_DEACTIVATE_ASYNC_LOAD", "1")
+
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*resume_download.*")
 warnings.filterwarnings("ignore", category=UserWarning,   message=".*use_reentrant.*")
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*tokenizers.*")
@@ -275,6 +278,47 @@ def build_dataset(data_dir: Path):
     return Dataset.from_dict({"text": texts})
 
 
+def build_forge_dataset() -> "Dataset":
+    """Gold-standard Omni Forge only — forge_gold + methylation-weighted elite strands."""
+    from datasets import Dataset
+
+    texts: list[str] = []
+    forge_count = elite_count = 0
+
+    forge_file = DATA_DIR / "forge_gold.jsonl"
+    for rec in read_jsonl(forge_file):
+        text = rec.get("text", "")
+        if text and "<|im_start|>user" in text:
+            texts.append(text)
+            forge_count += 1
+
+    elite_file = DATA_DIR / "forge_elite_strands.jsonl"
+    for rec in read_jsonl(elite_file):
+        text = rec.get("chatml") or rec.get("text", "")
+        if not text or "<|im_start|>user" not in text:
+            continue
+        weight = int(rec.get("methylation", {}).get("transcription_weight", 1))
+        repeats = max(1, min(weight, 4))
+        for _ in range(repeats):
+            texts.append(text)
+        elite_count += 1
+
+    if not texts:
+        log.error(
+            "No forge examples in %s — run: python oss/cli/forge_run.py --min-tier gold",
+            DATA_DIR,
+        )
+        sys.exit(1)
+
+    random.seed(42)
+    random.shuffle(texts)
+    log.info(
+        "Forge-only dataset: %d examples (%d gold, %d elite strands, weighted)",
+        len(texts), forge_count, elite_count,
+    )
+    return Dataset.from_dict({"text": texts})
+
+
 def build_domain_dataset(domain: str, data_dir: Path):
     """Build a domain-specific training dataset.
 
@@ -438,11 +482,14 @@ def main():
                         help="Override output directory (default: backend/models/<domain>_adapter)")
     parser.add_argument("--steps", type=int, default=MAX_STEPS,
                         help=f"Training steps (default: {MAX_STEPS})")
+    parser.add_argument("--forge-only", action="store_true",
+                        help="Train on Omni Forge gold + elite strands only (fast smoke)")
     cli = parser.parse_args()
 
     domain  = cli.domain
     out_dir = Path(cli.output) if cli.output else DOMAIN_OUT_DIRS.get(domain, OUT_DIR)
     steps   = cli.steps
+    forge_only = cli.forge_only
 
     if not torch.cuda.is_available():
         log.error("No CUDA GPU. Install: pip install torch --index-url https://download.pytorch.org/whl/cu128")
@@ -462,6 +509,13 @@ def main():
         log.error("Fix: pip install torch --index-url https://download.pytorch.org/whl/cu128")
         sys.exit(1)
 
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        log.info("VRAM free before load: %.1f GB",
+                 (gpu.total_memory - torch.cuda.memory_allocated(0)) / 1e9)
+
     from transformers import (AutoModelForCausalLM, AutoTokenizer,
                                BitsAndBytesConfig, TrainingArguments)
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -478,8 +532,11 @@ def main():
     log.info("Domain: %s → %s", domain, out_dir)
 
     # ── data ──
-    data_dir = ensure_data()
-    dataset  = build_domain_dataset(domain, data_dir)
+    if forge_only:
+        dataset = build_forge_dataset()
+    else:
+        data_dir = ensure_data()
+        dataset  = build_domain_dataset(domain, data_dir)
 
     # ── tokenizer ──
     log.info("Loading %s ...", MODEL_ID)
@@ -495,17 +552,41 @@ def main():
         bnb_4bit_compute_dtype=compute_dtype,
         bnb_4bit_use_double_quant=True,   # nested quant saves ~0.4 GB extra
     )
-    # Keep shards off CPU RAM — laptop paging-file OOM (WinError 1455) on mmap.
-    max_memory = {0: f"{int(vram * 0.9)}GiB", "cpu": "2GiB"}
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        quantization_config=bnb_cfg,
-        device_map={"": 0},
-        max_memory=max_memory,
-        trust_remote_code=True,
-        low_cpu_mem_usage=True,
-        torch_dtype=compute_dtype,
-    )
+    # Cap GPU budget — leave headroom if inference/other processes share the card.
+    gpu_budget = float(os.environ.get("GH05T3_TRAIN_GPU_FRAC", "0.75"))
+    offload_dir = REPO / "backend" / "models" / "_train_offload"
+    offload_dir.mkdir(parents=True, exist_ok=True)
+    max_memory = {0: f"{int(vram * gpu_budget)}GiB", "cpu": "2GiB"}
+    load_kw: dict = {
+        "quantization_config": bnb_cfg,
+        "device_map": {"": 0},
+        "max_memory": max_memory,
+        "trust_remote_code": True,
+        "low_cpu_mem_usage": True,
+        "torch_dtype": compute_dtype,
+        "offload_folder": str(offload_dir),
+        "local_files_only": True,
+    }
+    try:
+        model = AutoModelForCausalLM.from_pretrained(MODEL_ID, **load_kw)
+    except OSError as exc:
+        if "1455" in str(exc) or "paging file" in str(exc).lower():
+            fallback = "Qwen/Qwen2.5-1.5B-Instruct"
+            log.warning(
+                "Paging-file OOM loading %s — falling back to %s for smoke train",
+                MODEL_ID, fallback,
+            )
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            load_kw["local_files_only"] = True
+            model = AutoModelForCausalLM.from_pretrained(fallback, **load_kw)
+        else:
+            load_kw["local_files_only"] = False
+            model = AutoModelForCausalLM.from_pretrained(MODEL_ID, **load_kw)
+    except Exception:
+        load_kw["local_files_only"] = False
+        model = AutoModelForCausalLM.from_pretrained(MODEL_ID, **load_kw)
     model.config.use_cache = False
     log.info("Model loaded — %.1f/%.1f GB VRAM", torch.cuda.memory_allocated(0)/1e9, vram)
 
@@ -538,6 +619,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     grad_accum = GRAD_ACCUM if batch == BATCH else GRAD_ACCUM * 2
+    warmup = min(WARMUP, max(5, steps // 5))
 
     args = TrainingArguments(
         output_dir=str(ckpt_dir),
@@ -548,7 +630,7 @@ def main():
         # CRITICAL: use_reentrant=True (default) reruns forward during backward.
         # With fp16/bf16 + PEFT hooks this produces NaN gradients → loss collapses.
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        warmup_steps=WARMUP,
+        warmup_steps=warmup,
         learning_rate=LR,
         fp16=not use_bf16,
         bf16=use_bf16,
@@ -559,7 +641,7 @@ def main():
         lr_scheduler_type="cosine",
         seed=42,
         save_strategy="steps",
-        save_steps=100,
+        save_steps=max(20, min(100, steps // 2)),
         save_total_limit=3,
         report_to="none",
     )
