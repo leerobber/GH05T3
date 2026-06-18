@@ -218,3 +218,65 @@ async def world_session_step(session_id: str, body: WorldStepRequest) -> dict[st
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return runtime.snapshot(session_id)
+
+
+# ── Omni Forge — agency training layer ────────────────────────────────────────
+
+class ForgeSubmitRequest(BaseModel):
+    domain: str = Field(..., min_length=3, max_length=64)
+    user: str = Field(..., min_length=10, max_length=4000)
+    assistant: str = Field(..., min_length=20, max_length=8000)
+    system: str = Field(default="", max_length=2000)
+    genome_id: str = Field(default="gh05t3", max_length=64)
+
+
+class ForgeCycleRequest(BaseModel):
+    include_pipeline: bool = True
+    include_seeds: bool = True
+    min_tier: str = Field(default="silver", max_length=16)
+    export: bool = True
+
+
+@router.get("/forge/status")
+async def forge_status() -> dict[str, Any]:
+    from oss.adapters.forge import forge_status
+    return forge_status()
+
+
+@router.post("/forge/cycle")
+async def forge_cycle(body: ForgeCycleRequest) -> dict[str, Any]:
+    from oss.forge.schemas import QualityTier
+    from oss.adapters.forge import trigger_forge_cycle
+    try:
+        tier = QualityTier(body.min_tier.lower())
+    except ValueError:
+        raise HTTPException(400, f"Unknown tier: {body.min_tier}")
+    return trigger_forge_cycle(
+        include_pipeline=body.include_pipeline,
+        include_seeds=body.include_seeds,
+        min_tier=tier,
+        export=body.export,
+    )
+
+
+@router.post("/forge/submit")
+async def forge_submit(body: ForgeSubmitRequest) -> dict[str, Any]:
+    from oss.forge.agency import get_agency
+    from oss.forge.schemas import ForgeDomain
+    try:
+        domain = ForgeDomain(body.domain.lower())
+    except ValueError:
+        raise HTTPException(400, f"Unknown domain: {body.domain}")
+    return get_agency().submit_and_curate(
+        domain=domain,
+        user=body.user,
+        assistant=body.assistant,
+        system=body.system,
+        genome_id=body.genome_id,
+    )
+
+
+@router.get("/forge/preflight")
+async def forge_preflight() -> dict[str, Any]:
+    from oss.forge.train_bridge import preflight_report
+    return preflight_report()

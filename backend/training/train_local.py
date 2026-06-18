@@ -41,14 +41,27 @@ OUT_DIR  = REPO / "backend" / "models" / "gh05t3_lora_adapter"
 CKPT_DIR = REPO / "backend" / "training" / "checkpoints"
 
 # ── config ─────────────────────────────────────────────────────────────────────
-MODEL_ID    = "Qwen/Qwen2.5-7B-Instruct"   # 7B beats 3B for reasoning; fits in 8 GB via 4-bit
+def _default_model_id() -> str:
+    override = os.environ.get("GH05T3_TRAIN_MODEL")
+    if override:
+        return override
+    try:
+        import psutil
+        if psutil.virtual_memory().total < 20 * 1024 ** 3:
+            return "Qwen/Qwen2.5-Coder-3B-Instruct"
+    except Exception:
+        pass
+    return "Qwen/Qwen2.5-7B-Instruct"
+
+
+MODEL_ID    = _default_model_id()
 LORA_RANK   = 16
-MAX_STEPS   = 500
+MAX_STEPS   = int(os.environ.get("GH05T3_TRAIN_STEPS", "500"))
 LR          = 2e-5
 MAX_GRAD    = 0.3
 WARMUP      = 50
-MAX_SEQ_LEN = 1024  # doubled: fills longer security-analysis examples; packing keeps VRAM flat
-BATCH       = 2    # reduce to 1 if OOM
+MAX_SEQ_LEN = int(os.environ.get("GH05T3_MAX_SEQ_LEN", "1024"))
+BATCH       = int(os.environ.get("GH05T3_TRAIN_BATCH", os.environ.get("BATCH", "2")))
 GRAD_ACCUM  = 4    # effective batch = 8
 
 KAGGLE_DATASET = "tatortot/gh05t3-datasets"
@@ -219,13 +232,28 @@ def build_dataset(data_dir: Path):
     if recall_count:
         log.info("Sovereign Recall: +%d examples (quality≥4) from %s", recall_count, recall_file)
 
+    # ── Omni Forge gold export (quality-gated agency layer) ───────────────────
+    forge_file = REPO / "backend" / "data" / "training" / "forge_gold.jsonl"
+    forge_count = 0
+    for rec in read_jsonl(forge_file):
+        text = rec.get("text", "")
+        if not text or "<|im_start|>user" not in text:
+            continue
+        texts.append(text)
+        forge_count += 1
+    if forge_count:
+        log.info("Omni Forge: +%d gold examples from %s", forge_count, forge_file)
+
     if not texts:
         log.error("No training examples found in %s", data_dir)
         sys.exit(1)
 
     random.seed(42)
     random.shuffle(texts)
-    log.info("Dataset: %d examples (%d from Sovereign Recall)", len(texts), recall_count)
+    log.info(
+        "Dataset: %d examples (%d recall, %d forge gold)",
+        len(texts), recall_count, forge_count,
+    )
     return Dataset.from_dict({"text": texts})
 
 
@@ -449,11 +477,16 @@ def main():
         bnb_4bit_compute_dtype=compute_dtype,
         bnb_4bit_use_double_quant=True,   # nested quant saves ~0.4 GB extra
     )
+    # Keep shards off CPU RAM — laptop paging-file OOM (WinError 1455) on mmap.
+    max_memory = {0: f"{int(vram * 0.9)}GiB", "cpu": "2GiB"}
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         quantization_config=bnb_cfg,
-        device_map="cuda",
+        device_map={"": 0},
+        max_memory=max_memory,
         trust_remote_code=True,
+        low_cpu_mem_usage=True,
+        torch_dtype=compute_dtype,
     )
     model.config.use_cache = False
     log.info("Model loaded — %.1f/%.1f GB VRAM", torch.cuda.memory_allocated(0)/1e9, vram)
