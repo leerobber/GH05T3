@@ -75,12 +75,16 @@ def load_reasoning_chains(weight: int = 2) -> list[TrainExample]:
 def load_sovereign_recall(cfg: IntelligenceConfig) -> list[TrainExample]:
     path = _DATA / "sovereign_recall.jsonl"
     pool: list[dict] = []
+    max_chars = 12_000  # pre-filter monster turns before tokenize
     for rec in _read_jsonl(path):
         text = rec.get("text", "")
         if not text or rec.get("quality", 0) < cfg.min_recall_quality:
             continue
-        if "<|im_start|>user" not in text:
+        if "<|im_start|>user" not in text or "<|im_start|>assistant" not in text:
             continue
+        if len(text) > max_chars:
+            text = text[:max_chars] + "\n<|im_end|>"
+            rec = {**rec, "text": text}
         pool.append(rec)
     rng = random.Random(cfg.seed)
     rng.shuffle(pool)

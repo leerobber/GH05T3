@@ -77,10 +77,8 @@ class SovereignLoop:
             device = next(self.model.parameters()).device
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            with torch.cuda.amp.autocast(
-                enabled=True,
-                dtype=torch.bfloat16 if self.use_bf16 else torch.float16,
-            ):
+            amp_dtype = torch.bfloat16 if self.use_bf16 else torch.float16
+            with torch.amp.autocast("cuda", enabled=True, dtype=amp_dtype):
                 outputs = self.model(**batch)
                 micro_loss = outputs.loss
 
@@ -117,8 +115,22 @@ class SovereignLoop:
                     LOG.info("step %d/%d  loss=%.4f  lr=%.2e", step, self.max_steps, global_loss, lr)
 
         if accum_count > 0:
-            global_loss = running * self.grad_accum / max(accum_count, 1)
-            loss_history.append(global_loss)
+            # Flush partial accumulation — same formula as optimizer steps
+            if self.scaler:
+                self.scaler.unscale_(self.optimizer)
+            self.torch.nn.utils.clip_grad_norm_(
+                [p for p in self.model.parameters() if p.requires_grad],
+                self.max_grad_norm,
+            )
+            if self.scaler:
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                self.optimizer.step()
+            self.optimizer.zero_grad(set_to_none=True)
+            loss_history.append(running / accum_count)
 
-        final = loss_history[-1] if loss_history else 0.0
+        # Use rolling mean — last partial micro-batch must not dominate final verdict
+        tail = loss_history[-10:] if loss_history else [0.0]
+        final = sum(tail) / len(tail)
         return {"final_loss": final, "steps": self.max_steps, "loss_history": loss_history}

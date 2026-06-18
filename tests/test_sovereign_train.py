@@ -71,8 +71,11 @@ def test_tokenize_masks_prompt():
         pad_token_id = 0
         eos_token_id = 0
 
-        def encode(self, text, add_special_tokens=False):
-            return list(range(len(text.split())))
+        def encode(self, text, add_special_tokens=False, truncation=False, max_length=None):
+            ids = list(range(len(text.split())))
+            if truncation and max_length:
+                return ids[:max_length]
+            return ids
 
     text = (
         "<|im_start|>system\nsys<|im_end|>\n"
