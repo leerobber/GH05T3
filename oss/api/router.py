@@ -374,3 +374,91 @@ async def forge_route_plan(body: ForgeRouteRequest) -> dict[str, Any]:
         "scaled_temperature": route.scaled_temperature,
         "novel_methods": route.novel_methods,
     }
+
+
+# ── MVS bridge (canonical gateway mount) ──────────────────────────────────────
+
+class MvsCycleRequest(BaseModel):
+    cycles: int = Field(default=1, ge=1, le=50)
+    dry_run: bool = True
+
+
+class OmniRouteRequest(BaseModel):
+    prompt: str = Field(default="", max_length=8000)
+
+
+@router.get("/mvs/status")
+async def mvs_status() -> dict[str, Any]:
+    from backend.oss.loop import ensure_mvs_seeded, load_oss
+    from backend.oss.mvs import get_mvs
+
+    ensure_mvs_seeded(verbose=False)
+    mvs = get_mvs()
+    sub = mvs["substrate"]
+    genomes = getattr(sub, "genomes", {})
+    roles = sorted({v.role for v in genomes.values()}) if genomes else []
+    avg_fitness = (
+        sum(getattr(v, "fitness", 0.5) for v in genomes.values()) / len(genomes)
+        if genomes else 0.0
+    )
+    oss = load_oss()
+    rewards = oss.get("rewards", {})
+    return {
+        "available": True,
+        "genomes": {
+            "total_genomes": len(genomes),
+            "roles": roles,
+            "avg_fitness": round(avg_fitness, 4),
+        },
+        "mind": {"memories": 0},
+        "economy_balances_sample": {},
+        "loop_state": {
+            "species": oss.get("species_state", "S5_evolve"),
+            "aggregate": float(rewards.get("aggregate", 0.65)),
+            "omni_mind": float(rewards.get("omni_mind", 0.62)),
+        },
+        "source": "backend.oss.mvs + oss_ecosystem.json",
+    }
+
+
+@router.post("/mvs/cycle")
+async def mvs_cycle(body: MvsCycleRequest) -> dict[str, Any]:
+    import time
+    from backend.oss.loop import ensure_mvs_seeded, run_cycle
+
+    ensure_mvs_seeded(verbose=False)
+    t0 = time.monotonic()
+    results = []
+    for i in range(body.cycles):
+        cl = run_cycle(i, dry_run=body.dry_run, verbose=False)
+        results.append({
+            "tick": cl.tick,
+            "global": cl.global_state,
+            "agg": cl.rewards.get("aggregate", 0.0),
+            "omni_mind": cl.rewards.get("omni_mind", 0.0),
+        })
+    return {
+        "ran": body.cycles,
+        "dry_run": body.dry_run,
+        "results": results,
+        "duration_sec": round(time.monotonic() - t0, 3),
+        "note": "cycles executed via backend.oss.loop (MVS only)",
+    }
+
+
+@router.post("/omni/route")
+async def omni_route(body: OmniRouteRequest) -> dict[str, Any]:
+    """Richer MoE routing alias used by gateway consumers and smoke tests."""
+    from oss.forge.inference_router import plan_inference_route
+
+    messages = [{"role": "user", "content": body.prompt or "route"}]
+    try:
+        route = plan_inference_route(messages)
+        return {
+            "route": route.to_dict(),
+            "adapter_bucket": route.adapter_bucket,
+            "scaled_temperature": route.scaled_temperature,
+            "novel_methods": route.novel_methods,
+        }
+    except Exception as exc:
+        return {"error": str(exc), "route": "degraded"}
