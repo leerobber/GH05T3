@@ -3,6 +3,18 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.2.2 — 2026-06-19
+
+### What changed since v0.2.1
+
+#### Fixes
+- fix(ci): add v1_router, unblock pact jobs, skip mesh contract in backend gate (40560cc)
+
+### Stats
+- 1 commits
+- 1 contributor(s)
+
+
 ## v0.2.1 — 2026-06-19
 
 ### What changed since v0.2.0
