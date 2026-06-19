@@ -28,32 +28,32 @@ import "@/App.css";
 import { toast, Toaster } from "sonner";
 import { fetchState, pclTick, runKairosCycle, runNightly } from "./lib/ghostApi";
 import { useGhostWS } from "./lib/useGhostWS";
-import { ChatInterface } from "./components/ghost/ChatInterface";
+import { ChatInterface } from "./components/ghost/panels/ChatInterface";
 import {
   GhostProtocolPanel, HardwarePanel, HcmPanel,
   IdentityHeader, KairosPanel, MemoryPalacePanel, NightlyPanel,
   PclPanel, ScoreboardPanel, SeancePanel, SubAgentsPanel, TwinEnginePanel,
-} from "./components/ghost/panels";
-import { AutotelicPanel } from "./components/ghost/AutotelicPanel";
-import { HcmCloudPanel } from "./components/ghost/HcmCloudPanel";
-import { GhostShellPanel } from "./components/ghost/GhostShellPanel";
-import { CassandraPanel } from "./components/ghost/CassandraPanel";
-import { StegoPanel } from "./components/ghost/StegoPanel";
-import { TelegramPanel } from "./components/ghost/TelegramPanel";
-import { TranscriptPanel } from "./components/ghost/TranscriptPanel";
-import { MemoryStreamPanel } from "./components/ghost/MemoryStreamPanel";
-import { JournalPanel } from "./components/ghost/JournalPanel";
-import { LlmConfigPanel } from "./components/ghost/LlmConfigPanel";
-import { CompanionPanel } from "./components/ghost/CompanionPanel";
-import { GhostEyePanel } from "./components/ghost/GhostEyePanel";
-import { WhisperPanel } from "./components/ghost/WhisperPanel";
-import { SetupNudgeModal } from "./components/ghost/SetupNudgeModal";
-import { V3SecretsModal } from "./components/ghost/V3SecretsModal";
-import { OllamaPanel } from "./components/ghost/OllamaPanel";
-import { CoderPanel } from "./components/ghost/CoderPanel";
-import { SwarmPanel } from "./components/ghost/SwarmPanel";
-import { SwarmBusPanel } from "./components/ghost/SwarmBusPanel";
-import { PeersPanel } from "./components/ghost/PeersPanel";
+} from "./components/ghost/primitives/panels";
+import { AutotelicPanel } from "./components/ghost/panels/AutotelicPanel";
+import { HcmCloudPanel } from "./components/ghost/panels/HcmCloudPanel";
+import { GhostShellPanel } from "./components/ghost/panels/GhostShellPanel";
+import { CassandraPanel } from "./components/ghost/panels/CassandraPanel";
+import { StegoPanel } from "./components/ghost/panels/StegoPanel";
+import { TelegramPanel } from "./components/ghost/panels/TelegramPanel";
+import { TranscriptPanel } from "./components/ghost/panels/TranscriptPanel";
+import { MemoryStreamPanel } from "./components/ghost/panels/MemoryStreamPanel";
+import { JournalPanel } from "./components/ghost/panels/JournalPanel";
+import { LlmConfigPanel } from "./components/ghost/panels/LlmConfigPanel";
+import { CompanionPanel } from "./components/ghost/panels/CompanionPanel";
+import { GhostEyePanel } from "./components/ghost/panels/GhostEyePanel";
+import { WhisperPanel } from "./components/ghost/panels/WhisperPanel";
+import { SetupNudgeModal } from "./components/ghost/modals/SetupNudgeModal";
+import { V3SecretsModal } from "./components/ghost/modals/V3SecretsModal";
+import { OllamaPanel } from "./components/ghost/panels/OllamaPanel";
+import { CoderPanel } from "./components/ghost/panels/CoderPanel";
+import { SwarmPanel } from "./components/ghost/panels/SwarmPanel";
+import { SwarmBusPanel } from "./components/ghost/panels/SwarmBusPanel";
+import { PeersPanel } from "./components/ghost/panels/PeersPanel";
 
 function speakWhisper(data) {
   try {

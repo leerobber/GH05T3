@@ -12,27 +12,61 @@ jobs:
   backend:
     name: Backend — tests & syntax
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v5
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+
       - name: Cache pip
         uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-ci-${{ hashFiles('backend/requirements-ci.txt') }}
           restore-keys: ${{ runner.os }}-pip-ci-
+
       - name: Install CI dependencies
         run: |
           pip install -r backend/requirements-ci.txt
           pip install "pact-python>=2.0.0,<3"
-      - name: Syntax checks
+
+      - name: Syntax check — backend gateway
+        run: python -m py_compile backend/gateway_v3.py
+
+      - name: Syntax check — sovereign economy client
+        run: python -m py_compile backend/sovereign_economy.py
+
+      - name: Syntax check — training pipeline
         run: |
-          python -m py_compile backend/gateway_v3.py || true
-      - name: Run tests
-        run: |
-          python -m pytest tests/ -q -m "not live and not integration" --tb=no || true
+          for f in scripts/training/pre_train.py \
+                   scripts/training/runpod_launcher.py \
+                   scripts/training/kairos_dataset_gen.py \
+                   scripts/training/mentor_trainer.py \
+                   scripts/training/avery_flywheel.py \
+                   scripts/training/merge_on_runpod.py \
+                   scripts/runtime/herald.py \
+                   scripts/runtime/cmd_listener.py \
+                   scripts/training/train_sovereign_sft.py \
+                   scripts/training/multiturn_gen.py \
+                   scripts/training/ghost_trainer.py \
+                   scripts/training/push_hf_cards.py; do
+            if [ -f "$f" ]; then
+              echo "  py_compile $f"
+              python -m py_compile "$f"
+            fi
+          done
+
+      - name: Run backend unit tests (live-server tests auto-skipped)
+        working-directory: backend
+        env:
+          PYTEST_ASYNCIO_MODE: auto
+          AETHYRO_SKIP_LICENSE: "1"
+        run: pytest tests/ -v -m "not live and not integration"
+
+      - name: Run root unit tests
+        run: pytest tests/ -v -m "not live and not integration" --tb=no || true
         env:
           PYTHONPATH: backend
           AETHYRO_SKIP_LICENSE: "1"
@@ -48,13 +82,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -r backend/requirements-ci.txt pact-python
+        run: pip install -r backend/requirements-ci.txt "pact-python>=2.0.0,<3"
       - name: Run Pact consumer tests (generates pacts/)
-        run: |
-          python -m pytest tests/test_oss_pact.py -q --tb=line || true
+        run: python -m pytest tests/test_oss_pact.py -q --tb=line
         env:
           PYTHONPATH: backend
           AETHYRO_SKIP_LICENSE: "1"
+          PACT_DO_NOT_TRACK: "true"
       - name: Upload pacts artifact (for provider job)
         uses: actions/upload-artifact@v4
         with:
@@ -68,7 +102,7 @@ jobs:
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
         run: |
           python scripts/broker_health.py || true
-          python scripts/publish_pacts.py pacts/ "${GITHUB_SHA}" ci || true
+          python scripts/publish_pacts.py pacts/ "${GITHUB_SHA}" ci
 
   # ── Pact Provider Verification ───────────────────────────────────────────────
   pact-provider:
@@ -81,15 +115,14 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -r backend/requirements-ci.txt pact-python
+        run: pip install -r backend/requirements-ci.txt "pact-python>=2.0.0,<3"
       - name: Download pacts artifact
         uses: actions/download-artifact@v4
         with:
           name: pacts
           path: pacts/
       - name: Run provider verification (TestClient mount)
-        run: |
-          python -m pytest tests/test_oss_provider_verify.py -q --tb=line || true
+        run: python -m pytest tests/test_oss_provider_verify.py -q --tb=line
         env:
           PYTHONPATH: backend
           AETHYRO_SKIP_LICENSE: "1"
@@ -108,19 +141,19 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install "pact-python>=2.0.0,<3"
+        run: pip install "pact-python>=2.0.0,<3" httpx python-dotenv
       - name: Can-I-Deploy check
         run: |
           python scripts/can_i_deploy.py \
             --consumer gh05t3-gateway \
             --provider gh05t3-oss \
             --version "${GITHUB_SHA}" \
-            --tag ci || (echo "CAN-I-DEPLOY FAILED" && exit 1)
+            --tag ci
         env:
           PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_URL }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
 
-  # ── Full-stack with mocks (always available) ─────────────────────────────────
+  # ── Full-stack with mocks ────────────────────────────────────────────────────
   fullstack-mock:
     name: Full-stack OSS (mocked inference + Sovereign)
     runs-on: ubuntu-latest
@@ -131,16 +164,15 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: |
-          pip install -r backend/requirements-ci.txt fastapi uvicorn httpx
+        run: pip install -r backend/requirements-ci.txt fastapi uvicorn httpx
       - name: Run smoke with MOCK_INFERENCE
         run: |
           MOCK_INFERENCE=1 GH05T3_INFERENCE_URL=http://localhost:8010 \
-          PYTHONPATH=backend python scripts/oss_smoke.py --with-inference || true
+          PYTHONPATH=backend python scripts/oss_smoke.py --with-inference
         env:
           AETHYRO_SKIP_LICENSE: "1"
 
-  # ── Staging smoke (manual, requires secrets) ─────────────────────────────────
+  # ── Staging smoke (manual, requires secrets) ───────────────────────────────
   staging-smoke:
     name: Staging Smoke + Verification
     runs-on: ubuntu-latest
@@ -151,7 +183,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install -r backend/requirements-ci.txt pact-python httpx
+        run: pip install -r backend/requirements-ci.txt "pact-python>=2.0.0,<3" httpx
       - name: Run staging verify
         run: |
           STAGING_BASE_URL=${{ secrets.STAGING_BASE_URL }} \
@@ -160,7 +192,7 @@ jobs:
           PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL || '' }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN || '' }}
 
-  # ── Frontend build check ──────────────────────────────────────────────────────
+  # ── Frontend build check ─────────────────────────────────────────────────────
   frontend:
     name: Frontend — build
     runs-on: ubuntu-latest
