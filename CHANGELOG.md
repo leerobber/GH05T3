@@ -3,6 +3,75 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.2.0 — 2026-06-19
+
+### What changed since v0.1.0
+
+#### Features
+- feat(pact): consumer/provider contract tests, CI gates, and OpenAPI exports (5b9dd7b)
+- feat(train): Intelligence Training profile for systems/code/data reasoning (11de672)
+- feat(train): Sovereign Train Kernel — agent-native, no TRL (e93314c)
+- feat(training): forge-only fast smoke mode with Windows memory fixes (812a17d)
+- feat(inference): Omni MoE routing with novel AI/ML advancements (4d4aa0f)
+- feat(oss): Elite OmniStrand training with scientific domains and genetics paradigm (7234ca2)
+- feat(oss): Omni Forge agency training layer with quality gate and gold export (459fbfe)
+- feat(oss): Phase 1 completion — Stripe NC settlement, world scaffold, gateway health (b42275a)
+- feat(oss): Phase 1 foundation layer with live gateway integration (35b9e4f)
+- feat(ghost-chat): add lightweight streaming CLI agent (15131f3)
+- feat(site-agents): add contractor multi-agent system (11239b9)
+- feat(sage): enhanced cycle with self-refinement + continuous evolution runner (07bd0d3)
+- feat(runner): auto-detect best available Ollama model for SAGE cycles (887dbab)
+- feat(evolution): upgrade to 4500-cell MAP-Elites + evaluator API — matches working Windows build (a1f8a38)
+- feat(sage): wire MAP-Elites ask()/tell() into run_sage_cycle() — active evolution (35bba3a)
+- feat: pyribs MAP-Elites + Vickrey auction + validator + modular tools + sandbox (3cc029a)
+- feat(lemonade): CPU-native STT+TTS — 780M stays on chat full-time (e235b6c)
+- feat(run.bat): auto-load Lemonade 780M model on startup (5e98a55)
+- feat(lemonade): AMD Radeon 780M iGPU via Lemonade — chat + STT + TTS + image gen (a4b11a8)
+- feat(training): domain-specific LoRA adapter training + LLM_PROVIDER docs (7680e6e)
+- feat(economy+marketplace): local ledger, LoRAFarm, agent marketplace, real-world ingestion (29d6718)
+- feat(arch): elite-tier local AI upgrades — MoE routing, fp8 KV cache, BM25 memory, circuit breakers (54df68f)
+
+#### Fixes
+- fix(train): safe ChatML truncation, autocast, final loss rolling mean (4a0b4a3)
+- fix: restore start_ngrok.ps1 for Windows Terminal tunnel tab (9af9636)
+- Merge pull request #16 from leerobber/claude/local-ai-agents-arch-f80yf4 (8b5662b)
+- fix(supervisor): bypass aethyro license gate for owner-managed services (444bb80)
+- fix: ghost_trainer.py SyntaxError — hoist global decl to top of main() (c327a6f)
+- fix: rotation broken by dotenv; raise proposer temperature to 0.85 (dd49c48)
+- fix: proposal collapse — dedup buffer in sage_enhanced.py (e1cf4df)
+- fix(ollama): keep_alive 2m + VRAM-aware model fallback — eliminates 404 cascade (732f26d)
+- fix(ollama): default gateway URL to localhost:11434 — removes need for env var (ba62593)
+- fix(runner): write OLLAMA_GATEWAY_URL to env so ghost_llm sees Ollama (d8a65ca)
+- fix(ollama): use native /api/chat endpoint — fixes 404 on SAGE cycles (1f89556)
+- fix(lemonade): correct Whisper model name + single-model load on startup (1edba54)
+- fix(marketplace+cb): ledger table init + HALF_OPEN probe timeout (9fedb11)
+- fix(review): address all 15 remaining coderabbitai/qodo review findings (fa05af0)
+- fix(review): address qodo + coderabbitai PR review findings (9ed36ba)
+- fix(review): address 6 code-review findings on economy/marketplace (a4c2c04)
+- fix(review): address all Gemini Code Assist review comments (ad004b6)
+
+#### Maintenance
+- chore: add pytest test-mode conftest and slack token CLI helper (dc42cb0)
+- chore(gitignore): ignore frontend/build and hermes venv (c2c0aea)
+- chore(backend): add manual license-bypass launchers for backend/gateway (501174b)
+
+#### CI
+- fix(marketplace+cb): ledger table init + HALF_OPEN probe timeout (9fedb11)
+
+#### Other
+- merge origin/main: reconcile remote CI with pact contract testing jobs (bf13fbc)
+- platform: smoke checks, start-missing, reliable inference startup on Windows (0bbf859)
+- oss: phase 2 world wire, gateway memory/broadcast fixes, chroma embed dim (03f9f67)
+- platform: run_stack orchestrator, vite env fix, deploy tests (f13234d)
+- merge: resolve conflicts with main — keep SQLite fix, accept .env.example deletion (d47b792)
+- Update backend/agent_marketplace.py (22b08b3)
+- merge: integrate main (alignment + chaos + skill-tiers) into feature branch (72544c3)
+
+### Stats
+- 49 commits
+- 3 contributor(s)
+
+
 ## v0.1.0 — 2026-06-15
 
 ### What changed since v0.0.0
