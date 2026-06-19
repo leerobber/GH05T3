@@ -1,0 +1,2781 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "GH05T3 OSS (gateway /oss mount)",
+    "version": "3.0"
+  },
+  "paths": {
+    "/oss/health": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Health",
+        "operationId": "oss_health_oss_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Oss Health Oss Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/agents": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "List Agents",
+        "operationId": "list_agents_oss_agents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Agents Oss Agents Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/agents/{genome_id}": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Get Agent",
+        "operationId": "get_agent_oss_agents__genome_id__get",
+        "parameters": [
+          {
+            "name": "genome_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Genome Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Agent Oss Agents  Genome Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/agents/{genome_id}/evolve": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Evolve Agent",
+        "operationId": "evolve_agent_oss_agents__genome_id__evolve_post",
+        "parameters": [
+          {
+            "name": "genome_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Genome Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Evolve Agent Oss Agents  Genome Id  Evolve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/mind/state": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Mind State",
+        "operationId": "mind_state_oss_mind_state_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mind State Oss Mind State Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/swarm/solve": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Swarm Solve",
+        "operationId": "swarm_solve_oss_swarm_solve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwarmSolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Swarm Solve Oss Swarm Solve Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/economy/stats": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Economy Stats",
+        "operationId": "economy_stats_oss_economy_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Economy Stats Oss Economy Stats Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/economy/unified": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Economy Unified",
+        "operationId": "economy_unified_oss_economy_unified_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Economy Unified Oss Economy Unified Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/mesh/status": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Mesh Status",
+        "operationId": "mesh_status_oss_mesh_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mesh Status Oss Mesh Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/mvs/status": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Mvs Status",
+        "operationId": "mvs_status_oss_mvs_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mvs Status Oss Mvs Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/mvs/cycle": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Mvs Cycle",
+        "description": "Advance one or more MVS/OSS cycles. When live inference available uses GH05T3-Omni.\n\nObservability: records duration + error counters when prometheus_client is present.",
+        "operationId": "mvs_cycle_oss_mvs_cycle_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Mvs Cycle Oss Mvs Cycle Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/omni/route": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Omni Route Plan",
+        "description": "GH05T3-Omni MoE route preview + optional lightweight act (uses gh05t3_inference if up).",
+        "operationId": "omni_route_plan_oss_omni_route_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Body"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Omni Route Plan Oss Omni Route Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/omni/domains": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Omni Domains",
+        "description": "Lists known GH05T3-Omni domains/adapters for richer MoE visibility.",
+        "operationId": "omni_domains_oss_omni_domains_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Omni Domains Oss Omni Domains Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/memory/status": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Memory Status Endpoint",
+        "operationId": "memory_status_endpoint_oss_memory_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Memory Status Endpoint Oss Memory Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/memory/recall": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Memory Recall",
+        "operationId": "memory_recall_oss_memory_recall_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryRecallRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Memory Recall Oss Memory Recall Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/economy/delegate": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Economy Delegate",
+        "operationId": "economy_delegate_oss_economy_delegate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DelegateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Economy Delegate Oss Economy Delegate Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/registry/sync": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Registry Sync",
+        "operationId": "registry_sync_oss_registry_sync_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Registry Sync Oss Registry Sync Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/registry/status": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Registry Status Endpoint",
+        "operationId": "registry_status_endpoint_oss_registry_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Registry Status Endpoint Oss Registry Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/monetization/status": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Monetization Status",
+        "operationId": "monetization_status_oss_monetization_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Monetization Status Oss Monetization Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/monetization/settle": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Monetization Settle",
+        "operationId": "monetization_settle_oss_monetization_settle_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Monetization Settle Oss Monetization Settle Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/world/domains": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "World Domains",
+        "operationId": "world_domains_oss_world_domains_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response World Domains Oss World Domains Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/world/session": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "World Start Session",
+        "operationId": "world_start_session_oss_world_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorldSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response World Start Session Oss World Session Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/world/session/{session_id}": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "World Session Snapshot",
+        "operationId": "world_session_snapshot_oss_world_session__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response World Session Snapshot Oss World Session  Session Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/world/session/{session_id}/step": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "World Session Step",
+        "operationId": "world_session_step_oss_world_session__session_id__step_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorldStepRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response World Session Step Oss World Session  Session Id  Step Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/forge/status": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Forge Status",
+        "operationId": "forge_status_oss_forge_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Forge Status Oss Forge Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/forge/cycle": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Forge Cycle",
+        "operationId": "forge_cycle_oss_forge_cycle_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgeCycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Forge Cycle Oss Forge Cycle Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/forge/submit": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Forge Submit",
+        "operationId": "forge_submit_oss_forge_submit_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgeSubmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Forge Submit Oss Forge Submit Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/forge/preflight": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Forge Preflight",
+        "operationId": "forge_preflight_oss_forge_preflight_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Forge Preflight Oss Forge Preflight Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/forge/domains": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Forge Domains List",
+        "operationId": "forge_domains_list_oss_forge_domains_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Forge Domains List Oss Forge Domains Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/forge/elite/profile": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Forge Elite Profile",
+        "operationId": "forge_elite_profile_oss_forge_elite_profile_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Forge Elite Profile Oss Forge Elite Profile Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/forge/elite/export": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Forge Elite Export",
+        "operationId": "forge_elite_export_oss_forge_elite_export_post",
+        "parameters": [
+          {
+            "name": "min_tier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "gold",
+              "title": "Min Tier"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Forge Elite Export Oss Forge Elite Export Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/train/agents": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Train Agents List",
+        "operationId": "train_agents_list_oss_train_agents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Train Agents List Oss Train Agents Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/train/constitution": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Train Constitution",
+        "operationId": "train_constitution_oss_train_constitution_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Train Constitution Oss Train Constitution Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/train/run": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Train Run",
+        "description": "Sovereign Train Kernel \u2014 agent-native, no TRL.",
+        "operationId": "train_run_oss_train_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Train Run Oss Train Run Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/status": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Status Route",
+        "description": "Civilization Kernel \u2014 four pillars + treasury + loop state.",
+        "operationId": "kernel_status_route_oss_kernel_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Status Route Oss Kernel Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/territories": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Territories",
+        "operationId": "kernel_territories_oss_kernel_territories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Territories Oss Kernel Territories Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/agents": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Agents",
+        "description": "Five civilization agents \u2014 Base \u2192 Specialist \u2192 Frontier stages.",
+        "operationId": "kernel_agents_oss_kernel_agents_get",
+        "parameters": [
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Kernel Agents Oss Kernel Agents Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/shards": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Shards",
+        "description": "Data shard catalog \u2014 optional filter by agent role and stage.",
+        "operationId": "kernel_shards_oss_kernel_shards_get",
+        "parameters": [
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Kernel Shards Oss Kernel Shards Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/training/schedule": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Training Schedule",
+        "description": "Global phases 0\u20133, per-role unlock metrics, stage gates.",
+        "operationId": "kernel_training_schedule_oss_kernel_training_schedule_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Training Schedule Oss Kernel Training Schedule Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/training/progress": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Training Progress",
+        "description": "Current unlock status per role and global phase.",
+        "operationId": "kernel_training_progress_oss_kernel_training_progress_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Training Progress Oss Kernel Training Progress Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/training/eval": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Training Eval",
+        "description": "Record held-out eval scores; advance stages when gates pass.",
+        "operationId": "kernel_training_eval_oss_kernel_training_eval_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KernelEvalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Training Eval Oss Kernel Training Eval Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/collaboration": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Collaboration",
+        "description": "Six-step multi-agent interaction loop specification.",
+        "operationId": "kernel_collaboration_oss_kernel_collaboration_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Collaboration Oss Kernel Collaboration Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/fsm": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Fsm",
+        "description": "Global S0\u2013S5 + per-role state machine specification.",
+        "operationId": "kernel_fsm_oss_kernel_fsm_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Fsm Oss Kernel Fsm Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/orchestrator": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Orchestrator Status",
+        "description": "Current cycle FSM state, rewards, sandbox snapshot.",
+        "operationId": "kernel_orchestrator_status_oss_kernel_orchestrator_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Orchestrator Status Oss Kernel Orchestrator Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/v1-plan": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel V1 Plan",
+        "description": "Minimal v1 implementation plan (steps 1\u20137).",
+        "operationId": "kernel_v1_plan_oss_kernel_v1_plan_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel V1 Plan Oss Kernel V1 Plan Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/orchestrator/step": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Orchestrator Step",
+        "description": "Advance one orchestrator FSM step (sandbox + rewards + transitions).",
+        "operationId": "kernel_orchestrator_step_oss_kernel_orchestrator_step_post",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "business",
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Kernel Orchestrator Step Oss Kernel Orchestrator Step Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/sandbox": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Sandbox",
+        "description": "Paper market, infra, and product sandbox status.",
+        "operationId": "kernel_sandbox_oss_kernel_sandbox_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Sandbox Oss Kernel Sandbox Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/oss/ecosystem": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Ecosystem Status",
+        "description": "OSS species FSM \u2014 S0\u2013S6 + Omni-Mind + Omni-Economy.",
+        "operationId": "oss_ecosystem_status_oss_oss_ecosystem_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Ecosystem Status Oss Oss Ecosystem Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/oss/ecosystem/fsm": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Ecosystem Fsm",
+        "operationId": "oss_ecosystem_fsm_oss_oss_ecosystem_fsm_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Ecosystem Fsm Oss Oss Ecosystem Fsm Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/oss/ecosystem/bootstrap": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Ecosystem Bootstrap",
+        "operationId": "oss_ecosystem_bootstrap_oss_oss_ecosystem_bootstrap_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Ecosystem Bootstrap Oss Oss Ecosystem Bootstrap Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/oss/ecosystem/step": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Ecosystem Step",
+        "operationId": "oss_ecosystem_step_oss_oss_ecosystem_step_post",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "business",
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Oss Ecosystem Step Oss Oss Ecosystem Step Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/architecture": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Architecture",
+        "description": "Textual architecture diagram + living loop + integration hooks.",
+        "operationId": "oss_architecture_oss_architecture_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Architecture Oss Architecture Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/architecture/modules": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Architecture Modules",
+        "operationId": "oss_architecture_modules_oss_architecture_modules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Architecture Modules Oss Architecture Modules Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/living-loop": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Living Loop Status",
+        "operationId": "oss_living_loop_status_oss_living_loop_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Living Loop Status Oss Living Loop Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/living-loop/run": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Living Loop Run",
+        "operationId": "oss_living_loop_run_oss_living_loop_run_post",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "business",
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Dry Run"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Oss Living Loop Run Oss Living Loop Run Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/substrate": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Substrate Status",
+        "operationId": "oss_substrate_status_oss_substrate_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Substrate Status Oss Substrate Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/substrate/genome": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Query Genome",
+        "operationId": "oss_query_genome_oss_substrate_genome_get",
+        "parameters": [
+          {
+            "name": "capability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Capability"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "skill",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Skill"
+            }
+          },
+          {
+            "name": "min_level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.5,
+              "title": "Min Level"
+            }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Oss Query Genome Oss Substrate Genome Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/substrate/genome/{genome_id}/mutate": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Mutate Genome",
+        "operationId": "oss_mutate_genome_oss_substrate_genome__genome_id__mutate_post",
+        "parameters": [
+          {
+            "name": "genome_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Genome Id"
+            }
+          },
+          {
+            "name": "intensity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.1,
+              "title": "Intensity"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Oss Mutate Genome Oss Substrate Genome  Genome Id  Mutate Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/substrate/genome/{genome_id}/lineage": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Genome Lineage",
+        "operationId": "oss_genome_lineage_oss_substrate_genome__genome_id__lineage_get",
+        "parameters": [
+          {
+            "name": "genome_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Genome Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Oss Genome Lineage Oss Substrate Genome  Genome Id  Lineage Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/lab/trading": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Trading Lab",
+        "operationId": "oss_trading_lab_oss_lab_trading_get",
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Dry Run"
+            }
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 42,
+              "title": "Seed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Oss Trading Lab Oss Lab Trading Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/lab/saas-product": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Saas Product Lab",
+        "operationId": "oss_saas_product_lab_oss_lab_saas_product_get",
+        "parameters": [
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Dry Run"
+            }
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 42,
+              "title": "Seed"
+            }
+          },
+          {
+            "name": "cycles",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Cycles"
+            }
+          },
+          {
+            "name": "use_adapter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Use Adapter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Oss Saas Product Lab Oss Lab Saas Product Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/lab/saas-product/metrics": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Saas Product Metrics",
+        "operationId": "oss_saas_product_metrics_oss_lab_saas_product_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Saas Product Metrics Oss Lab Saas Product Metrics Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/lab/inference": {
+      "get": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Lab Inference Status",
+        "operationId": "oss_lab_inference_status_oss_lab_inference_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Oss Lab Inference Status Oss Lab Inference Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/substrate/intent": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Oss Publish Intent",
+        "operationId": "oss_publish_intent_oss_substrate_intent_post",
+        "parameters": [
+          {
+            "name": "field",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Field"
+            }
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "GH05T3",
+              "title": "Agent"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "general",
+              "title": "Domain"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Oss Publish Intent Oss Substrate Intent Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/kernel/tick": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Kernel Tick",
+        "description": "Run civilization heartbeat \u2014 research \u2192 monetize \u2192 treasury \u2192 improve.",
+        "operationId": "kernel_tick_oss_kernel_tick_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KernelTickRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Kernel Tick Oss Kernel Tick Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/oss/forge/route": {
+      "post": {
+        "tags": [
+          "oss"
+        ],
+        "summary": "Forge Route Plan",
+        "description": "Preview Omni MoE inference routing (spectral classify + holographic context).",
+        "operationId": "forge_route_plan_oss_forge_route_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgeRouteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Forge Route Plan Oss Forge Route Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DelegateRequest": {
+        "properties": {
+          "task": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Task"
+          },
+          "agent": {
+            "type": "string",
+            "maxLength": 30,
+            "title": "Agent",
+            "default": "SENTINEL"
+          },
+          "reward": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Reward",
+            "default": 50
+          }
+        },
+        "type": "object",
+        "required": [
+          "task"
+        ],
+        "title": "DelegateRequest"
+      },
+      "EvolveRequest": {
+        "properties": {
+          "score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "default": 0.75
+          }
+        },
+        "type": "object",
+        "title": "EvolveRequest"
+      },
+      "ForgeCycleRequest": {
+        "properties": {
+          "include_pipeline": {
+            "type": "boolean",
+            "title": "Include Pipeline",
+            "default": true
+          },
+          "include_seeds": {
+            "type": "boolean",
+            "title": "Include Seeds",
+            "default": true
+          },
+          "min_tier": {
+            "type": "string",
+            "maxLength": 16,
+            "title": "Min Tier",
+            "default": "silver"
+          },
+          "export": {
+            "type": "boolean",
+            "title": "Export",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "ForgeCycleRequest"
+      },
+      "ForgeRouteRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 3,
+            "title": "Text"
+          },
+          "task_domain": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Task Domain",
+            "default": ""
+          },
+          "session_id": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Session Id",
+            "default": ""
+          },
+          "temperature": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Temperature",
+            "default": 0.7
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "ForgeRouteRequest"
+      },
+      "ForgeSubmitRequest": {
+        "properties": {
+          "domain": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 3,
+            "title": "Domain"
+          },
+          "user": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 10,
+            "title": "User"
+          },
+          "assistant": {
+            "type": "string",
+            "maxLength": 8000,
+            "minLength": 20,
+            "title": "Assistant"
+          },
+          "system": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "System",
+            "default": ""
+          },
+          "genome_id": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Genome Id",
+            "default": "gh05t3"
+          }
+        },
+        "type": "object",
+        "required": [
+          "domain",
+          "user",
+          "assistant"
+        ],
+        "title": "ForgeSubmitRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KernelEvalRequest": {
+        "properties": {
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Metrics"
+          },
+          "governor_approved": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Governor Approved"
+          },
+          "cross_role_passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cross Role Passed"
+          }
+        },
+        "type": "object",
+        "title": "KernelEvalRequest"
+      },
+      "KernelTickRequest": {
+        "properties": {
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "default": true
+          },
+          "ticks": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Ticks",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "title": "KernelTickRequest"
+      },
+      "MemoryRecallRequest": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 2,
+            "title": "Query"
+          },
+          "user_id": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "User Id",
+            "default": "default"
+          },
+          "top_k": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Top K",
+            "default": 5
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "MemoryRecallRequest"
+      },
+      "SettleRequest": {
+        "properties": {
+          "customer_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Customer Id"
+          },
+          "amount_usd": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Amount Usd",
+            "default": 0.0
+          },
+          "plan": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Plan",
+            "default": "starter"
+          }
+        },
+        "type": "object",
+        "required": [
+          "customer_id"
+        ],
+        "title": "SettleRequest"
+      },
+      "SwarmSolveRequest": {
+        "properties": {
+          "problem": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 3,
+            "title": "Problem"
+          },
+          "required_traits": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Traits"
+          },
+          "max_agents": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Max Agents",
+            "default": 3
+          }
+        },
+        "type": "object",
+        "required": [
+          "problem"
+        ],
+        "title": "SwarmSolveRequest"
+      },
+      "TrainRunRequest": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Agent Id",
+            "default": "GH05T3"
+          },
+          "steps": {
+            "type": "integer",
+            "maximum": 5000.0,
+            "minimum": 10.0,
+            "title": "Steps",
+            "default": 80
+          },
+          "model_id": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Model Id",
+            "default": "Qwen/Qwen2.5-Coder-3B-Instruct"
+          },
+          "forge_only": {
+            "type": "boolean",
+            "title": "Forge Only",
+            "default": true
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "TrainRunRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WorldSessionRequest": {
+        "properties": {
+          "domain": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 3,
+            "title": "Domain"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "domain"
+        ],
+        "title": "WorldSessionRequest"
+      },
+      "WorldStepRequest": {
+        "properties": {
+          "action": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Action"
+          }
+        },
+        "type": "object",
+        "title": "WorldStepRequest"
+      }
+    }
+  }
+}
