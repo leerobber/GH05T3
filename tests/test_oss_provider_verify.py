@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 import uvicorn
 
 from oss.api.router import router as oss_router
+from oss.pact.provider_states import router as pact_states_router
 
 # Defensive loading for Verifier
 # SKIP_PACT=1 → always skip on any OS
@@ -59,19 +60,7 @@ def start_test_server(app: FastAPI, port: int = 0):
 def provider_app():
     app = FastAPI()
     app.include_router(oss_router, prefix="/oss")
-
-    # Provider state setup for Pact
-    @app.post("/_pact/provider_states")
-    async def provider_states(state: dict):
-        # Map states to setup (e.g. ensure seeded)
-        name = state.get("state", "")
-        if "MVS substrate is initialized" in name or "MVS is ready" in name:
-            try:
-                from backend.oss.loop import ensure_mvs_seeded
-                ensure_mvs_seeded(verbose=False)
-            except Exception:
-                pass
-        return {"result": "ok"}
+    app.include_router(pact_states_router)
 
     base_url, srv = start_test_server(app)
     try:

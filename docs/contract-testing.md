@@ -13,7 +13,9 @@ This document describes how GH05T3 uses consumer-driven contract testing with Pa
 | Broker health | Done | `scripts/broker_health.py` |
 | CI jobs | Done | `.github/workflows/ci.yml` |
 | Cross-platform runner | Done | `scripts/pact/run.sh` (WSL), `scripts/pact/run.ps1` (Windows) |
-| Staging verify | Partial | `scripts/staging_verify.py` (health only; broker verify TBD) |
+| Staging verify | Done | `scripts/staging_verify.py` (health + broker/local pact verify) |
+| Provider states (staging) | Done | `oss/pact/provider_states.py` mounted on gateway |
+| OSS Prometheus metrics | Done | `oss/observability/metrics.py`, `GET /oss/metrics` |
 | Mesh contract tests | Separate | `backend/tests/test_mesh_contract.py` (skipped in backend CI gate) |
 
 **Do not add** duplicate publish helpers in tests or a separate `ci/publish_pacts.sh` — Python scripts above are the single source of truth.

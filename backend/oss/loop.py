@@ -200,6 +200,13 @@ def tick_global(state: str) -> str:
     return GLOBAL_STATES[(idx + 1) % len(GLOBAL_STATES)]
 
 def run_cycle(tick: int, dry_run: bool = False, verbose: bool = True) -> CycleLog:
+    from oss.observability.metrics import cycle_timer
+
+    with cycle_timer(dry_run=dry_run):
+        return _run_cycle_body(tick, dry_run=dry_run, verbose=verbose)
+
+
+def _run_cycle_body(tick: int, dry_run: bool = False, verbose: bool = True) -> CycleLog:
     ensure_mvs_seeded(verbose=False)  # idempotent, no prints on hot path
     oss = load_oss()
 

@@ -29,7 +29,7 @@ from typing import Optional
 import urllib.request
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-ROOT    = Path(__file__).parent.resolve()
+ROOT    = Path(__file__).resolve().parents[2]  # scripts/runtime/supervisor.py → GH05T3 root
 ECO_DIR = Path(r"C:\Users\leer4\Documents\agent-economy")
 LOGS    = ROOT / "logs"
 LOGS.mkdir(exist_ok=True)

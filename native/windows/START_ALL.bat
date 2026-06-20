@@ -24,7 +24,7 @@ if errorlevel 1 (
 
 echo  [1] Waiting for Ollama API...
 :WAIT_OLLAMA
-powershell -NonInteractive -Command "try{Invoke-RestMethod http://localhost:11434/api/tags -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+curl -sf --max-time 2 http://localhost:11434/api/tags >nul 2>&1
 if errorlevel 1 ( timeout /t 2 /nobreak >nul & goto WAIT_OLLAMA )
 echo  [1] Ollama ready.
 echo.
@@ -39,19 +39,19 @@ timeout /t 1 /nobreak >nul
 
 REM ── 3. Launch supervisor (manages all 9 services with auto-restart) ───────
 echo  [2] Starting Supervisor (manages all services + auto-restart)...
-start "GH05T3-Supervisor" /min "%PY%" "%APP%\supervisor.py"
+start "GH05T3-Supervisor" /min "%PY%" "%APP%\scripts\runtime\supervisor.py"
 timeout /t 5 /nobreak >nul
 
 REM ── 4. Wait for supervisor status API ───────────────────────────────────
 echo  [2] Waiting for supervisor to come online...
 :WAIT_SUP
-powershell -NonInteractive -Command "try{Invoke-RestMethod http://localhost:8090/status -TimeoutSec 2|Out-Null;exit 0}catch{exit 1}" >nul 2>&1
+curl -sf --max-time 2 http://localhost:8090/status >nul 2>&1
 if errorlevel 1 ( timeout /t 2 /nobreak >nul & goto WAIT_SUP )
 echo  [2] Supervisor online.
 echo.
 
 REM ── 5. Print status ──────────────────────────────────────────────────────
-"%PY%" "%APP%\supervisor.py" --status
+"%PY%" "%APP%\scripts\runtime\supervisor.py" --status
 
 echo.
 echo  ============================================================

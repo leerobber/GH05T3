@@ -430,9 +430,25 @@ async def mvs_status() -> dict[str, Any]:
         }
 
 
+@router.get("/metrics")
+async def oss_metrics():
+    """Prometheus metrics for MVS cycle and marketplace signals."""
+    from starlette.responses import JSONResponse, Response
+
+    from oss.observability.metrics import metrics_payload
+
+    body, media_type = metrics_payload()
+    if media_type == "application/json":
+        return JSONResponse(body)
+    return Response(content=body, media_type=media_type)
+
+
 @router.post("/mvs/cycle")
 async def mvs_cycle(body: MvsCycleRequest) -> dict[str, Any]:
     import time
+
+    from oss.observability.metrics import record_cycle
+
     try:
         from backend.oss.loop import ensure_mvs_seeded, run_cycle
         ensure_mvs_seeded(verbose=False)
@@ -446,11 +462,13 @@ async def mvs_cycle(body: MvsCycleRequest) -> dict[str, Any]:
                 "agg": cl.rewards.get("aggregate", 0.0),
                 "omni_mind": cl.rewards.get("omni_mind", 0.0),
             })
+        duration = time.monotonic() - t0
+        record_cycle(duration, dry_run=body.dry_run, outcome="ok")
         return {
             "ran": body.cycles,
             "dry_run": body.dry_run,
             "results": results,
-            "duration_sec": round(time.monotonic() - t0, 3),
+            "duration_sec": round(duration, 3),
             "note": "cycles executed via backend.oss.loop (MVS only)",
         }
     except ModuleNotFoundError:

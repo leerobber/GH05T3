@@ -19,10 +19,12 @@ import sys
 import time
 from pathlib import Path
 
-# Make both layers importable
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "backend"))
+
+from oss.utils.paths import ensure_oss_paths
+
+ensure_oss_paths()
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -44,19 +46,24 @@ def main(with_inference: bool = False) -> int:
     app.include_router(oss_router, prefix="/oss")
     client = TestClient(app)
 
-    checks = [
-        ("/oss/health", 200, lambda b: b.get("status") == "ok"),
-        ("/oss/mvs/status", 200, lambda b: "available" in b),
-        ("/oss/economy/unified", 200, lambda b: "currency" in b),
-        ("/oss/registry/status", 200, lambda b: "genome_count" in b or "source" in b),
+    json_checks = [
+        ("/oss/health", lambda b: b.get("status") == "ok"),
+        ("/oss/mvs/status", lambda b: "available" in b),
+        ("/oss/economy/unified", lambda b: "currency" in b),
+        ("/oss/registry/status", lambda b: "genome_count" in b or "source" in b),
     ]
 
-    for path, expected_code, validator in checks:
+    for path, validator in json_checks:
         r = client.get(path)
-        assert r.status_code == expected_code, f"{path} -> {r.status_code}"
+        assert r.status_code == 200, f"{path} -> {r.status_code}"
         body = r.json()
         assert validator(body), f"{path} contract violated: {body}"
         print(f"[2] {path}: OK")
+
+    r = client.get("/oss/metrics")
+    assert r.status_code == 200, f"/oss/metrics -> {r.status_code}"
+    assert "gh05t3_mvs" in r.text or "prometheus-client" in r.text
+    print("[2] /oss/metrics: OK")
 
     # 3. Cycle via HTTP
     r = client.post("/oss/mvs/cycle", json={"cycles": 1, "dry_run": True})

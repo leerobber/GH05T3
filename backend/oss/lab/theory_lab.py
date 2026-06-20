@@ -11,6 +11,13 @@ from backend.oss.evolution import RoleEvolutionManager
 from backend.oss.world.volatility_world import VolatilityWorld
 from backend.oss.world.alignment_world import AlignmentWorld, create_alignment_world
 from backend.oss.world.meta_architecture_world import MetaArchitectureWorld
+
+# Phase 2.0: AlignmentWorld is the primary evaluation environment
+_WORLD_WEIGHTS = (
+    ("alignment", 0.50),
+    ("volatility", 0.25),
+    ("meta_architecture", 0.25),
+)
 from backend.oss.omni_net import get_omni_net
 from backend.oss.lab.curriculum import CurriculumGenerator
 from backend.oss.eval.harness import EvaluationHarness
@@ -54,6 +61,31 @@ class TheoryLab:
             for _ in range(5 - len(self.theorists)):
                 gid = create_theorist_elite(random.randint(1000, 9999))
                 self.theorists.append(gid)
+
+    def _pick_world(self, cycle: int):
+        """Weighted world selection — AlignmentWorld first (Phase 2.0)."""
+        roll = random.random()
+        cumulative = 0.0
+        for key, weight in _WORLD_WEIGHTS:
+            cumulative += weight
+            if roll <= cumulative:
+                if key == "alignment":
+                    return create_alignment_world()
+                if key == "volatility":
+                    return VolatilityWorld(length=100)
+                return MetaArchitectureWorld()
+        return create_alignment_world()
+
+    def _marketplace_step(self, gid: str, dna, score: float) -> None:
+        try:
+            from oss.observability.metrics import record_marketplace_failure
+        except ImportError:
+            record_marketplace_failure = lambda *_a, **_k: None
+        try:
+            self.market_auto.maybe_buy_traits(gid, dna, score)
+            self.market_auto.maybe_list_traits(gid, dna, score)
+        except Exception:
+            record_marketplace_failure("theory_lab")
 
     def _sample_theory_task(self) -> Dict[str, Any]:
         """Generate a high‑level theory task using the self-generated curriculum when available."""
@@ -99,7 +131,7 @@ class TheoryLab:
 
             # 2. Each theorist acts + interacts with complete OmniWorld
             results = []
-            world = create_alignment_world() if random.random() > 0.5 else (MetaArchitectureWorld() if random.random() > 0.5 else VolatilityWorld())
+            world = self._pick_world(cycle)
             cycle_idx = cycle
             for gid in self.theorists:
                 agent = self.substrate.spawn_agent(gid, role="THEORIST_ELITE")
@@ -169,12 +201,7 @@ class TheoryLab:
                     except Exception:
                         pass
 
-                # Marketplace autonomy
-                try:
-                    self.market_auto.maybe_buy_traits(gid, agent.dna, score)
-                    self.market_auto.maybe_list_traits(gid, agent.dna, score)
-                except:
-                    pass
+                self._marketplace_step(gid, agent.dna, score)
 
                 print(f"[{gid}] Score={score:.3f} (world: {world.__class__.__name__})")
 

@@ -1,0 +1,1 @@
+"""Pact provider-state helpers shared by tests, gateway, and staging verify."""

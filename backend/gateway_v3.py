@@ -284,7 +284,9 @@ try:
     if _oss_root not in _oss_sys.path:
         _oss_sys.path.insert(0, _oss_root)
     from oss.api.router import router as _oss_router
+    from oss.pact.provider_states import router as _pact_states_router
     app.include_router(_oss_router, prefix="/oss")
+    app.include_router(_pact_states_router)
     log.info("OSS router mounted at /oss")
 except Exception as _oss_err:
     log.warning("OSS router not mounted: %s", _oss_err)
@@ -1409,6 +1411,12 @@ async def prometheus_metrics():
             sentinel = swarm.sentinel if hasattr(swarm, "sentinel") else None
             if sentinel:
                 g_threats.set(sentinel.stats.get("threats", 0))
+
+        # OSS / MVS metrics (cycle duration, marketplace failures) share REGISTRY
+        try:
+            import oss.observability.metrics  # noqa: F401 — register collectors
+        except Exception:
+            pass
 
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 

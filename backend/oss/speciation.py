@@ -129,6 +129,32 @@ class SpeciationEngine:
 
         return (trait_dist * 0.7 + meta_dist * 0.3)
 
+    def measure_group_divergence(self, genome_ids: List[str]) -> float:
+        """Average pairwise divergence for a genome group (0.0 if insufficient data)."""
+        genomes = [
+            self.substrate.genomes[gid].dna
+            for gid in genome_ids
+            if gid in self.substrate.genomes
+        ]
+        if len(genomes) < 2:
+            return 0.0
+        divergences = []
+        for i in range(len(genomes)):
+            for j in range(i + 1, len(genomes)):
+                divergences.append(self.calculate_divergence(genomes[i], genomes[j]))
+        return sum(divergences) / len(divergences)
+
+    def _resolve_parent_species(self, genome_ids: List[str]) -> str:
+        parents = set()
+        for gid in genome_ids:
+            if gid not in self.substrate.genomes:
+                continue
+            dna = self.substrate.genomes[gid].dna
+            parents.add(getattr(dna, "species_id", None) or "ROOT")
+        if len(parents) == 1:
+            return parents.pop()
+        return "ROOT"
+
     def attempt_speciation(self, genome_ids: List[str], current_cycle: int, niche: str = "general") -> List[str]:
         """
         Check a group of genomes. If average pairwise divergence high, split off a new species.
@@ -160,10 +186,21 @@ class SpeciationEngine:
             new_group = [g[0] for g in sorted_g[split_point:]]
 
             if len(new_group) >= 2:
-                new_id = f"SPECIES-{len(self.species)+1:03d}-{int(time.time())%10000}"
-                parent_id = "ROOT" if not self.species else list(self.species.keys())[-1]
+                new_id = f"SPECIES-{len(self.species) + 1:03d}-{int(time.time()) % 10000}"
+                parent_id = self._resolve_parent_species(genome_ids)
 
                 sp = self.get_or_create_species(new_id, parent=parent_id, niche=niche)
+                trait_sums: Dict[str, float] = {}
+                trait_counts = 0
+                for gid in new_group:
+                    rec = self.substrate.genomes[gid]
+                    for k, v in rec.dna.get_traits().items():
+                        trait_sums[k] = trait_sums.get(k, 0.0) + v
+                    trait_counts += 1
+                if trait_counts:
+                    sp.trait_signature = {
+                        k: round(v / trait_counts, 4) for k, v in trait_sums.items()
+                    }
                 # Specialize meta for the new species
                 for k in sp.meta_dna:
                     sp.meta_dna[k] = max(0.1, min(0.9, sp.meta_dna[k] + random.uniform(-0.15, 0.15)))
@@ -202,6 +239,31 @@ class SpeciationEngine:
                     pass
 
         return new_species
+
+    def attempt_speciation_with_pressure(
+        self,
+        genome_ids: List[str],
+        current_cycle: int,
+        *,
+        niche: str = "general",
+        base_strength: float = 0.08,
+        max_rounds: int = 6,
+        strength_step: float = 0.04,
+    ) -> tuple[List[str], float]:
+        """
+        Apply escalating niche pressure until divergence crosses threshold or rounds exhaust.
+        Returns (new_species_ids, final_measured_divergence).
+        """
+        measured = self.measure_group_divergence(genome_ids)
+        for round_idx in range(max_rounds):
+            new_sp = self.attempt_speciation(genome_ids, current_cycle, niche=niche)
+            measured = self.measure_group_divergence(genome_ids)
+            if new_sp:
+                return new_sp, measured
+            strength = base_strength + round_idx * strength_step
+            self.apply_divergence_pressure(genome_ids, strength=strength)
+            measured = self.measure_group_divergence(genome_ids)
+        return [], measured
 
     def apply_divergence_pressure(self, genome_ids: List[str], strength: float = 0.1):
         """Simulate different niches pushing traits apart (used in experiments)."""
@@ -249,3 +311,44 @@ def get_speciation_engine() -> SpeciationEngine:
     if _speciation_engine is None:
         _speciation_engine = SpeciationEngine()
     return _speciation_engine
+
+
+def render_phylogeny_ascii(
+    events: List[SpeciationEvent] | None = None,
+    *,
+    root: str = "ROOT",
+) -> str:
+    """
+    Render a simple ASCII phylogenetic tree from speciation events.
+
+    Example (demo species from speciation_phase):
+        ROOT
+        ├── DEMO-SPECIES-01  (Experiment 1)
+        └── DEMO-SPECIES-05  (Experiment 5)
+    """
+    engine = get_speciation_engine()
+    evts = events if events is not None else engine.events
+    if not evts:
+        return f"{root}\n  (no speciation events yet)"
+
+    children: Dict[str, List[tuple[str, str]]] = {}
+    for evt in evts:
+        parent = evt.parent_species or root
+        label = evt.new_species
+        if evt.trigger == "high_pairwise_divergence":
+            label = f"{label}  (divergence={evt.divergence:.2f})"
+        children.setdefault(parent, []).append((evt.new_species, label))
+
+    lines = [root]
+
+    def _walk(parent: str, prefix: str, is_last: bool) -> None:
+        kids = children.get(parent, [])
+        for i, (_sid, display) in enumerate(kids):
+            last = i == len(kids) - 1
+            branch = "└── " if last else "├── "
+            lines.append(f"{prefix}{branch}{display}")
+            extension = "    " if last else "│   "
+            _walk(_sid, prefix + extension, last)
+
+    _walk(root, "", True)
+    return "\n".join(lines)

@@ -87,38 +87,62 @@ class MarketplaceAutonomy:
         self.mind = mind
 
     def maybe_buy_traits(self, agent_id: str, dna: OmniDNA, fitness: float):
-        balance = self.economy.get_balance(agent_id)
-        traits = dna.get_traits()
+        try:
+            from oss.observability.metrics import (
+                record_marketplace_failure,
+                record_marketplace_success,
+            )
+        except ImportError:
+            record_marketplace_failure = record_marketplace_success = lambda *_a, **_k: None
 
-        if fitness < 0.5 and balance > 50.0:
-            needed = [t for t, v in traits.items() if v < 0.4]
-            for trait_name in needed:
-                listings = getattr(self.economy, 'trait_marketplace', None)
-                if listings and hasattr(listings, 'listings'):
-                    listings_dict = listings.listings.get(trait_name, {})
-                    if listings_dict:
-                        seller_id = list(listings_dict.keys())[0]
-                        self.economy.trait_marketplace.buy_trait(
-                            buyer_id=agent_id,
-                            seller_id=seller_id,
-                            trait_name=trait_name,
-                            economy=self.economy,
-                            mind=self.mind,
-                        )
-                        break
+        try:
+            balance = self.economy.get_balance(agent_id)
+            traits = dna.get_traits()
+
+            if fitness < 0.5 and balance > 50.0:
+                needed = [t for t, v in traits.items() if v < 0.4]
+                for trait_name in needed:
+                    listings = getattr(self.economy, 'trait_marketplace', None)
+                    if listings and hasattr(listings, 'listings'):
+                        listings_dict = listings.listings.get(trait_name, {})
+                        if listings_dict:
+                            seller_id = list(listings_dict.keys())[0]
+                            self.economy.trait_marketplace.buy_trait(
+                                buyer_id=agent_id,
+                                seller_id=seller_id,
+                                trait_name=trait_name,
+                                economy=self.economy,
+                                mind=self.mind,
+                            )
+                            record_marketplace_success("buy")
+                            break
+        except Exception:
+            record_marketplace_failure("buy")
 
     def maybe_list_traits(self, agent_id: str, dna: OmniDNA, fitness: float):
-        balance = self.economy.get_balance(agent_id)
-        traits = dna.get_traits()
+        try:
+            from oss.observability.metrics import (
+                record_marketplace_failure,
+                record_marketplace_success,
+            )
+        except ImportError:
+            record_marketplace_failure = record_marketplace_success = lambda *_a, **_k: None
 
-        if balance < 20.0 and fitness > 0.6:
-            strong = [t for t, v in traits.items() if v > 0.8]
-            for trait_name in strong:
-                if hasattr(self.economy, 'trait_marketplace'):
-                    self.economy.trait_marketplace.list_trait(
-                        seller_id=agent_id,
-                        trait_name=trait_name,
-                        price=30.0,
-                        value=traits[trait_name],
-                    )
-                    break
+        try:
+            balance = self.economy.get_balance(agent_id)
+            traits = dna.get_traits()
+
+            if balance < 20.0 and fitness > 0.6:
+                strong = [t for t, v in traits.items() if v > 0.8]
+                for trait_name in strong:
+                    if hasattr(self.economy, 'trait_marketplace'):
+                        self.economy.trait_marketplace.list_trait(
+                            seller_id=agent_id,
+                            trait_name=trait_name,
+                            price=30.0,
+                            value=traits[trait_name],
+                        )
+                        record_marketplace_success("list")
+                        break
+        except Exception:
+            record_marketplace_failure("list")
