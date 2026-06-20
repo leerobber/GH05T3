@@ -3,6 +3,18 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.5.0 — 2026-06-20
+
+### What changed since v0.4.1
+
+#### Features
+- feat(wsl): add native WSL launcher and port-conflict fixes (59ea88d)
+
+### Stats
+- 1 commits
+- 1 contributor(s)
+
+
 ## v0.4.1 — 2026-06-20
 
 ### What changed since v0.4.0
