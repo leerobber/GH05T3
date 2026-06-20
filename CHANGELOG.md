@@ -3,6 +3,18 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.4.1 — 2026-06-20
+
+### What changed since v0.4.0
+
+#### Fixes
+- fix(test): ignore broken .venv symlink on Windows pytest collection (53c1949)
+
+### Stats
+- 1 commits
+- 1 contributor(s)
+
+
 ## v0.4.0 — 2026-06-20
 
 ### What changed since v0.3.1
