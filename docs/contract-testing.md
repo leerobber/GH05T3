@@ -2,7 +2,39 @@
 
 This document describes how GH05T3 uses consumer-driven contract testing with Pact to protect the `/oss` surface (especially the MVS endpoints) between the gateway, OSS, and SovereignCore.
 
+## Implementation status (canonical paths)
+
+| Item | Status | Location |
+|------|--------|----------|
+| Consumer tests | Done | `tests/test_oss_pact.py` |
+| Provider verification | Done | `tests/test_oss_provider_verify.py` |
+| Publish + retry/backoff | Done | `scripts/publish_pacts.py` |
+| Can-I-Deploy gate | Done | `scripts/can_i_deploy.py` |
+| Broker health | Done | `scripts/broker_health.py` |
+| CI jobs | Done | `.github/workflows/ci.yml` |
+| Cross-platform runner | Done | `scripts/pact/run.sh` (WSL), `scripts/pact/run.ps1` (Windows) |
+| Staging verify | Partial | `scripts/staging_verify.py` (health only; broker verify TBD) |
+| Mesh contract tests | Separate | `backend/tests/test_mesh_contract.py` (skipped in backend CI gate) |
+
+**Do not add** duplicate publish helpers in tests or a separate `ci/publish_pacts.sh` — Python scripts above are the single source of truth.
+
 ## Quick Start (Local)
+
+### WSL / Linux / Git Bash
+```bash
+bash scripts/pact/run.sh consumer
+bash scripts/pact/run.sh provider
+bash scripts/pact/run.sh publish    # no-op without broker secrets
+bash scripts/pact/run.sh can-i-deploy
+```
+
+### Windows PowerShell
+```powershell
+.\scripts\pact\run.ps1 consumer
+.\scripts\pact\run.ps1 provider
+.\scripts\pact\run.ps1 publish
+.\scripts\pact\run.ps1 can-i-deploy
+```
 
 ### 1. Run consumer tests (generate pacts)
 ```bash
@@ -10,12 +42,14 @@ pip install pact-python
 python -m pytest tests/test_oss_pact.py -q
 ```
 
-Pact files will be written to `pacts/`.
+Pact files will be written to `pacts/` (gitignored).
 
 ### 2. Run provider verification (TestClient)
 ```bash
 python -m pytest tests/test_oss_provider_verify.py -q
 ```
+
+On Windows, pact FFI often fails unless you set `$env:FORCE_PACT = "1"` or run consumer/provider in WSL/Linux CI.
 
 This mounts the real OSS router exactly as `gateway_v3.py` does and verifies against the pacts.
 

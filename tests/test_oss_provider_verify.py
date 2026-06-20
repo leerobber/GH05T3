@@ -39,7 +39,10 @@ def _get_verifier():
 
 Verifier = _get_verifier()
 
-pytestmark = pytest.mark.skipif(Verifier is None, reason="pact-python not available or FFI failed (use FORCE_PACT=1 on Windows)")
+pytestmark = pytest.mark.skipif(
+    Verifier is None,
+    reason="pact-python not available or FFI failed (use FORCE_PACT=1 on Windows)",
+)
 
 def start_test_server(app: FastAPI, port: int = 0):
     """Start uvicorn in a thread and return base url + shutdown event."""
@@ -82,10 +85,7 @@ def test_provider_verification():
     token = os.environ.get("PACT_BROKER_TOKEN")
 
     with provider_app() as provider_url:
-        VerifierClass = _get_verifier()
-        if VerifierClass is None:
-            pytest.skip("Verifier not available")
-        verifier = VerifierClass(
+        verifier = Verifier(
             provider="gh05t3-oss",
             provider_base_url=provider_url,
         )

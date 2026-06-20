@@ -1,11 +1,26 @@
-# Helper for Windows PowerShell users to set Pact Broker env vars for local script testing.
+# Load Pact Broker env vars from repo-root .env for local PowerShell testing.
 # Usage:
 #   .\scripts\set-pact-env.ps1
-#   python scripts\publish_pacts.py pacts\ (git rev-parse HEAD) ci
+#   .\scripts\pact\run.ps1 consumer
 
-$env:PACT_BROKER_BASE_URL = "https://your-org.pactflow.io"
-$env:PACT_BROKER_TOKEN = "your-api-token-here"
+$Root = Split-Path $PSScriptRoot -Parent
+$EnvFile = Join-Path $Root ".env"
 
-Write-Host "PACT_BROKER_BASE_URL and PACT_BROKER_TOKEN set for this PowerShell session."
-Write-Host "Run your pact scripts now (e.g. python scripts\publish_pacts.py ...)"
-Write-Host "Note: These are only for the current terminal session. Use GitHub Secrets for CI."
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile | ForEach-Object {
+        if ($_ -match '^\s*([^#=]+)=(.*)$') {
+            $name = $Matches[1].Trim()
+            $value = $Matches[2].Trim().Trim('"').Trim("'")
+            if ($name -match '^PACT_BROKER') {
+                Set-Item -Path "env:$name" -Value $value
+            }
+        }
+    }
+}
+
+if (-not $env:PACT_BROKER_BASE_URL -and -not $env:PACT_BROKER_URL) {
+    Write-Host "No PACT_BROKER_* vars in .env — publish/can-i-deploy will no-op (by design)."
+} else {
+    Write-Host "Pact broker env loaded for this session."
+}
+Write-Host "Next: .\scripts\pact\run.ps1 consumer"

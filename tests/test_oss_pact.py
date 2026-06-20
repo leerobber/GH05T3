@@ -46,22 +46,7 @@ if not _skip_pact and (not _on_windows or _force_pact):
         _EachLike = EachLike
         PACT_AVAILABLE = True
     except Exception:
-        # Catch ImportError, DLL load errors, etc.
         PACT_AVAILABLE = False
-else:
-    # On Windows, pact_ffi frequently raises fatal DLL errors.
-    # Force skip unless user explicitly sets FORCE_PACT=1
-    if os.environ.get("FORCE_PACT") == "1":
-        try:
-            from pact import Consumer, Provider, Like, Term, EachLike
-            _Consumer = Consumer
-            _Provider = Provider
-            _Like = Like
-            _Term = Term
-            _EachLike = EachLike
-            PACT_AVAILABLE = True
-        except Exception:
-            PACT_AVAILABLE = False
 
 pytestmark = pytest.mark.skipif(
     not PACT_AVAILABLE,
@@ -209,52 +194,3 @@ def test_consumer_mvs_health(oss_client):
 
     provider = oss_client.get("/oss/health")
     assert provider.status_code == 200
-
-
-# Optional provider verification helper (run after consumer to verify pacts)
-def test_verify_pacts_against_oss_provider():
-    """
-    Simple provider-side verification using the mounted app.
-    In full Pact flow this would be done with pact-python's Verifier against a running server
-    or via `pact-verifier` CLI pointing at the generated pacts/.
-    """
-    # For this environment we just re-execute the consumer expectations
-    # against the live TestClient (this proves the provider still honors the contract).
-    app = FastAPI()
-    app.include_router(oss_router, prefix="/oss")
-    client = TestClient(app)
-
-    # Re-run the expectations manually as verification
-    r1 = client.get("/oss/mvs/status")
-    assert r1.status_code == 200
-
-    r2 = client.post("/oss/mvs/cycle", json={"cycles": 1, "dry_run": True})
-    assert r2.status_code == 200
-
-
-# Broker publishing helper (no-op unless infrastructure present)
-def publish_contracts_if_broker_configured():
-    """
-    Call this from CI when you have a Pact Broker.
-    Example:
-        PACT_BROKER_URL=https://your-broker.example.com \
-        PACT_BROKER_TOKEN=... \
-        python -c "from tests.test_oss_pact import publish...; publish..."
-    """
-    if not PACT_AVAILABLE:
-        return
-    broker_url = os.environ.get("PACT_BROKER_URL")
-    if not broker_url:
-        print("[pact] No PACT_BROKER_URL set — skipping publish (as designed).")
-        return
-
-    # Real publishing would use pact-python's publish or pact-cli
-    # For now we print the instruction. When broker is ready, wire `pact publish pacts/ ...`
-    print(f"[pact] Broker configured at {broker_url}. Ready to publish pacts/ when pact CLI or python-publisher is wired.")
-    # Example future code:
-    # from pact import Verifier
-    # ... or subprocess call to pact-broker
-
-
-if __name__ == "__main__":
-    publish_contracts_if_broker_configured()
