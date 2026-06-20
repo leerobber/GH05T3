@@ -16,23 +16,24 @@ _port_up() {
 
 wsl_gw=0
 wsl_sup=0
-win_gw=0
 win_sup=0
+has_wsl_pid=0
 
 _port_up localhost 8002 && wsl_gw=1
 _port_up localhost 8090 && wsl_sup=1
-_port_up "$WIN_HOST" 8002 && win_gw=1
+# Windows supervisor is the distinguishing signal (WSL launcher does not start :8090)
 _port_up "$WIN_HOST" 8090 && win_sup=1
+[[ -f /tmp/gh05t3-wsl-pids/gateway.pid ]] && has_wsl_pid=1
 
 runtime=""
 conflict=0
 
-if [[ $wsl_gw -eq 1 && $win_gw -eq 1 ]]; then
+if [[ $wsl_sup -eq 1 && $win_sup -eq 1 ]]; then
   conflict=1
+  runtime="windows"
+elif [[ $has_wsl_pid -eq 1 || ($wsl_gw -eq 1 && $win_sup -eq 0) ]]; then
   runtime="wsl"
-elif [[ $wsl_gw -eq 1 ]]; then
-  runtime="wsl"
-elif [[ $win_gw -eq 1 ]]; then
+elif [[ $win_sup -eq 1 || $wsl_gw -eq 1 ]]; then
   runtime="windows"
 else
   runtime="${GH05T3_RUNTIME:-wsl}"
@@ -46,14 +47,13 @@ if [[ $EXPORT -eq 1 ]]; then
 fi
 
 echo "GH05T3 runtime: ${runtime}"
-echo "  WSL gateway :8002     $([[ $wsl_gw -eq 1 ]] && echo UP || echo down)"
-echo "  WSL supervisor :8090  $([[ $wsl_sup -eq 1 ]] && echo UP || echo down)"
-echo "  Windows gateway :8002 $([[ $win_gw -eq 1 ]] && echo UP @ $WIN_HOST || echo down)"
-echo "  Windows supervisor    $([[ $win_sup -eq 1 ]] && echo UP @ $WIN_HOST || echo down)"
+echo "  Gateway :8002          $([[ $wsl_gw -eq 1 ]] && echo UP || echo down)"
+echo "  WSL pid file           $([[ $has_wsl_pid -eq 1 ]] && echo yes || echo no)"
+echo "  Supervisor :8090       $([[ $wsl_sup -eq 1 || $win_sup -eq 1 ]] && echo UP || echo down)"
 
 if [[ $conflict -eq 1 ]]; then
   echo ""
-  echo "CONFLICT: both WSL and Windows hold port 8002. Stop one stack:"
+  echo "CONFLICT: supervisor :8090 active in both WSL and Windows. Stop one stack:"
   echo "  WSL:     bash scripts/wsl_stop.sh"
   echo "  Windows: python scripts/runtime/supervisor.py --stop"
   exit 1
