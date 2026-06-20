@@ -118,14 +118,18 @@ You are between **Phase 1.5 → Phase 2.0**. Do not start quantum/fractal/hologr
 
 ---
 
-## Operational mesh (current)
+## Operational mesh (dual-runtime)
 
-```
-Windows: sovereign-core :8000, supervisor :8090 → economy :8081, gateway :8002
-WSL:     optional GH05T3 on :8001/:8002 (conflicts if both running)
-```
+See **`scripts/mesh/README.md`** for full guide.
 
-**Rule:** One canonical GH05T3 stack per machine. Use `gh05t3-stop` in WSL when Windows supervisor is primary.
+| Use case | Runtime | Start |
+|----------|---------|-------|
+| Full 16-service production mesh | **Windows** | `native\windows\START_ALL.bat` |
+| OSS/MVS + CUDA in WSL | **WSL** | `bash scripts/wsl_start.sh` |
+
+**Rule:** One stack on ports 8001/8002/8090. Detect: `bash scripts/mesh/select_runtime.sh`
+
+**sovereign-core probes:** `GH05T3_RUNTIME=wsl` (default) or `=windows` when supervisor runs on Windows.
 
 ---
 

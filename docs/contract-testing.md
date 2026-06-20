@@ -57,6 +57,18 @@ This mounts the real OSS router exactly as `gateway_v3.py` does and verifies aga
 
 ## Broker Configuration
 
+### GitHub repository secrets (required for gated CI)
+
+In **GitHub → Settings → Secrets and variables → Actions**, add:
+
+| Secret | Example | Used by |
+|--------|---------|---------|
+| `PACT_BROKER_URL` | `https://your-org.pactflow.io` | `pact-consumer`, `can-i-deploy`, `staging-smoke` |
+| `PACT_BROKER_TOKEN` | PactFlow read/write token | publish + verify + can-i-deploy |
+| `STAGING_BASE_URL` | `https://staging.example.com:8002` | `staging-smoke` workflow_dispatch |
+
+Free tier: [PactFlow](https://pactflow.io). Local `.env` mirrors the same names (`PACT_BROKER_BASE_URL` also accepted).
+
 Set these environment variables (usually GitHub secrets):
 
 - `PACT_BROKER_URL`

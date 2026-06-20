@@ -82,6 +82,13 @@ _ensure_windows_mongo() {
 _ensure_windows_mongo
 echo ""
 
+# ── Conflict check: Windows supervisor on same ports ───────────────────────────
+WIN_HOST_IP="${WIN_HOST_IP:-$(ip route show default 2>/dev/null | awk '/default/ {print $3; exit}')}"
+if timeout 1 bash -c "echo > /dev/tcp/${WIN_HOST_IP}/8090" 2>/dev/null; then
+    echo "  [warn] Windows supervisor may be on :8090 — stop it before WSL stack:"
+    echo "         python /mnt/c/Users/leer4/GH05T3/scripts/runtime/supervisor.py --stop"
+fi
+
 # ── Kill existing WSL processes on our ports ─────────────────────────────────
 PORTS_TO_KILL=(8001 8081 8090)
 if [[ "$ONLY" == "all" || "$ONLY" == "--gateway-only" ]]; then
