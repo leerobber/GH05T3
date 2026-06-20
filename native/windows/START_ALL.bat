@@ -29,9 +29,11 @@ if errorlevel 1 ( timeout /t 2 /nobreak >nul & goto WAIT_OLLAMA )
 echo  [1] Ollama ready.
 echo.
 
-REM ── 2. Kill any stale supervisor on port 8090 ────────────────────────────
-for /f "tokens=5" %%A in ('netstat -ano 2^>nul ^| findstr "0.0.0.0:8090 "') do (
-    if not "%%A"=="0" taskkill /F /PID %%A >nul 2>&1
+REM ── 2. Kill any stale services on managed ports ─────────────────────────
+for %%P in (8090 8002 8001 8081 8099) do (
+    for /f "tokens=5" %%A in ('netstat -ano 2^>nul ^| findstr "0.0.0.0:%%P "') do (
+        if not "%%A"=="0" taskkill /F /PID %%A >nul 2>&1
+    )
 )
 timeout /t 1 /nobreak >nul
 
