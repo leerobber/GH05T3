@@ -2,10 +2,20 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run_staging_smoke:
+        description: "Run staging smoke verification"
+        required: false
+        default: "false"
+        type: boolean
+
+env:
+  PACT_CONSUMER: gh05t3-gateway
+  PACT_PROVIDER: gh05t3-oss
 
 jobs:
   # ── Backend unit tests + syntax checks ───────────────────────────────────────
@@ -71,10 +81,17 @@ jobs:
           PYTHONPATH: backend
           AETHYRO_SKIP_LICENSE: "1"
 
+      - name: OSS contract smoke (shape tests, no Pact FFI)
+        run: python -m pytest tests/test_oss_contract.py -q --tb=line
+        env:
+          PYTHONPATH: backend
+          AETHYRO_SKIP_LICENSE: "1"
+
   # ── Pact Consumer (generate + optional publish) ──────────────────────────────
   pact-consumer:
     name: Pact Consumer — publish pacts
     runs-on: ubuntu-latest
+    needs: backend
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -88,19 +105,31 @@ jobs:
           PYTHONPATH: backend
           AETHYRO_SKIP_LICENSE: "1"
           PACT_DO_NOT_TRACK: "true"
-      - name: Upload pacts artifact (for provider job)
+      - name: Upload pacts artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pacts
+          name: pacts-${{ github.sha }}
           path: pacts/
-          retention-days: 7
-      - name: Publish to broker (no-op if secrets absent)
+          retention-days: 30
+      - name: Broker health check
+        if: ${{ secrets.PACT_BROKER_URL != '' }}
+        env:
+          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+        run: python scripts/broker_health.py || true
+        continue-on-error: true
+      - name: Publish to broker
+        if: ${{ secrets.PACT_BROKER_URL != '' }}
         env:
           PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_URL }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+          GIT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
-          python scripts/broker_health.py || true
-          python scripts/publish_pacts.py pacts/ "${GITHUB_SHA}" ci
+          python scripts/publish_pacts.py \
+            --pacts-dir pacts/ \
+            --consumer-version "${GITHUB_SHA}" \
+            --branch "$GIT_BRANCH" \
+            --tag ci
 
   # ── Pact Provider Verification ───────────────────────────────────────────────
   pact-provider:
@@ -117,8 +146,9 @@ jobs:
       - name: Download pacts artifact
         uses: actions/download-artifact@v4
         with:
-          name: pacts
+          name: pacts-${{ github.sha }}
           path: pacts/
+        continue-on-error: true
       - name: Run provider verification (TestClient mount)
         run: python -m pytest tests/test_oss_provider_verify.py -q --tb=line
         env:
@@ -132,28 +162,31 @@ jobs:
     name: Can-I-Deploy Gate
     runs-on: ubuntu-latest
     needs: pact-provider
+    if: ${{ secrets.PACT_BROKER_URL != '' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install
-        run: pip install "pact-python>=2.0.0,<3" httpx python-dotenv
-      - name: Can-I-Deploy check
-        run: |
-          python scripts/can_i_deploy.py \
-            --consumer gh05t3-gateway \
-            --provider gh05t3-oss \
-            --version "${GITHUB_SHA}" \
-            --tag ci
+        run: pip install httpx python-dotenv
+      - name: Can-I-Deploy matrix check
         env:
           PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_URL }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+        run: |
+          python scripts/can_i_deploy.py \
+            --consumer ${{ env.PACT_CONSUMER }} \
+            --provider ${{ env.PACT_PROVIDER }} \
+            --version "${GITHUB_SHA}" \
+            --tag ci \
+            --strict
 
   # ── Full-stack with mocks ────────────────────────────────────────────────────
   fullstack-mock:
     name: Full-stack OSS (mocked inference + Sovereign)
     runs-on: ubuntu-latest
+    needs: backend
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -168,11 +201,14 @@ jobs:
         env:
           AETHYRO_SKIP_LICENSE: "1"
 
-  # ── Staging smoke (manual, requires secrets) ───────────────────────────────
+  # ── Staging smoke (manual workflow_dispatch) ─────────────────────────────────
   staging-smoke:
     name: Staging Smoke + Verification
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    needs: pact-provider
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      inputs.run_staging_smoke == true
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -181,12 +217,17 @@ jobs:
       - name: Install
         run: pip install -r backend/requirements-ci.txt "pact-python>=2.0.0,<3" httpx
       - name: Run staging verify
-        run: |
-          STAGING_BASE_URL=${{ secrets.STAGING_BASE_URL }} \
-          python scripts/staging_verify.py || true
         env:
-          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL || '' }}
-          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN || '' }}
+          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+        run: |
+          python scripts/staging_verify.py \
+            --broker-url "$PACT_BROKER_URL" \
+            --broker-token "$PACT_BROKER_TOKEN" \
+            --provider-url "$STAGING_BASE_URL" \
+            --provider-name "${{ env.PACT_PROVIDER }}" \
+            --consumer-tag ci
 
   # ── Frontend build check ─────────────────────────────────────────────────────
   frontend:

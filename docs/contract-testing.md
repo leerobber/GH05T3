@@ -1,32 +1,45 @@
 # Contract Testing with Pact (GH05T3 OSS)
 
-This document describes how GH05T3 uses consumer-driven contract testing with Pact to protect the `/oss` surface (especially the MVS endpoints) between the gateway, OSS, and SovereignCore.
+Consumer-driven contracts protect the `/oss` surface (especially MVS) between **gh05t3-gateway** (consumer) and **gh05t3-oss** (provider).
 
-## Implementation status (canonical paths)
+## Architecture
 
-| Item | Status | Location |
-|------|--------|----------|
-| Consumer tests | Done | `tests/test_oss_pact.py` |
-| Provider verification | Done | `tests/test_oss_provider_verify.py` |
-| Publish + retry/backoff | Done | `scripts/publish_pacts.py` |
-| Can-I-Deploy gate | Done | `scripts/can_i_deploy.py` |
-| Broker health | Done | `scripts/broker_health.py` |
-| CI jobs | Done | `.github/workflows/ci.yml` |
-| Cross-platform runner | Done | `scripts/pact/run.sh` (WSL), `scripts/pact/run.ps1` (Windows) |
-| Staging verify | Done | `scripts/staging_verify.py` (health + broker/local pact verify) |
-| Provider states (staging) | Done | `oss/pact/provider_states.py` mounted on gateway |
-| OSS Prometheus metrics | Done | `oss/observability/metrics.py`, `GET /oss/metrics` |
-| Mesh contract tests | Separate | `backend/tests/test_mesh_contract.py` (skipped in backend CI gate) |
+```
+tests/test_oss_pact.py     →  pacts/*.json  →  tests/test_oss_provider_verify.py
+   (Pact mock server)          (git-ignored)      (TestClient = gateway mount)
 
-**Do not add** duplicate publish helpers in tests or a separate `ci/publish_pacts.sh` — Python scripts above are the single source of truth.
+tests/test_oss_contract.py — lightweight shape smoke (no Pact FFI, runs in backend job)
 
-## Quick Start (Local)
+scripts/
+  broker_health.py, publish_pacts.py, can_i_deploy.py, staging_verify.py
+scripts/pact/run.sh | run.ps1 — cross-platform entrypoints
+```
 
-### WSL / Linux / Git Bash
+| Secret present | Consumer job | Provider job | Can-I-Deploy |
+|----------------|--------------|--------------|--------------|
+| Both set | Generate + **publish** | Verify + publish results | **Runs** |
+| Missing | Generate only | Verify from artifact | Skipped (no-op) |
+
+**Pacticipant names (broker):** `gh05t3-gateway` / `gh05t3-oss` — do not rename without broker migration.
+
+## Implementation status
+
+| Item | Location |
+|------|----------|
+| Consumer tests | `tests/test_oss_pact.py` |
+| Provider verification | `tests/test_oss_provider_verify.py` |
+| Contract shape smoke | `tests/test_oss_contract.py` |
+| Provider states | `oss/pact/provider_states.py` → `POST /_pact/provider_states` |
+| CI | `.github/workflows/ci.yml` |
+| Runners | `scripts/pact/run.{sh,ps1}` |
+
+## Quick start (local)
+
+### WSL / Linux
 ```bash
 bash scripts/pact/run.sh consumer
 bash scripts/pact/run.sh provider
-bash scripts/pact/run.sh publish    # no-op without broker secrets
+bash scripts/pact/run.sh publish
 bash scripts/pact/run.sh can-i-deploy
 ```
 
@@ -34,145 +47,132 @@ bash scripts/pact/run.sh can-i-deploy
 ```powershell
 .\scripts\pact\run.ps1 consumer
 .\scripts\pact\run.ps1 provider
-.\scripts\pact\run.ps1 publish
-.\scripts\pact\run.ps1 can-i-deploy
 ```
 
-### 1. Run consumer tests (generate pacts)
+### Manual
 ```bash
 pip install pact-python
-python -m pytest tests/test_oss_pact.py -q
+PYTHONPATH=backend python -m pytest tests/test_oss_pact.py -q
+PYTHONPATH=backend python -m pytest tests/test_oss_provider_verify.py -q
+PYTHONPATH=backend python -m pytest tests/test_oss_contract.py -q
 ```
 
-Pact files will be written to `pacts/` (gitignored).
+On Windows, set `$env:FORCE_PACT = "1"` or run Pact tests in WSL/Linux CI.
 
-### 2. Run provider verification (TestClient)
+## GitHub secrets
+
+| Secret | Used by |
+|--------|---------|
+| `PACT_BROKER_URL` | publish, verify, can-i-deploy, staging-smoke |
+| `PACT_BROKER_TOKEN` | same |
+| `STAGING_BASE_URL` | staging-smoke (`workflow_dispatch`) |
+
+Free tier: [PactFlow](https://pactflow.io). Local `.env` accepts `PACT_BROKER_BASE_URL` or `PACT_BROKER_URL`.
+
+## CI pipeline
+
+```
+backend → pact-consumer → pact-provider → can-i-deploy (if broker)
+                              ↓
+                    (manual) staging-smoke
+```
+
+Trigger staging smoke:
 ```bash
-python -m pytest tests/test_oss_provider_verify.py -q
+gh workflow run ci.yml -f run_staging_smoke=true --ref main
 ```
 
-On Windows, pact FFI often fails unless you set `$env:FORCE_PACT = "1"` or run consumer/provider in WSL/Linux CI.
+### Jobs
 
-This mounts the real OSS router exactly as `gateway_v3.py` does and verifies against the pacts.
+1. **backend** — unit tests + `test_oss_contract.py` shape smoke
+2. **pact-consumer** — `test_oss_pact.py`, artifact `pacts-${{ github.sha }}`, optional publish
+3. **pact-provider** — `test_oss_provider_verify.py` (fails on contract break)
+4. **can-i-deploy** — matrix check consumer→provider (skipped without broker)
+5. **staging-smoke** — `staging_verify.py` against `STAGING_BASE_URL`
+6. **fullstack-mock** — `scripts/oss_smoke.py`
 
-## Broker Configuration
+## Scripts reference
 
-### GitHub repository secrets (required for gated CI)
+### Publish
+```bash
+# Legacy positional
+python scripts/publish_pacts.py pacts/ "$(git rev-parse HEAD)" ci
 
-In **GitHub → Settings → Secrets and variables → Actions**, add:
+# Flags
+python scripts/publish_pacts.py \
+  --pacts-dir pacts/ \
+  --consumer-version "$(git rev-parse HEAD)" \
+  --branch "$(git branch --show-current)" \
+  --tag ci
+```
 
-| Secret | Example | Used by |
-|--------|---------|---------|
-| `PACT_BROKER_URL` | `https://your-org.pactflow.io` | `pact-consumer`, `can-i-deploy`, `staging-smoke` |
-| `PACT_BROKER_TOKEN` | PactFlow read/write token | publish + verify + can-i-deploy |
-| `STAGING_BASE_URL` | `https://staging.example.com:8002` | `staging-smoke` workflow_dispatch |
+### Can-I-Deploy
 
-Free tier: [PactFlow](https://pactflow.io). Local `.env` mirrors the same names (`PACT_BROKER_BASE_URL` also accepted).
+Matrix mode (CI default):
+```bash
+python scripts/can_i_deploy.py \
+  --consumer gh05t3-gateway \
+  --provider gh05t3-oss \
+  --version "$(git rev-parse HEAD)" \
+  --tag ci \
+  --strict
+```
 
-Set these environment variables (usually GitHub secrets):
+PactFlow environment mode:
+```bash
+python scripts/can_i_deploy.py \
+  --pacticipant gh05t3-oss \
+  --version "$(git rev-parse HEAD)" \
+  --to-environment production
+```
 
-- `PACT_BROKER_URL`
-- `PACT_BROKER_TOKEN`
+Record deployment after promote:
+```bash
+python scripts/can_i_deploy.py \
+  --pacticipant gh05t3-oss \
+  --version "$VERSION" \
+  --record-deployment production
+```
 
-When present, the CI will:
-- Publish pacts from the consumer job
-- Verify pacts in the provider job
-- Support can-i-deploy queries
+### Staging verify
+```bash
+python scripts/staging_verify.py \
+  --provider-url "$STAGING_BASE_URL" \
+  --broker-url "$PACT_BROKER_URL" \
+  --broker-token "$PACT_BROKER_TOKEN" \
+  --provider-name gh05t3-oss \
+  --consumer-tag ci
+```
 
-If the variables are absent, all steps gracefully become no-ops or use local artifacts.
+## Matchers
 
-## CI Jobs (see .github/workflows/ci.yml)
+Use `Like`, `Term`, `EachLike` in `tests/test_oss_pact.py` — assert consumer-relevant fields only.
 
-1. **backend** — normal tests + OSS smoke (always runs)
-2. **pact-consumer** — runs `tests/test_oss_pact.py`, generates pacts, publishes if broker configured
-3. **pact-provider** — runs provider verification (TestClient or against broker)
-4. **can-i-deploy** — queries broker; fails promotion on unverified pacts (skips or warns if no broker)
-5. **staging-smoke** (manual) — health check + verification against real staging URL
-
-## Matchers Used
-
-We use Pact's flexible matchers so contracts are not brittle:
-
-- `Like(...)` — structure + type matching
-- `Term(...)` — regex for fields like durations or IDs
-- `EachLike(...)` — arrays
-
-See `tests/test_oss_pact.py` for current expectations on:
-- `GET /oss/mvs/status`
-- `POST /oss/mvs/cycle`
-
-## Common Failures & Fixes
-
-| Symptom                        | Likely Cause                          | Fix |
-|--------------------------------|---------------------------------------|-----|
-| 404 on provider verification   | Wrong mount prefix or state not set   | Ensure provider state handler sets up MVS genomes |
-| Mismatch on "aggregate"        | Floating point or new field added     | Use `Like(0.65)` or `Term` matcher |
-| Broker 401/403                 | Wrong token or URL                    | Check secrets |
-| Pact file not found            | Consumer job didn't run or artifacts not uploaded | Check job dependencies |
-| Port conflict in provider test | Test server already running           | Use unique port or let uvicorn choose |
+Current interactions: `GET /oss/mvs/status`, `POST /oss/mvs/cycle`, `GET /oss/health`.
 
 ## Troubleshooting
 
-**Check broker health**
+| Symptom | Fix |
+|---------|-----|
+| Provider 404 | OSS router mounted at `/oss`; check provider states |
+| Broker 401 | Token scope read+write |
+| Stale pacts | `rm -rf pacts/` and re-run consumer tests |
+| Port 1234 in use | `PACT_MOCK_PORT=1235` or kill stale mock |
+| Windows FFI fail | `SKIP_PACT=1` or WSL / `FORCE_PACT=1` |
+
+**Broker health:** `python scripts/broker_health.py`
+
+**Stale pact cleanup:**
 ```bash
-python scripts/broker_health.py
-# or
-curl -f $PACT_BROKER_URL/health
+rm -rf pacts/
+PYTHONPATH=backend python -m pytest tests/test_oss_pact.py -q
 ```
 
-**Run only pact tests**
-```bash
-python -m pytest -k "pact or oss_pact or oss_contract" -q
-```
+## Adding endpoints
 
-**Publish manually**
+1. Consumer test in `tests/test_oss_pact.py` with matchers.
+2. Provider state in `oss/pact/provider_states.py` if needed.
+3. Shape assertion in `tests/test_oss_contract.py` (optional).
+4. CI publishes + verifies automatically when broker is wired.
 
-Unix / Git Bash / WSL:
-```bash
-PACT_BROKER_BASE_URL=... PACT_BROKER_TOKEN=... \
-  python scripts/publish_pacts.py pacts/ $(git rev-parse HEAD) ci
-```
-
-PowerShell (Windows):
-```powershell
-$env:PACT_BROKER_BASE_URL = "https://your-org.pactflow.io"
-$env:PACT_BROKER_TOKEN = "your-token-here"
-python scripts/publish_pacts.py pacts/ $(git rev-parse HEAD) ci
-```
-
-**Can-I-Deploy check**
-
-Unix:
-```bash
-PACT_BROKER_BASE_URL=... PACT_BROKER_TOKEN=... \
-  python scripts/can_i_deploy.py \
-    --consumer gh05t3-gateway --provider gh05t3-oss \
-    --version $(git rev-parse HEAD)
-```
-
-PowerShell:
-```powershell
-$env:PACT_BROKER_BASE_URL = "..."
-$env:PACT_BROKER_TOKEN = "..."
-python scripts/can_i_deploy.py `
-    --consumer gh05t3-gateway `
-    --provider gh05t3-oss `
-    --version $(git rev-parse HEAD)
-```
-
-## Emergency Override
-
-If the broker is down and you must promote:
-- Set the `can-i-deploy` job to `if: false` temporarily, or
-- Run with `--strict=false` equivalent (current scripts default to allow on unreachable).
-
-Always follow up with a manual verification once the broker recovers.
-
-## Adding New Endpoints
-
-1. Add a consumer test in `tests/test_oss_pact.py` using `Like`/`Term`.
-2. Update provider state setup in `tests/test_oss_provider_verify.py` if needed.
-3. Run locally to generate an updated pact.
-4. Let CI publish + verify.
-
-This keeps the iron foundation: contracts are the source of truth for integration between GH05T3, OSS/MVS, and SovereignCore.
+Do not add duplicate publish helpers — `scripts/publish_pacts.py` is canonical.

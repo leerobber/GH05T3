@@ -30,6 +30,7 @@ next-env.d.ts
 **/build/
 pacts/
 pacts/logs/
+*.pact.log
 dist/
 dist
 
