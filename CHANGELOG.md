@@ -3,6 +3,18 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.4.0 — 2026-06-20
+
+### What changed since v0.3.1
+
+#### Features
+- feat(oss): green test suite, deploy configs, and canonical layout cleanup (3053d88)
+
+### Stats
+- 1 commits
+- 1 contributor(s)
+
+
 ## v0.3.1 — 2026-06-19
 
 ### What changed since v0.3.0
