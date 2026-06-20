@@ -84,6 +84,8 @@ agenthub/agents/youtube/db
 
 # GH05T3 runtime files (never commit)
 backend/.env
+# Malformed Windows-path filename artifact
+backend/C:*
 backend/memory/palace.db
 backend/memory/palace.db-shm
 backend/memory/palace.db-wal
