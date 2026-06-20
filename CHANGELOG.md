@@ -3,6 +3,18 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.7.1 — 2026-06-20
+
+### What changed since v0.7.0
+
+#### Fixes
+- fix(mesh): avoid false dual-runtime conflict on mirrored WSL ports (cd7a031)
+
+### Stats
+- 1 commits
+- 1 contributor(s)
+
+
 ## v0.7.0 — 2026-06-20
 
 ### What changed since v0.6.1
