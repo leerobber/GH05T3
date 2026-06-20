@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "outputDirectory": "frontend/build",
+  "buildCommand": "cd frontend && npm run build",
+  "installCommand": "cd frontend && npm install",
+  "env": {
+    "REACT_APP_GW3_URL": "https://api.aethyro.com"
+  },
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://api.aethyro.com/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}

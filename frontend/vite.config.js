@@ -42,6 +42,8 @@ export default defineConfig({
     },
   },
   define: {
-    'process.env': {},
+    'process.env.REACT_APP_GW3_URL': JSON.stringify(process.env.REACT_APP_GW3_URL || 'http://localhost:8002'),
+    'process.env.REACT_APP_BACKEND_URL': JSON.stringify(process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001'),
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'production'),
   },
 })

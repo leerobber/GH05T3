@@ -1,0 +1,49 @@
+name: deploy-aethyro
+
+on:
+  push:
+    branches:
+      - main
+      - production
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements-ci.txt
+
+      - name: Run OSS economy tests
+        run: |
+          python -m pytest tests/test_oss_economy.py -v --tb=short
+
+  deploy-frontend:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm install
+          npm run build
+        env:
+          REACT_APP_GW3_URL: https://api.aethyro.com
+
+      - name: Deploy to Cloudflare Pages
+        run: echo "Deploy step — configure CLOUDFLARE_API_TOKEN secret"

@@ -1,0 +1,14 @@
+{
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "domain": "default",
+  "lora_rank": 16,
+  "steps": 80,
+  "final_loss": 3.23839476108551,
+  "dataset_size": 33,
+  "max_seq_len": 512,
+  "gpu": "NVIDIA GeForce RTX 5050 Laptop GPU",
+  "sm": "120",
+  "pytorch": "2.11.0+cu128",
+  "quantized": true,
+  "compute_dtype": "bf16"
+}

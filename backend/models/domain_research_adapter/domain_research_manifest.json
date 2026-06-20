@@ -1,0 +1,38 @@
+{
+  "profile": "domain_research_rob_rotation",
+  "examples": 1579,
+  "by_source": {
+    "spin_domain": 1200,
+    "ghost_domain_product_strategy": 24,
+    "sovereign_nation_research": 115,
+    "ghost_domain_cfo": 24,
+    "ghost_domain_ops": 24,
+    "ghost_domain_content": 24,
+    "ghost_domain_growth": 24,
+    "ghost_domain_sales": 24,
+    "ghost_domain_business": 24,
+    "ghost_domain_frontier": 24,
+    "ghost_domain_ml_engineer": 24,
+    "ghost_domain_core": 24,
+    "ghost_domain_legal_ip": 24
+  },
+  "domain_slugs": [
+    "business",
+    "sales",
+    "product_strategy",
+    "growth",
+    "cfo",
+    "content",
+    "legal_ip",
+    "ops",
+    "ml_engineer",
+    "frontier",
+    "core"
+  ],
+  "config": {
+    "goals_per_domain": 12,
+    "spin_cap": 400,
+    "weight_spin": 3,
+    "weight_sovereign": 5
+  }
+}

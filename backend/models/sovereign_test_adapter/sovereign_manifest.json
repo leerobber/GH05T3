@@ -1,0 +1,9 @@
+{
+  "agent_id": "GH05T3",
+  "examples": 9,
+  "by_source": {
+    "elite_strand": 6,
+    "forge_gold": 3
+  },
+  "adapter_dir": "gh05t3_lora_adapter"
+}

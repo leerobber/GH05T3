@@ -1,0 +1,51 @@
+{
+  "paradigm": "domain_research_rob_rotation",
+  "agent_id": "GH05T3",
+  "model": "Qwen/Qwen2.5-Coder-3B-Instruct",
+  "lora_rank": 16,
+  "steps": 300,
+  "final_loss": 2.2886675767600537,
+  "dataset_size": 1579,
+  "manifest": {
+    "profile": "domain_research_rob_rotation",
+    "examples": 1579,
+    "by_source": {
+      "spin_domain": 1200,
+      "ghost_domain_product_strategy": 24,
+      "sovereign_nation_research": 115,
+      "ghost_domain_cfo": 24,
+      "ghost_domain_ops": 24,
+      "ghost_domain_content": 24,
+      "ghost_domain_growth": 24,
+      "ghost_domain_sales": 24,
+      "ghost_domain_business": 24,
+      "ghost_domain_frontier": 24,
+      "ghost_domain_ml_engineer": 24,
+      "ghost_domain_core": 24,
+      "ghost_domain_legal_ip": 24
+    },
+    "domain_slugs": [
+      "business",
+      "sales",
+      "product_strategy",
+      "growth",
+      "cfo",
+      "content",
+      "legal_ip",
+      "ops",
+      "ml_engineer",
+      "frontier",
+      "core"
+    ],
+    "config": {
+      "goals_per_domain": 12,
+      "spin_cap": 400,
+      "weight_spin": 3,
+      "weight_sovereign": 5
+    }
+  },
+  "gpu": "NVIDIA GeForce RTX 5050 Laptop GPU",
+  "sm": "120",
+  "trainer": "sovereign_loop",
+  "domain_research": true
+}

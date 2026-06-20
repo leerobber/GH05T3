@@ -77,20 +77,29 @@ See `.env.example` for the full list with inline docs.
 
 ```
 GH05T3/
+├── oss/                    Canonical OSS layer — import as `oss.*` (tests + gateway mount)
+│   ├── api/router.py       FastAPI routes mounted at /oss by gateway_v3
+│   ├── forge/              Adapter routing, MoE farm, lab inference
+│   ├── lab/                SaaS product lab, metrics, trading strategy
+│   ├── kernel/             Civilization kernel FSM + orchestrator
+│   ├── substrate/          Genomic substrate reset hooks
+│   ├── dna/ · mind/ · train/ · ecosystem/ · world/ …
 ├── backend/                FastAPI app, gateway, swarm, integrations, training
 │   ├── server.py           Port 8001 — main app, requires MongoDB
 │   ├── gateway_v3.py       Port 8002 — SwarmBus / Claude / GitHub / Stripe
 │   ├── gh05t3_inference.py Port 8010 — OpenAI-compatible LoRA inference
 │   ├── ghost_llm.py        Multi-provider router (gh05t3 → ollama → groq → google → anthropic)
+│   ├── oss/                MVS runtime engine only (loop, mvs, genomic_substrate, theory lab)
 │   ├── swarm/              SwarmBus + 5 specialist agents
 │   ├── integrations/       Claude, GitHub, Stripe, story editor
 │   ├── training/           train_local.py (canonical path), datasets
 │   └── tests/              pytest suite
 ├── frontend/               React 19 + Vite 8 + Tailwind 3, port 3000 (dev) / 3210 (preview)
 │   └── src/components/ghost/   All UI panels
+├── deploy/                 Vercel, Cloudflare Pages, tunnel configs
 ├── kairos/                 KAIROS framework — Kickoff/Align/Implement/Refine/Optimize/Scale
 ├── swarm/                  Top-level swarm bus + agents
-├── sovereignnation/        SovereignNation product surface
+├── sovereignnation/        SovereignNation product surface (gates, pipeline, phi service)
 ├── scripts/                Training, runtime, and utility scripts
 │   ├── training/           Training pipelines (Avery, Sovereign, RunPod, Kairos gen, data_gen)
 │   └── runtime/            Ops scripts + standalone agents
@@ -99,12 +108,14 @@ GH05T3/
 ├── native/                 Platform-specific launchers
 │   ├── windows/            install.ps1, train.bat, run.bat, .ps1, .bat
 │   └── android/            termux_setup.sh
-├── tests/                  Top-level pytest suite
+├── tests/                  Top-level pytest suite (imports `oss.*`, not `backend.oss.*`)
 ├── memory/                 SQLite memory palace, deploy checklist, PRD
 ├── CLAUDE.md               Session memory — read first if hacking on training
 ├── INTEGRATIONS.md         Tier 1/2/3 integration roadmap
 └── .env.example            Full environment template with docs
 ```
+
+**Import rule:** Tests and `gateway_v3` use top-level `oss.*`. `backend/oss/` holds the MVS simulation engine (`loop.py`, `mvs.py`, `genomic_substrate.py`, theory lab). Do not duplicate `oss/forge`, `oss/api`, or `oss/lab` under `backend/oss/`.
 
 ---
 

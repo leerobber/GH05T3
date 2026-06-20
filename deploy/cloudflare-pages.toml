@@ -1,0 +1,15 @@
+[project]
+name = "aethyro-app"
+account_id = ""
+
+[build]
+command = "cd frontend && npm run build"
+destination = "frontend/build"
+
+[env.production]
+REACT_APP_GW3_URL = "https://api.aethyro.com"
+
+[[redirects]]
+from = "/api/*"
+to = "https://api.aethyro.com/:splat"
+status = 200

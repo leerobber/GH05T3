@@ -32,6 +32,7 @@ SCIENTIFIC_ADAPTER_DIRS: dict[ForgeDomain, str] = {
 
 # Legacy bucket names for vLLM LoRA farm compatibility
 ADAPTER_BUCKETS: dict[str, str] = {
+    "business": "domain_research_adapter",
     "security": "security_adapter",
     "code": "code_adapter",
     "research": "research_adapter",
@@ -67,6 +68,41 @@ def resolve_adapter_path(base_dir: Path, domain: ForgeDomain) -> tuple[str, Path
             return "default", default
         return "default", default
     return adapter_bucket_for_domain(domain), path
+
+
+_ROLE_BUCKETS: dict[str, str] = {
+    "builder": "business",
+    "investor": "business",
+    "scientist": "research",
+    "operator": "ops",
+    "governor": "security",
+}
+
+
+def adapter_dir_for_bucket(bucket: str) -> str:
+    return ADAPTER_BUCKETS.get(bucket, ADAPTER_BUCKETS["default"])
+
+
+def adapter_bucket_for_agent_role(role: str) -> str:
+    return _ROLE_BUCKETS.get(role.lower(), "default")
+
+
+def resolve_legacy_adapter_bucket(bucket: str) -> str:
+    return bucket if bucket in ADAPTER_BUCKETS else "default"
+
+
+def resolve_adapter_path_for_bucket(base_dir: Path, bucket: str) -> tuple[str, Path]:
+    subdir = adapter_dir_for_bucket(bucket)
+    path = base_dir / subdir
+    if not (path / "adapter_config.json").exists():
+        nested = path / subdir
+        if (nested / "adapter_config.json").exists():
+            return bucket, nested
+        default = base_dir / ADAPTER_BUCKETS["default"]
+        if (default / "adapter_config.json").exists():
+            return "default", default
+        return "default", default
+    return bucket, path
 
 
 def list_moe_status(base_dir: Path) -> dict:

@@ -68,6 +68,7 @@ __pycache__/
 *pyc*
 venv/
 .venv/
+.venv.windows-mount.bak/
 
 # Development tools
 chainlit.md
@@ -84,8 +85,15 @@ agenthub/agents/youtube/db
 # GH05T3 runtime files (never commit)
 backend/.env
 backend/memory/palace.db
+backend/memory/palace.db-shm
+backend/memory/palace.db-wal
 backend/memory/conversations.jsonl
 backend/memory/*.db
+backend/evolution/map_elites_archive.pkl
+backend/training/checkpoints/
+terminals/
+/models/
+mcps/
 logs/
 mongo-data/
 *.lan_ip.txt

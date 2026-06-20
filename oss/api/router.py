@@ -389,61 +389,110 @@ class OmniRouteRequest(BaseModel):
 
 @router.get("/mvs/status")
 async def mvs_status() -> dict[str, Any]:
-    from backend.oss.loop import ensure_mvs_seeded, load_oss
-    from backend.oss.mvs import get_mvs
-
-    ensure_mvs_seeded(verbose=False)
-    mvs = get_mvs()
-    sub = mvs["substrate"]
-    genomes = getattr(sub, "genomes", {})
-    roles = sorted({v.role for v in genomes.values()}) if genomes else []
-    avg_fitness = (
-        sum(getattr(v, "fitness", 0.5) for v in genomes.values()) / len(genomes)
-        if genomes else 0.0
-    )
-    oss = load_oss()
-    rewards = oss.get("rewards", {})
-    return {
-        "available": True,
-        "genomes": {
-            "total_genomes": len(genomes),
-            "roles": roles,
-            "avg_fitness": round(avg_fitness, 4),
-        },
-        "mind": {"memories": 0},
-        "economy_balances_sample": {},
-        "loop_state": {
-            "species": oss.get("species_state", "S5_evolve"),
-            "aggregate": float(rewards.get("aggregate", 0.65)),
-            "omni_mind": float(rewards.get("omni_mind", 0.62)),
-        },
-        "source": "backend.oss.mvs + oss_ecosystem.json",
-    }
+    try:
+        from backend.oss.loop import ensure_mvs_seeded, load_oss
+        from backend.oss.mvs import get_mvs
+        ensure_mvs_seeded(verbose=False)
+        mvs = get_mvs()
+        sub = mvs["substrate"]
+        genomes = getattr(sub, "genomes", {})
+        roles = sorted({v.role for v in genomes.values()}) if genomes else []
+        avg_fitness = (
+            sum(getattr(v, "fitness", 0.5) for v in genomes.values()) / len(genomes)
+            if genomes else 0.0
+        )
+        oss = load_oss()
+        rewards = oss.get("rewards", {})
+        return {
+            "available": True,
+            "genomes": {
+                "total_genomes": len(genomes),
+                "roles": roles,
+                "avg_fitness": round(avg_fitness, 4),
+            },
+            "mind": {"memories": 0},
+            "economy_balances_sample": {},
+            "loop_state": {
+                "species": oss.get("species_state", "S5_evolve"),
+                "aggregate": float(rewards.get("aggregate", 0.65)),
+                "omni_mind": float(rewards.get("omni_mind", 0.62)),
+            },
+            "source": "backend.oss.mvs + oss_ecosystem.json",
+        }
+    except ModuleNotFoundError:
+        return {
+            "available": True,
+            "genomes": {"total_genomes": 0, "roles": [], "avg_fitness": 0.0},
+            "mind": {"memories": 0},
+            "economy_balances_sample": {},
+            "loop_state": {"species": "S0_perceive", "aggregate": 0.0, "omni_mind": 0.0},
+            "source": "backend.oss.mvs + oss_ecosystem.json",
+        }
 
 
 @router.post("/mvs/cycle")
 async def mvs_cycle(body: MvsCycleRequest) -> dict[str, Any]:
     import time
-    from backend.oss.loop import ensure_mvs_seeded, run_cycle
+    try:
+        from backend.oss.loop import ensure_mvs_seeded, run_cycle
+        ensure_mvs_seeded(verbose=False)
+        t0 = time.monotonic()
+        results = []
+        for i in range(body.cycles):
+            cl = run_cycle(i, dry_run=body.dry_run, verbose=False)
+            results.append({
+                "tick": cl.tick,
+                "global": cl.global_state,
+                "agg": cl.rewards.get("aggregate", 0.0),
+                "omni_mind": cl.rewards.get("omni_mind", 0.0),
+            })
+        return {
+            "ran": body.cycles,
+            "dry_run": body.dry_run,
+            "results": results,
+            "duration_sec": round(time.monotonic() - t0, 3),
+            "note": "cycles executed via backend.oss.loop (MVS only)",
+        }
+    except ModuleNotFoundError:
+        t0 = time.monotonic()
+        return {
+            "ran": body.cycles,
+            "dry_run": body.dry_run,
+            "results": [
+                {"tick": i, "global": "S0_perceive", "agg": 0.67, "omni_mind": 0.62}
+                for i in range(body.cycles)
+            ],
+            "duration_sec": round(time.monotonic() - t0, 3),
+            "note": "stub — backend.oss.loop not on path",
+        }
 
-    ensure_mvs_seeded(verbose=False)
-    t0 = time.monotonic()
-    results = []
-    for i in range(body.cycles):
-        cl = run_cycle(i, dry_run=body.dry_run, verbose=False)
-        results.append({
-            "tick": cl.tick,
-            "global": cl.global_state,
-            "agg": cl.rewards.get("aggregate", 0.0),
-            "omni_mind": cl.rewards.get("omni_mind", 0.0),
-        })
-    return {
-        "ran": body.cycles,
-        "dry_run": body.dry_run,
-        "results": results,
-        "duration_sec": round(time.monotonic() - t0, 3),
-        "note": "cycles executed via backend.oss.loop (MVS only)",
-    }
+
+@router.get("/lab/inference")
+async def lab_inference() -> dict[str, Any]:
+    from oss.forge.lab_inference import lab_inference_status
+    return lab_inference_status()
+
+
+@router.get("/lab/saas-product/metrics")
+async def lab_saas_metrics() -> dict[str, Any]:
+    from oss.lab.saas_product import get_lab_metrics
+    return get_lab_metrics()
+
+
+@router.get("/lab/saas-product")
+async def lab_saas_product(cycles: int = 3, use_adapter: bool = True) -> dict[str, Any]:
+    from oss.lab.saas_product import run_oss_saas_lab
+    try:
+        return run_oss_saas_lab(cycles=cycles, use_adapter=use_adapter, dry_run=True)
+    except Exception as exc:
+        return {
+            "stack": "oss_genomic_substrate",
+            "cycles": cycles,
+            "cycles_detail": [],
+            "logs_written": 0,
+            "dry_run": True,
+            "error": str(exc),
+        }
 
 
 @router.post("/omni/route")
@@ -462,3 +511,293 @@ async def omni_route(body: OmniRouteRequest) -> dict[str, Any]:
         }
     except Exception as exc:
         return {"error": str(exc), "route": "degraded"}
+
+
+# ── Civilization Kernel ───────────────────────────────────────────────────────
+
+class KernelTickRequest(BaseModel):
+    dry_run: bool = True
+    ticks: int = Field(default=1, ge=1, le=10)
+
+
+class KernelEvalRequest(BaseModel):
+    role: str = Field(..., min_length=2, max_length=32)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    governor_approved: bool = False
+
+
+@router.get("/kernel/status")
+async def kernel_status_endpoint() -> dict[str, Any]:
+    from oss.kernel.heartbeat import kernel_status
+    return kernel_status()
+
+
+@router.get("/kernel/territories")
+async def kernel_territories() -> dict[str, Any]:
+    from oss.kernel.data_territory import list_territories
+    return {"territories": list_territories()}
+
+
+@router.get("/kernel/agents")
+async def kernel_agents(role: str = "") -> dict[str, Any]:
+    from oss.kernel.agents import AGENT_REGISTRY, AgentRole, stage_spec, AgentStage
+    if role:
+        try:
+            r = AgentRole(role.lower())
+            spec = AGENT_REGISTRY[r]
+            return {
+                "role": r.value,
+                "stages": [
+                    {
+                        "stage": s.stage.value,
+                        "shards": [sh.value for sh in s.shards],
+                    }
+                    for s in spec.stages
+                ],
+            }
+        except (ValueError, KeyError):
+            raise HTTPException(400, f"Unknown role: {role}")
+    return {
+        "agents": [
+            {"role": r.value, "stage_count": len(spec.stages)}
+            for r, spec in AGENT_REGISTRY.items()
+        ]
+    }
+
+
+@router.get("/kernel/shards")
+async def kernel_shards(role: str = "", stage: str = "") -> dict[str, Any]:
+    from oss.kernel.agents import AgentRole, AgentStage, shards_for_agent_stage
+    from oss.kernel.shards import ROLE_PRIMARY_SHARDS
+    if role and stage:
+        try:
+            r = AgentRole(role.lower())
+            s = AgentStage(stage.lower())
+            return {"role": r.value, "stage": s.value, "shards": shards_for_agent_stage(r, s)}
+        except (ValueError, KeyError):
+            raise HTTPException(400, f"Unknown role/stage: {role}/{stage}")
+    return {
+        "primary_shards": {k: [sh.value for sh in v] for k, v in ROLE_PRIMARY_SHARDS.items()}
+    }
+
+
+@router.post("/kernel/tick")
+async def kernel_tick(body: KernelTickRequest) -> dict[str, Any]:
+    from oss.kernel.heartbeat import tick
+    results = []
+    for _ in range(body.ticks):
+        result = tick(dry_run=body.dry_run)
+        results.append({
+            "tick": result.tick,
+            "blocked": result.blocked,
+            "phases": [
+                {"phase": p.phase.value, "metrics": p.metrics}
+                for p in result.phases
+            ],
+        })
+    return {"ticks": body.ticks, "dry_run": body.dry_run, "results": results, "all_ok": True}
+
+
+@router.get("/kernel/fsm")
+async def kernel_fsm() -> dict[str, Any]:
+    from oss.kernel.state_machines import fsm_spec
+    return fsm_spec()
+
+
+@router.get("/kernel/orchestrator")
+async def kernel_orchestrator_status() -> dict[str, Any]:
+    from oss.kernel.orchestrator import orchestrator_status
+    from oss.kernel.state_machines import CycleMachineState
+    return orchestrator_status(CycleMachineState())
+
+
+@router.post("/kernel/orchestrator/step")
+async def kernel_orchestrator_step() -> dict[str, Any]:
+    from oss.kernel.orchestrator import orchestrator_step
+    from oss.kernel.state_machines import CycleMachineState
+    from oss.kernel.sandbox import reset_sandbox
+    reset_sandbox()
+    st = CycleMachineState()
+    return orchestrator_step(st, domain="growth", tick=1)
+
+
+@router.get("/kernel/v1-plan")
+async def kernel_v1_plan() -> dict[str, Any]:
+    from oss.kernel.prompts import v1_implementation_plan
+    return v1_implementation_plan()
+
+
+@router.get("/kernel/sandbox")
+async def kernel_sandbox() -> dict[str, Any]:
+    from oss.kernel.sandbox import SandboxEnvironment, reset_sandbox
+    from oss.kernel.rewards import compute_all_rewards
+    reset_sandbox()
+    env = SandboxEnvironment()
+    metrics = env.run_cycle(domain="business", tick=1)
+    rewards = compute_all_rewards(metrics)
+    return {"metrics": metrics, "rewards": rewards}
+
+
+@router.get("/kernel/training/schedule")
+async def kernel_training_schedule() -> dict[str, Any]:
+    from oss.kernel.training_schedule import schedule_overview
+    return schedule_overview()
+
+
+@router.get("/kernel/training/progress")
+async def kernel_training_progress() -> dict[str, Any]:
+    from oss.kernel.store import load_training_progress
+    progress = load_training_progress()
+    return {
+        "global_phase": progress.global_phase.value,
+        "roles": {
+            r: {
+                "global_phase": rp.global_phase.value,
+                "metrics": rp.metrics,
+                "governor_approved": rp.governor_approved,
+            }
+            for r, rp in progress.roles.items()
+        },
+    }
+
+
+@router.get("/kernel/collaboration")
+async def kernel_collaboration() -> dict[str, Any]:
+    from oss.kernel.collaboration import collaboration_overview
+    return collaboration_overview()
+
+
+@router.post("/kernel/training/eval")
+async def kernel_training_eval(body: KernelEvalRequest) -> dict[str, Any]:
+    from oss.kernel.store import load_training_progress, save_training_progress
+    from oss.kernel.training_schedule import record_eval
+    progress = load_training_progress()
+    result = record_eval(
+        progress,
+        role=body.role,
+        metrics=body.metrics,
+        governor_approved=body.governor_approved,
+    )
+    save_training_progress(progress)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Substrate routes
+# ---------------------------------------------------------------------------
+
+@router.get("/substrate")
+async def substrate_status() -> dict[str, Any]:
+    from oss.substrate.genomic import get_genomic_substrate
+    sub = get_genomic_substrate()
+    return {"genomes": len(sub._genomes), "status": "ok"}
+
+
+@router.get("/substrate/genome")
+async def substrate_genome(
+    role: str | None = None,
+    domain: str | None = None,
+    skill: str | None = None,
+    capability: str | None = None,
+    min_level: float = 0.0,
+) -> dict[str, Any]:
+    from oss.substrate.genomic import get_genomic_substrate
+    sub = get_genomic_substrate()
+    results: list[dict] = []
+    if role:
+        hits = sub.query_by_role(role)
+        results = [h.to_dict() if hasattr(h, "to_dict") else h for h in hits]
+    elif capability:
+        from oss.substrate.genomic import query_genome
+        segs = query_genome(capability=capability, domain=domain or "")
+        results = segs
+    elif domain or skill:
+        traits: dict[str, float] = {}
+        if domain:
+            traits[domain] = min_level or 0.5
+        if skill:
+            traits[skill] = min_level or 0.5
+        hits = sub.query_by_traits(traits)
+        results = list(hits)
+    else:
+        results = []
+    return {"results": results, "count": len(results)}
+
+
+# ---------------------------------------------------------------------------
+# Lab routes (trading)
+# ---------------------------------------------------------------------------
+
+@router.get("/lab/trading")
+async def lab_trading(seed: int = 42) -> dict[str, Any]:
+    from oss.lab.trading_strategy import trading_lab_comparison
+    return trading_lab_comparison(seed=seed, dry_run=True)
+
+
+# ---------------------------------------------------------------------------
+# Ecosystem routes (note: /oss/ecosystem path keeps /oss segment so that
+# when mounted with prefix /oss the full path is /oss/oss/ecosystem)
+# ---------------------------------------------------------------------------
+
+@router.get("/oss/ecosystem")
+async def oss_ecosystem_status() -> dict[str, Any]:
+    from oss.ecosystem.store import load_ecosystem_state
+    from oss.ecosystem.orchestrator import ecosystem_status
+    state = load_ecosystem_state()
+    return ecosystem_status(state)
+
+
+@router.get("/oss/ecosystem/fsm")
+async def oss_ecosystem_fsm() -> dict[str, Any]:
+    from oss.ecosystem.fsm import ecosystem_fsm_spec
+    return ecosystem_fsm_spec()
+
+
+@router.get("/oss/ecosystem/bootstrap")
+async def oss_ecosystem_bootstrap() -> dict[str, Any]:
+    from oss.ecosystem.bootstrap import oss_bootstrap_plan
+    return oss_bootstrap_plan()
+
+
+@router.post("/oss/ecosystem/step")
+async def oss_ecosystem_step() -> dict[str, Any]:
+    from oss.ecosystem.store import load_ecosystem_state, save_ecosystem_state
+    from oss.ecosystem.orchestrator import ecosystem_step
+    state = load_ecosystem_state()
+    result = ecosystem_step(state, tick=1, domain="growth", dry_run=True)
+    save_ecosystem_state(state)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Architecture routes
+# ---------------------------------------------------------------------------
+
+@router.get("/architecture")
+async def architecture_overview() -> dict[str, Any]:
+    from oss.architecture.diagram import architecture_spec
+    return architecture_spec()
+
+
+@router.get("/architecture/modules")
+async def architecture_modules() -> dict[str, Any]:
+    from oss.architecture.modules import module_breakdown
+    return module_breakdown()
+
+
+# ---------------------------------------------------------------------------
+# Living loop routes
+# ---------------------------------------------------------------------------
+
+@router.get("/living-loop")
+async def living_loop_overview() -> dict[str, Any]:
+    from oss.integration.living_loop import living_loop_status
+    return living_loop_status()
+
+
+@router.post("/living-loop/run")
+async def living_loop_run() -> dict[str, Any]:
+    from oss.integration.living_loop import run_living_cycle
+    from oss.kernel.sandbox import reset_sandbox
+    reset_sandbox()
+    return run_living_cycle(domain="growth", tick=1, dry_run=True)

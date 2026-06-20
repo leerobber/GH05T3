@@ -428,6 +428,11 @@ def saas_lab_comparison(
     }
 
 
+def get_lab_metrics() -> dict[str, Any]:
+    logs = load_logs()
+    return compute_collective_metrics(logs)
+
+
 def lab_metrics_report() -> dict[str, Any]:
     logs = load_logs()
     df = None

@@ -1,0 +1,14 @@
+tunnel: aethyro-tunnel
+credentials-file: ~/.cloudflared/aethyro-tunnel.json
+
+ingress:
+  - hostname: api.aethyro.com
+    service: http://localhost:8002
+  - hostname: app.aethyro.com
+    service: http://localhost:3210
+  - hostname: ws.aethyro.com
+    service: http://localhost:8002
+  - service: http_status:404
+
+# Gateway port: 8002
+# Frontend port: 3210

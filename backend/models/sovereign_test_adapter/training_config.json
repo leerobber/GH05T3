@@ -1,0 +1,23 @@
+{
+  "paradigm": "sovereign_omni_strand",
+  "agent_id": "GH05T3",
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "lora_rank": 16,
+  "steps": 40,
+  "final_loss": 4.46193665266037,
+  "dataset_size": 9,
+  "manifest": {
+    "agent_id": "GH05T3",
+    "examples": 9,
+    "by_source": {
+      "elite_strand": 6,
+      "forge_gold": 3
+    },
+    "adapter_dir": "gh05t3_lora_adapter"
+  },
+  "gpu": "NVIDIA GeForce RTX 5050 Laptop GPU",
+  "sm": "120",
+  "trainer": "sovereign_loop",
+  "no_trl": true,
+  "constitution": "oss.train.constitution"
+}

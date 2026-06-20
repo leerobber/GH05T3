@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from oss.forge.domains import DOMAIN_CATALOG, domain_keywords, resolve_domain
-from oss.forge.moe_farm import adapter_bucket_for_domain
+from oss.forge.moe_farm import ADAPTER_BUCKETS, adapter_bucket_for_domain
 from oss.forge.schemas import ForgeDomain
 
 LOG = logging.getLogger("oss.forge.inference_router")
@@ -328,11 +328,18 @@ def plan_inference_route(
     scores: dict[ForgeDomain, float] = {}
     entropy = 0.0
     counterfactual: str | None = None
+    _bucket_override: str | None = None
 
     if task_domain:
-        domain = resolve_domain(task_domain)
-        superposition = DomainSuperposition(domain, None, 1.0, 0.0, 1.0)
-        methods = ["explicit_domain"]
+        if task_domain in ADAPTER_BUCKETS:
+            _bucket_override = task_domain
+            domain = ForgeDomain.GENERAL_COGNITION
+            superposition = DomainSuperposition(domain, None, 1.0, 0.0, 1.0)
+            methods = ["explicit_domain", "legacy_adapter_bucket"]
+        else:
+            domain = resolve_domain(task_domain)
+            superposition = DomainSuperposition(domain, None, 1.0, 0.0, 1.0)
+            methods = ["explicit_domain"]
     else:
         scores = _spectral_classify(combined)
         entropy = _spectral_entropy(scores)
@@ -357,7 +364,7 @@ def plan_inference_route(
 
     _epigenetic_update(session_id, domain, superposition.primary_weight)
 
-    bucket = adapter_bucket_for_domain(domain)
+    bucket = _bucket_override if _bucket_override is not None else adapter_bucket_for_domain(domain)
     fitness = _best_strand_fitness(domain)
     elite_ctx = _holographic_elite_context(domain, combined)
     crispr = _crispr_splice(domain)

@@ -414,6 +414,11 @@ def _env_key(name: str) -> str:
     return val
 
 
+_anthropic_key = lambda: _env_key("ANTHROPIC_API_KEY")
+_groq_key = lambda: _env_key("GROQ_API_KEY")
+_google_key = lambda: _env_key("GOOGLE_AI_KEY")
+
+
 def _llm_provider() -> str:
     return (os.environ.get("LLM_PROVIDER") or LLM_PROVIDER or "ollama").strip().lower()
 
