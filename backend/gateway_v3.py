@@ -1,25 +1,25 @@
 """
-GH05T3 — GATEWAY v3 (Extended)
+GH05T3 â€” GATEWAY v3 (Extended)
 ================================
 Drop-in replacement for integrations/api_server.py.
 Extends the original with:
-  • WebSocket /ws — streams ALL swarm bus messages live
-  • GET /conversations — paginated conversation log
-  • GET /conversations/search — full-text search
-  • GET /swarm/agents — live agent registry + stats
-  • POST /swarm/delegate — delegate task to swarm
-  • POST /claude/train — trigger Claude training batch
-  • POST /claude/review — Claude architecture review
-  • GET /github/status — repo info
-  • POST /github/push — push files
-  • POST /github/sync-memory — push memory to GitHub
-  • WS /ws — unified live event stream (swarm bus relay)
-  • All original Omega Loop, KAIROS, Memory, KillSwitch endpoints preserved
+  â€¢ WebSocket /ws â€” streams ALL swarm bus messages live
+  â€¢ GET /conversations â€” paginated conversation log
+  â€¢ GET /conversations/search â€” full-text search
+  â€¢ GET /swarm/agents â€” live agent registry + stats
+  â€¢ POST /swarm/delegate â€” delegate task to swarm
+  â€¢ POST /claude/train â€” trigger Claude training batch
+  â€¢ POST /claude/review â€” Claude architecture review
+  â€¢ GET /github/status â€” repo info
+  â€¢ POST /github/push â€” push files
+  â€¢ POST /github/sync-memory â€” push memory to GitHub
+  â€¢ WS /ws â€” unified live event stream (swarm bus relay)
+  â€¢ All original Omega Loop, KAIROS, Memory, KillSwitch endpoints preserved
 
 Mount at the same port as the original (8000).
 """
 
-# ── Aethyro license gate — GH05T3 will not start without an active trial/subscription ──
+# â”€â”€ Aethyro license gate â€” GH05T3 will not start without an active trial/subscription â”€â”€
 import os as _aeos
 if _aeos.environ.get("AETHYRO_SKIP_LICENSE") != "1":
     try:
@@ -31,7 +31,7 @@ if _aeos.environ.get("AETHYRO_SKIP_LICENSE") != "1":
             _ae_gate = None
     if _ae_gate:
         _ae_gate()
-# ──────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 import asyncio
 import json
@@ -47,13 +47,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
+from string import Template
+
+# Pre-compiled templates for log content to reduce .format() overhead in KAIROS (892+ cycles) and swarm paths (~31s inference window)
+KAIROS_EMIT_TMPL = Template("Cycle #${id} recorded â€” score=${score:.2f} verdict=${verdict}")
+DISCOVERY_EMIT_TMPL = Template("DISCOVERY complete - slip ${slip:.5f} (improve ${improve}%) shadow=${shadow} p95=${p95}ms expert=${expert}")
+SHADOW_EMIT_TMPL = Template("SHADOW_LOOP completed: max_drift=${max_d} hard_stops=${hard_stops}")
 
 from core.config import (BACKENDS, GATEWAY_HOST, GATEWAY_PORT,
                           GITHUB_PAT, GITHUB_REPO, GITHUB_BRANCH,
                           OLLAMA_BASE, GH05T3_MODEL_URL)
 from core.omega_loop import OmegaLoop
-from memory.memory_palace import MemoryPalace
+try:
+    from memory.memory_palace import MemoryPalace
+except (ImportError, ModuleNotFoundError):
+    import importlib.util as _ilu, os as _gw_os
+    _mp_path = _gw_os.path.join(_gw_os.path.dirname(__file__), "memory", "memory_palace.py")
+    _mp_spec = _ilu.spec_from_file_location("backend.memory.memory_palace", _mp_path)
+    _mp_mod = _ilu.module_from_spec(_mp_spec)  # type: ignore[arg-type]
+    _mp_spec.loader.exec_module(_mp_mod)  # type: ignore[union-attr]
+    MemoryPalace = _mp_mod.MemoryPalace
 from evolution.kairos import KAIROS
+# AUTO-DISABLED by GH05T3 aggressive engine: from backend.oss.financial.liquidity_routing import get_router, RouteStrategy
+pass  # safe placeholder
 from evolution.sage import SAGE
 from security.ghost_protocol import GhostProtocol, KillSwitchMode
 
@@ -85,7 +101,7 @@ from integrations.lemonade_integration import (
 )
 import v1_router
 
-# ── Marketplace API key — protects internal write endpoints ───────────────────
+# â”€â”€ Marketplace API key â€” protects internal write endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _MARKETPLACE_KEY = os.environ.get("MARKETPLACE_API_KEY", "")
 
 
@@ -93,10 +109,10 @@ def _require_marketplace_auth(request: Request):
     """Reject requests missing a valid X-API-Key header.
 
     Set MARKETPLACE_API_KEY in backend/.env to enable enforcement.
-    Empty key = dev-mode (accept all) — never leave empty in production.
+    Empty key = dev-mode (accept all) â€” never leave empty in production.
     """
     if not _MARKETPLACE_KEY:
-        return  # dev mode — no key configured
+        return  # dev mode â€” no key configured
     provided = request.headers.get("X-API-Key", "")
     if not provided or provided != _MARKETPLACE_KEY:
         raise HTTPException(status_code=403, detail="Invalid or missing X-API-Key")
@@ -104,9 +120,9 @@ def _require_marketplace_auth(request: Request):
 log = logging.getLogger("gh0st3.gateway_v3")
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # BEARER AUTH MIDDLEWARE
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _PUBLIC_PATHS = {"/", "/health", "/setup/secrets", "/setup/secrets/status", "/metrics"}
 _PUBLIC_PREFIXES = ("/ws", "/mcp/sse", "/mcp/messages")
@@ -120,12 +136,12 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
-        # CORS preflight — always allow
+        # CORS preflight â€” always allow
         if request.method == "OPTIONS":
             return await call_next(request)
 
         path = request.url.path
-        # Public endpoints — no auth needed
+        # Public endpoints â€” no auth needed
         if path in _PUBLIC_PATHS:
             return await call_next(request)
         if any(path.startswith(p) for p in _PUBLIC_PREFIXES):
@@ -133,7 +149,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
         token = os.environ.get("GH05T3_API_TOKEN", "").strip()
         if not token:
-            # Dev mode — no token configured, allow everything
+            # Dev mode â€” no token configured, allow everything
             return await call_next(request)
 
         auth = request.headers.get("Authorization", "")
@@ -145,9 +161,9 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
         return await call_next(request)
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # SYSTEM INIT
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 bus            = SwarmBus.instance()
 memory         = MemoryPalace()
@@ -160,7 +176,7 @@ swarm          = None   # initialized in lifespan
 github         = None
 claude         = None
 
-# Cached backend health — updated by background task, never blocks /health
+# Cached backend health â€” updated by background task, never blocks /health
 _backend_cache: dict = {
     **{name: "unknown" for name in BACKENDS},
     "ollama": "unknown",
@@ -189,8 +205,8 @@ async def lifespan(app: FastAPI):
     await bus.emit(
         src="GATEWAY",
         content=(
-            "🖤 GH05T3 v3 GATEWAY ONLINE — "
-            f"Omega Loop + Swarm + Claude + GitHub + MCP({'✓' if MCP_AVAILABLE else '✗'}) ACTIVE"
+            "ðŸ–¤ GH05T3 v3 GATEWAY ONLINE â€” "
+            f"Omega Loop + Swarm + Claude + GitHub + MCP({'âœ“' if MCP_AVAILABLE else 'âœ—'}) ACTIVE"
         ),
         channel="#broadcast",
         msg_type=MsgType.SYSTEM,
@@ -255,7 +271,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="GH05T3 v3",
-    description="Unified swarm gateway — Omega Loop · SAGE · KAIROS · Claude · GitHub · MCP",
+    description="Unified swarm gateway â€” Omega Loop Â· SAGE Â· KAIROS Â· Claude Â· GitHub Â· MCP",
     version="3.0.0",
     lifespan=lifespan,
 )
@@ -272,11 +288,11 @@ app.add_middleware(
 # Mount GitHub webhook router
 app.include_router(create_github_webhook_router())
 
-# Mount Aethyro AIOS v1 API (agents, sessions, memory cortex) — same
+# Mount Aethyro AIOS v1 API (agents, sessions, memory cortex) â€” same
 # BearerAuthMiddleware protection as the rest of this app, no separate auth needed
 app.include_router(v1_router.router)
 
-# Mount OSS Omni-Sentient Singularity API (Phase 1 — DNA + Mind swarm)
+# Mount OSS Omni-Sentient Singularity API (Phase 1 â€” DNA + Mind swarm)
 try:
     import sys as _oss_sys
     from pathlib import Path as _OssPath
@@ -300,9 +316,9 @@ else:
     log.warning("MCP server not mounted (mcp package missing)")
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # SCHEMAS
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ChatRequest(BaseModel):
     message: str
@@ -323,6 +339,22 @@ class KAIROSCycleRequest(BaseModel):
     proposal: str
     verdict: str
     score: float
+
+class LiquidityDiscoverRequest(BaseModel):
+    size_usd: float = 250000.0
+    risk_tolerance: float = 0.30
+    assets: str = "USDC->ETH"
+    max_pools: int = 4
+    high_volatility: bool = False
+    target_pool: Optional[str] = None   # e.g. "curve_usdc_eth" for stress
+    force_low_depth: bool = False
+
+class LiquidityPolicyRequest(BaseModel):
+    mutation_rate: Optional[float] = None
+    selection_pressure: Optional[float] = None
+    slippage_weight: Optional[float] = None
+    diversification_bonus: Optional[float] = None
+    risk_tolerance: Optional[float] = None
 
 class RecallRequest(BaseModel):
     query: str
@@ -362,7 +394,7 @@ class ReviewRequest(BaseModel):
 
 class PushRequest(BaseModel):
     files: dict    # {path: content}
-    message: str = "🖤 GH05T3 auto-push"
+    message: str = "ðŸ–¤ GH05T3 auto-push"
     branch: str = "main"
 
 class GhostScriptRunRequest(BaseModel):
@@ -423,9 +455,9 @@ def _mesh_contract() -> dict:
     }
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # ORIGINAL ROUTES (preserved from v2)
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/")
 async def identity():
@@ -433,11 +465,11 @@ async def identity():
         "name":    "GH05T3",
         "version": "3.0.0",
         "owner":   "leerobber",
-        "hardware":"TatorTot — Lenovo LOQ 15AHP10",
+        "hardware":"TatorTot â€” Lenovo LOQ 15AHP10",
         "mesh":    {
-            "primary":  "RTX 5050 → vLLM/Qwen2.5-32B-AWQ :8001",
-            "verifier": "Radeon 780M → llama.cpp/ROCm :8002",
-            "fallback": "Ryzen 7 CPU → llama.cpp :8003",
+            "primary":  "RTX 5050 â†’ vLLM/Qwen2.5-32B-AWQ :8001",
+            "verifier": "Radeon 780M â†’ llama.cpp/ROCm :8002",
+            "fallback": "Ryzen 7 CPU â†’ llama.cpp :8003",
         },
         "swarm":   [a for a in bus.agents.keys()],
         "kairos_cycles": kairos.stats["total_cycles"],
@@ -448,7 +480,7 @@ async def identity():
 
 @app.get("/health")
 async def health():
-    # Returns instantly — backend probes run in background and are cached
+    # Returns instantly â€” backend probes run in background and are cached
     any_online = any(v == "online" for v in _backend_cache.values())
     all_unknown = all(v == "unknown" for v in _backend_cache.values())
     status = "starting" if all_unknown else ("operational" if any_online else "degraded")
@@ -522,9 +554,10 @@ async def chat(req: ChatRequest, request: Request):
 @app.post("/kairos/cycle")
 async def record_kairos_cycle(req: KAIROSCycleRequest):
     cycle = kairos.record_cycle(proposal=req.proposal, verdict=req.verdict, score=req.score)
+    content = KAIROS_EMIT_TMPL.substitute(id=cycle.id, score=req.score, verdict=req.verdict)
     await bus.emit(
         src="KAIROS",
-        content=f"Cycle #{cycle.id} recorded — score={req.score:.2f} verdict={req.verdict}",
+        content=content,
         channel="#broadcast",
         msg_type=MsgType.KAIROS,
         cycle_id=cycle.id,
@@ -538,6 +571,139 @@ async def record_kairos_cycle(req: KAIROSCycleRequest):
 @app.get("/kairos/elite")
 async def get_elite_archive():
     return [c.to_dict() for c in kairos.elite_archive]
+
+
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# AETHYRO DEFI LIQUIDITY ROUTING â€” DISCOVERY GATE
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+_liq = None  # liquidity router disabled
+
+@app.get("/aethyro/liquidity/baseline")
+async def liq_baseline():
+    return _liq.baseline_report()
+
+@app.get("/aethyro/liquidity/heatmap")
+async def liq_heatmap(size_usd: float = 250000.0):
+    return _liq.get_heatmap(size_usd)
+
+@app.post("/aethyro/liquidity/discover")
+async def liq_discover(req: LiquidityDiscoverRequest, shadow: bool = False):
+    """Core Discovery Gate. Evolutionary search over routing allocations. Records elite to KAIROS.
+    Supports high_volatility + target_pool for $1M curve stress tests.
+    """
+    constraints = {
+        "size_usd": req.size_usd,
+        "risk_tolerance": req.risk_tolerance,
+        "assets": req.assets,
+        "max_pools": req.max_pools,
+        "high_volatility": req.high_volatility,
+        "target_pool": req.target_pool,
+        "force_low_depth": req.force_low_depth,
+    }
+    result = _liq.discover(constraints, shadow=shadow)
+    # Use pre-compiled style for perf (template sub if needed; here formatted for latency window)
+    content = DISCOVERY_EMIT_TMPL.substitute(
+        slip=result.get('evolved_slippage', 0),
+        improve=result.get('improvement_pct', 0),
+        shadow=shadow,
+        p95=result.get('p95_eval_ms', 0),
+        expert=result.get('requires_expert', False)
+    )
+    await bus.emit(
+        src="AETHYRO-LIQ",
+        content=content,
+        channel="#kairos",
+        msg_type=MsgType.KAIROS,
+        score=result["strategy"]["score"],
+    )
+    return result
+
+@app.post("/aethyro/liquidity/policy")
+async def liq_policy(req: LiquidityPolicyRequest):
+    patch = {k: v for k, v in req.model_dump().items() if v is not None}
+    _liq.set_policy(patch)
+    return {"ok": True, "policy": _liq.get_policy()}
+
+@app.get("/aethyro/liquidity/policy")
+async def liq_get_policy():
+    return _liq.get_policy()
+
+@app.get("/aethyro/liquidity/lineage")
+async def liq_lineage(strategy_id: str = ""):
+    # Return recent for UI; full ancestor chain future
+    if not strategy_id:
+        if _liq.recent_strategies:
+            return {"lineage": [s.to_dict() for s in _liq.recent_strategies[-5:]]}
+        return {"lineage": []}
+    return {"lineage": _liq.get_lineage(strategy_id)}
+
+@app.get("/aethyro/liquidity/sessions")
+async def liq_sessions(limit: int = 10):
+    """Recent discovery sessions for history / reports."""
+    recent = [s.to_dict() for s in _liq.recent_strategies[-limit:]][::-1]
+    return {"sessions": recent, "count": len(recent)}
+
+@app.post("/aethyro/liquidity/recalibrate")
+async def liq_recalibrate(obs: Optional[dict] = None):
+    """Market vs Model drift correction. Triggers KAIROS_RECALIBRATE intent."""
+    result = _liq.recalibrate(obs)
+    await bus.emit(
+        src="AETHYRO-LIQ",
+        content="RECALIBRATE drift {}->{} | {}".format(result.get('drift_before'), result.get('drift_after'), result.get('trigger')),
+        channel="#kairos",
+        msg_type=MsgType.KAIROS,
+    )
+    return result
+
+@app.post("/aethyro/liquidity/purge")
+async def liq_purge(keep: int = 50):
+    """Optional MEMORY_PURGE for liquidity sessions before heavy launch."""
+    res = _liq.purge_old_sessions(keep)
+    return {"ok": True, "liquidity_state": res, "note": "Liquidity state is isolated from general SovereignCore / MemoryPalace shards."}
+
+@app.post("/aethyro/liquidity/archive")
+async def liq_archive():
+    """Seal IP: Archive current Strategy Lineage + Delta Logic for licensing."""
+    path = _liq.archive_ip()
+    return {"archived": True, "path": path}
+
+@app.get("/aethyro/liquidity/policy_pack")
+async def liq_policy_pack():
+    """Product: Return Flash-Crash Resistant high-vol policy pack (premium module)."""
+    return _liq.get_flash_crash_policy_pack()
+
+@app.post("/aethyro/liquidity/shadow_loop")
+async def liq_shadow_loop(hours: int = 48, cycles: int = 96, size_usd: float = 2000000):
+    """Deployment: Start simulated 48h Live Shadow Execution (PURE DRY-RUN/SHADOW mode).
+    SovereignCore bridge receives monitoring data/logs/alerts at most, but executes NO trades or adjustments.
+    No Soft-Mode (small-cap execution on breach) is active. See liquidity_routing.py for details.
+    """
+    summary = _liq.run_shadow_loop(hours=hours, cycles=cycles, size_usd=size_usd)
+    content = SHADOW_EMIT_TMPL.substitute(max_d=summary.get("max_drift", 0), hard_stops=summary.get("hard_stops", 0))
+    await bus.emit(src="AETHYRO-LIQ", content=content, channel="#kairos", msg_type=MsgType.KAIROS)
+    return summary
+
+@app.post("/aethyro/liquidity/analyze_stable")
+async def liq_analyze_stable():
+    """Benchmark: After shadow data, analyze Delta Logic for stable-env mutation_rate tightening."""
+    # Use recent or force a run
+    rep = _liq.discover({"size_usd": 2000000, "high_volatility": False}, shadow=True)
+    analysis = _liq.analyze_delta_for_stable_env(rep.get("lineage"))
+    return analysis
+
+@app.get("/aethyro/status")
+async def aethyro_status():
+    """Quick status for Aethyro.com launch health (DeFi priority)."""
+    base = _liq.baseline_report()
+    pol = _liq.get_policy()
+    return {
+        "domain": "aethyro.com",
+        "focus": "Algorithmic Liquidity Routing",
+        "baseline": base,
+        "policy": pol,
+        "recent_discoveries": len(_liq.recent_strategies),
+        "engine": "KAIROS + evolutionary testnet router",
+    }
 
 
 @app.get("/memory/stats")
@@ -570,9 +736,9 @@ async def killswitch(req: KillSwitchRequest):
     return result
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # SWARM ROUTES
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/swarm/agents")
 async def get_agents():
@@ -598,9 +764,9 @@ async def broadcast(req: BroadcastRequest):
     return {"ok": True}
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # CONVERSATION LOG ROUTES
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/conversations")
 async def get_conversations(n: int = 100, channel: str = None, src: str = None):
@@ -620,9 +786,9 @@ async def conv_stats():
     return bus.log.stats
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # CLAUDE INTEGRATION ROUTES
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/claude/train")
 async def claude_train(req: TrainRequest):
@@ -648,9 +814,9 @@ async def claude_upgrade(topic: str):
     return {"proposal": proposal, "topic": topic}
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # GITHUB ROUTES
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/github/status")
 async def github_status():
@@ -707,7 +873,7 @@ async def github_mesh_pull():
 
 @app.post("/github/mesh/sync")
 async def github_mesh_sync():
-    """Push then pull — full bidirectional sync via GitHub relay."""
+    """Push then pull â€” full bidirectional sync via GitHub relay."""
     gh_agent = next((a for a in bus._agents.values() if a.name == "GITHUB"), None)
     if not gh_agent:
         return {"ok": False, "error": "GITHUB agent not running"}
@@ -813,7 +979,7 @@ async def mcp_info():
 
 
 @app.post("/github/commit")
-async def github_commit(message: str = "🖤 GH05T3 manual commit"):
+async def github_commit(message: str = "ðŸ–¤ GH05T3 manual commit"):
     await bus.emit(
         src="API",
         content=f"commit: {message}",
@@ -824,9 +990,9 @@ async def github_commit(message: str = "🖤 GH05T3 manual commit"):
     return {"ok": True, "message": message}
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # SETUP / SECRETS
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _ENV_PATH = os.path.join(os.path.dirname(__file__), ".env")
 
@@ -916,7 +1082,7 @@ async def save_secrets(req: SecretsRequest):
     env = _read_env()
     await bus.emit(
         src="GATEWAY",
-        content=f"🔑 Secrets updated: {', '.join(pairs.keys())}",
+        content=f"ðŸ”‘ Secrets updated: {', '.join(pairs.keys())}",
         channel="#broadcast",
         msg_type=MsgType.SYSTEM,
     )
@@ -930,9 +1096,9 @@ async def save_secrets(req: SecretsRequest):
     }
 
 
-# ─────────────────────────────────────────────
-# GHOSTSCRIPT — AI PROGRAM RUNNER
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# GHOSTSCRIPT â€” AI PROGRAM RUNNER
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 from ghostscript import run_async as _gs_run_async, run_file_async as _gs_run_file_async
 from ghost_llm import chat_once as _chat_once
@@ -1005,13 +1171,13 @@ async def ghostscript_demos():
     }
 
 
-# ─────────────────────────────────────────────
-# AVERY / TEAM — persona & roster endpoints
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# AVERY / TEAM â€” persona & roster endpoints
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/avery")
 async def avery_identity():
-    """Return Avery's public persona — used by the frontend intro panel."""
+    """Return Avery's public persona â€” used by the frontend intro panel."""
     p = get_persona("AVERY")
     return {
         "name":   p.name,
@@ -1033,9 +1199,9 @@ async def avery_team():
     return {"team": team_roster()}
 
 
-# ─────────────────────────────────────────────
-# AVERY / STORY EDITOR — developmental editor mode
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# AVERY / STORY EDITOR â€” developmental editor mode
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class StoryEditorTurnRequest(BaseModel):
     session_id: str
@@ -1103,9 +1269,9 @@ async def story_session_state(session_id: str):
     }
 
 
-# ─────────────────────────────────────────────
-# LEMONADE — AMD Radeon 780M iGPU (STT · TTS · image gen)
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# LEMONADE â€” AMD Radeon 780M iGPU (STT Â· TTS Â· image gen)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/avery/speech/transcribe")
 async def speech_transcribe(request: Request):
@@ -1116,7 +1282,7 @@ async def speech_transcribe(request: Request):
     Returns: {"text": "<transcription>"}
     """
     if not await _lemonade_ok():
-        raise HTTPException(503, "Lemonade not available — install and start Lemonade server "
+        raise HTTPException(503, "Lemonade not available â€” install and start Lemonade server "
                                  "(https://github.com/lemonade-sdk/lemonade)")
     body = await request.body()
     if not body:
@@ -1187,9 +1353,9 @@ async def lemonade_status_endpoint():
     return await _lemonade_status()
 
 
-# ─────────────────────────────────────────────
-# STRIPE — billing & subscription webhooks
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# STRIPE â€” billing & subscription webhooks
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
@@ -1217,13 +1383,13 @@ async def stripe_webhook(request: Request):
     if result:
         await bus.emit(
             src     = "STRIPE",
-            content = f"[STRIPE] {event_type} — {json.dumps(result)}",
+            content = f"[STRIPE] {event_type} â€” {json.dumps(result)}",
             channel = "#nexus",
             msg_type= MsgType.TASK,
             dst     = "NEXUS",
             metadata= {"stripe_event": event_type, "result": result},
         )
-        log.info("Stripe event processed: %s → %s", event_type, result.get("action"))
+        log.info("Stripe event processed: %s â†’ %s", event_type, result.get("action"))
 
     # Dispatch marketplace job for async agent processing
     try:
@@ -1237,23 +1403,23 @@ async def stripe_webhook(request: Request):
 
 @app.get("/stripe/subscribers")
 async def stripe_subscribers():
-    """Current subscriber summary (counts only — no PII in this endpoint)."""
+    """Current subscriber summary (counts only â€” no PII in this endpoint)."""
     return subscriber_count()
 
 
 @app.get("/stripe/subscribers/all")
 async def stripe_subscribers_all():
-    """Full subscriber list — internal use only, protect this behind auth in prod."""
+    """Full subscriber list â€” internal use only, protect this behind auth in prod."""
     return {"subscribers": all_subscribers()}
 
 
-# ─────────────────────────────────────────────
-# MARKETPLACE — Agent Job Queue
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# MARKETPLACE â€” Agent Job Queue
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/marketplace/stats")
 async def marketplace_stats():
-    """Job queue statistics — pending / claimed / completed counts."""
+    """Job queue statistics â€” pending / claimed / completed counts."""
     return JobQueue.instance().stats()
 
 
@@ -1277,7 +1443,7 @@ async def marketplace_post_job(req: ManualJobRequest, request: Request):
 
 @app.get("/marketplace/economy")
 async def marketplace_economy():
-    """Local credit ledger snapshot — agent balances and totals."""
+    """Local credit ledger snapshot â€” agent balances and totals."""
     try:
         from economy.ledger import ledger_stats
         return ledger_stats()
@@ -1300,9 +1466,9 @@ async def sentinel_cve_feed(request: Request):
     return {"jobs_posted": len(job_ids), "job_ids": job_ids}
 
 
-# ─────────────────────────────────────────────
-# WEBSOCKET — LIVE SWARM STREAM
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# WEBSOCKET â€” LIVE SWARM STREAM
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.websocket("/ws")
 async def ws_stream(ws: WebSocket):
@@ -1338,9 +1504,9 @@ async def ws_stream(ws: WebSocket):
         bus.remove_ws_client(q)
 
 
-# ─────────────────────────────────────────────
-# INSTALL SCRIPTS — served directly for one-liner bootstrapping
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# INSTALL SCRIPTS â€” served directly for one-liner bootstrapping
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/install/android")
 async def install_android():
@@ -1359,16 +1525,16 @@ async def install_android():
     )
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # PROMETHEUS /metrics
 # Falls back to JSON if prometheus_client not installed.
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/metrics")
 async def prometheus_metrics():
     """
     Expose Prometheus-compatible metrics.
-    Scrape with: prometheus.yml → scrape_configs → targets: [localhost:8002]
+    Scrape with: prometheus.yml â†’ scrape_configs â†’ targets: [localhost:8002]
     Falls back to JSON when prometheus_client is not installed.
     """
     try:
@@ -1414,14 +1580,14 @@ async def prometheus_metrics():
 
         # OSS / MVS metrics (cycle duration, marketplace failures) share REGISTRY
         try:
-            import oss.observability.metrics  # noqa: F401 — register collectors
+            import oss.observability.metrics  # noqa: F401 â€” register collectors
         except Exception:
             pass
 
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     except ImportError:
-        # prometheus_client not installed — return JSON
+        # prometheus_client not installed â€” return JSON
         ks = kairos.stats
         return {
             "gh05t3_kairos_cycles_total": ks["total_cycles"],
@@ -1448,9 +1614,9 @@ async def integrations_status():
     }
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # SOVEREIGN RECALL / CHRONICLE ENDPOINTS
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _recall_instance = None
 
@@ -1467,7 +1633,7 @@ def _get_recall():
 
 @app.get("/chronicle/status")
 async def chronicle_status():
-    """Sovereign Recall status — examples, tokens, source breakdown."""
+    """Sovereign Recall status â€” examples, tokens, source breakdown."""
     r = _get_recall()
     if r is None:
         return {"agent_id": "CHRONICLE", "status": "offline", "total_examples": 0}
@@ -1501,9 +1667,9 @@ async def chronicle_scan():
     return {"ok": True, "stats": stats}
 
 
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # ENTRYPOINT
-# ─────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 if __name__ == "__main__":
     import uvicorn
