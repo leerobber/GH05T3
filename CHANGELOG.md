@@ -3,6 +3,18 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.10.5 — 2026-07-01
+
+### What changed since v0.10.4
+
+#### Fixes
+- fix: remove line breaks from secrets expressions (753778f)
+
+### Stats
+- 1 commits
+- 1 contributor(s)
+
+
 ## v0.10.4 — 2026-07-01
 
 ### What changed since v0.10.3
