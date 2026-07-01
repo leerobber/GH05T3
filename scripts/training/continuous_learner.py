@@ -1,8 +1,8 @@
-"""
-continuous_learner.py — GH05T3 autonomous business strategy learning loop.
+﻿"""
+continuous_learner.py â€” GH05T3 autonomous business strategy learning loop.
 
 What it does:
-  1. Scans all leerobber repos → updates capability map
+  1. Scans all leerobber repos â†’ updates capability map
   2. Rotates through training domains (business first, then cfo, content, ml_engineer, core)
   3. Runs ghost_trainer cycles to generate SPIN pairs
   4. When enough SPIN pairs accumulate, uploads to HuggingFace for RunPod training
@@ -22,7 +22,7 @@ try:
 except ImportError:
     _eco = None
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 DOMAIN_ROTATION = [
     "business",         # venture design: repo-grounded business creation
     "sales",            # pipeline, outreach, closing sovereign AI products
@@ -45,7 +45,7 @@ SPIN_FILE                  = Path("data/spin_dataset.jsonl")
 HF_DATASET_NAME            = "tastytator/sovereign-economy"
 
 
-# ── State persistence ─────────────────────────────────────────────────────────
+# â”€â”€ State persistence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _load_state() -> dict:
     if STATE_FILE.exists():
@@ -69,7 +69,7 @@ def _save_state(state: dict):
     STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
-# ── Repo scanning ─────────────────────────────────────────────────────────────
+# â”€â”€ Repo scanning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def rescan_repos(cycle: int = 0):
     print("\n  [SCAN] Updating repo capability map...")
@@ -86,7 +86,7 @@ def rescan_repos(cycle: int = 0):
         print(f"  [SCAN] ERROR: {e}")
 
 
-# ── SPIN upload ───────────────────────────────────────────────────────────────
+# â”€â”€ SPIN upload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _count_spin() -> int:
     if not SPIN_FILE.exists():
@@ -120,7 +120,7 @@ def upload_spin_to_hf(state: dict):
                         hf_token = line.split("=", 1)[1].strip().strip('"\'')
 
         if not hf_token:
-            print("  [UPLOAD] HF_TOKEN not set — skipping upload (set HF_TOKEN in .env)")
+            print("  [UPLOAD] HF_TOKEN not set â€” skipping upload (set HF_TOKEN in .env)")
             return
 
         rows = []
@@ -166,12 +166,12 @@ def upload_spin_to_hf(state: dict):
             _slack.notify_spin_upload(new_pairs, count, state["spin_uploads"])
 
     except ImportError:
-        print("  [UPLOAD] datasets not installed — pip install datasets")
+        print("  [UPLOAD] datasets not installed â€” pip install datasets")
     except Exception as e:
         print(f"  [UPLOAD] ERROR: {e}")
 
 
-# ── Main loop ─────────────────────────────────────────────────────────────────
+# â”€â”€ Main loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
         total_cap: int | None = None,
@@ -179,7 +179,8 @@ def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
         rescan_every: int = RESCAN_EVERY,
         spin_threshold: int = SPIN_UPLOAD_THRESHOLD):
 
-    from ghost_trainer import Trainer
+    # AUTO-DISABLED by GH05T3 aggressive engine: from ghost_trainer import Trainer
+    pass  # safe placeholder
 
     state = _load_state()
     Path("data").mkdir(exist_ok=True)
@@ -234,10 +235,10 @@ def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
                         state["total_cycles"], _count_spin()
                     )
 
-            # ── Demo mode: yield Ollama to live clients ──────────────────────
+            # â”€â”€ Demo mode: yield Ollama to live clients â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             demo_flag = Path("data/demo_mode.flag")
             if demo_flag.exists():
-                print("  [DEMO MODE] Paused — Ollama reserved for live demo. Checking again in 30s...")
+                print("  [DEMO MODE] Paused â€” Ollama reserved for live demo. Checking again in 30s...")
                 # Write heartbeat while paused so supervisor doesn't kill/restart us
                 try:
                     Path("data/learner_heartbeat.json").write_text(
@@ -259,7 +260,7 @@ def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
                 rescan_repos(state["total_cycles"])
                 state["last_scan_cycle"] = state["total_cycles"]
 
-            # ── Run one training cycle (isolated — never kills the loop) ─────
+            # â”€â”€ Run one training cycle (isolated â€” never kills the loop) â”€â”€â”€â”€â”€
             try:
                 result = trainer.run_cycle()
                 consecutive_err = 0   # reset on success
@@ -295,12 +296,12 @@ def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
                 if _slack:
                     try:
                         _slack.post("continuous-learner",
-                                    f":warning: {err_msg} — continuing")
+                                    f":warning: {err_msg} â€” continuing")
                     except Exception:
                         pass
 
                 if consecutive_err >= MAX_CONSECUTIVE:
-                    print(f"\n  [ABORT] {MAX_CONSECUTIVE} consecutive errors — "
+                    print(f"\n  [ABORT] {MAX_CONSECUTIVE} consecutive errors â€” "
                           f"rebuilding trainer and waiting 60s before retry")
                     trainer = None           # force fresh Trainer next cycle
                     consecutive_err = 0
@@ -327,7 +328,7 @@ def run(cycles_per_domain: int = DEFAULT_CYCLES_PER_DOMAIN,
                                    spin_total, state["spin_uploads"])
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# â”€â”€ Entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="GH05T3 Continuous Business Learner")

@@ -1,13 +1,44 @@
 """GH05T3 — KAIROS evolutionary cycle engine."""
 from __future__ import annotations
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from string import Template
+
+log = logging.getLogger("gh05t3.kairos")
+
+try:
+    from pydantic import BaseModel, Field
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    PYDANTIC_AVAILABLE = False
 
 KAIROS_LOG      = Path("evolution/kairos_log.jsonl")
 ELITE_THRESHOLD = float(os.environ.get("SAGE_ELITE_THRESHOLD", "0.90"))
+
+# Pre-compiled template for KAIROS log strings (perf for frequent cycles)
+KAIROS_CYCLE_TMPL = Template("KAIROS cycle #${id} ${verdict} score=${score} elite=${is_elite} agent=${agent_id}")
+
+if PYDANTIC_AVAILABLE:
+    class KAIROSLogSchema(BaseModel):
+        """LogSchema for KAIROS cycles. Validates before JSON write.
+        Secondary protection for structured data in SovereignCore / SWARM paths.
+        """
+        id: int
+        proposal: str
+        verdict: str
+        score: float
+        timestamp: float
+        is_elite: bool = False
+        sentinel_viability: float = 0.0
+        entropy_drift: float = 0.0
+        agent_id: str = "unknown"
+
+        def to_validated_json(self) -> str:
+            return self.model_dump_json()
 
 @dataclass
 class KAIROSCycle:
@@ -73,8 +104,27 @@ class KAIROS:
             except Exception:
                 pass
 
+        # Use precompiled template for any diagnostic string (avoids repeated .format overhead)
+        log_str = KAIROS_CYCLE_TMPL.substitute(
+            id=cycle.id, verdict=cycle.verdict, score=cycle.score,
+            is_elite=cycle.is_elite, agent_id=cycle.agent_id
+        )
+        # (log_str can be used for console if needed; main is JSON)
+
+        cycle_dict = cycle.to_dict()
+        if PYDANTIC_AVAILABLE:
+            try:
+                schema = KAIROSLogSchema(**cycle_dict)
+                json_line = schema.to_validated_json()
+            except Exception as e:
+                # fallback if validation fails (e.g. bad proposal data)
+                json_line = json.dumps(cycle_dict)
+                log.warning("KAIROSLogSchema validation failed: %s", e)
+        else:
+            json_line = json.dumps(cycle_dict)
+
         with open(KAIROS_LOG, "a") as f:
-            f.write(json.dumps(cycle.to_dict()) + "\n")
+            f.write(json_line + "\n")
 
         # W&B — best-effort
         try:

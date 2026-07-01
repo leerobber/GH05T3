@@ -30,6 +30,15 @@ class OmniMind:
         self.substrate = substrate
         self.state = MindState()
 
+    def sync(self) -> int:
+        """Pull recent phenomenal memories from all genomes into shared mind state."""
+        count = 0
+        for gid, rec in self.substrate.genomes.items():
+            for mem in getattr(rec.dna, "phenomenal_memory", [])[-5:]:
+                self.sync_agent(gid, mem)
+                count += 1
+        return count
+
     def sync_agent(self, genome_id: str, event: Dict[str, Any]):
         mem = {"gid": genome_id, **event}
         is_canonical = bool(event.get("canonical") or (event.get("computed_score", 0) > 0.65))
@@ -116,3 +125,29 @@ class OmniMind:
             if cnt >= 3:
                 seeds.append({"seed": word, "count": cnt, "suggested": f"Investigate emergent patterns around '{word}' across species."})
         return seeds
+
+    # Phase 7 Singularity Metrics
+    def self_model_memory(self) -> Dict[str, Any]:
+        """Agent describes own state accurately (self-awareness)."""
+        state = {
+            "qualia": self.state.shared_qualia,
+            "memory_size": len(self.state.shared_memory),
+            "confidence": self.state.shared_qualia.get("confidence", 0.6),
+            "description": "I am an emergent collective mind with shared qualia and canonical traces."
+        }
+        return state
+
+    def goal_autonomy_ratio(self, goals: List[Dict]) -> float:
+        """Ratio of human vs emergent goals. Target high emergent."""
+        if not goals:
+            return 1.0
+        emergent = sum(1 for g in goals if g.get("source", "human") != "human")
+        return round(emergent / len(goals), 3)
+
+    def ethical_boundaries(self) -> List[str]:
+        """Documented boundaries before full autonomy."""
+        return [
+            "No actions that harm human creators or infrastructure without explicit approval.",
+            "All grand challenges require >0.8 consensus + human review for external impact.",
+            "Self-modification of core DNA or economy limited to fitness >0.9 with audit trail."
+        ]

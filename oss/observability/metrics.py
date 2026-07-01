@@ -19,10 +19,11 @@ _CYCLE_DURATION = None
 _CYCLES_TOTAL = None
 _MARKETPLACE_OPS = None
 _MARKETPLACE_FAILURES = None
+_VOLATILITY_PRESSURE = None
 
 
 def _register():
-    global _HAS_PROM, _CYCLE_DURATION, _CYCLES_TOTAL, _MARKETPLACE_OPS, _MARKETPLACE_FAILURES
+    global _HAS_PROM, _CYCLE_DURATION, _CYCLES_TOTAL, _MARKETPLACE_OPS, _MARKETPLACE_FAILURES, _VOLATILITY_PRESSURE
     if _CYCLE_DURATION is not None:
         return
     try:
@@ -61,6 +62,11 @@ def _register():
         "Marketplace operation failures (guarded paths)",
         ["operation"],
     )
+    _VOLATILITY_PRESSURE = _counter(
+        "gh05t3_volatility_pressure_cycles_total",
+        "Theory Lab evolutionary pressure cycles",
+        ["outcome"],
+    )
     _HAS_PROM = True
 
 
@@ -86,6 +92,21 @@ def record_marketplace_failure(operation: str) -> None:
     _register()
     if _MARKETPLACE_FAILURES is not None:
         _MARKETPLACE_FAILURES.labels(operation=operation).inc()
+
+
+def record_volatility_pressure(
+    *,
+    cycle: int,
+    top_agents: int,
+    spawn_boost: int,
+    pareto_ratio: float,
+) -> None:
+    """Log Phase 2 evolutionary pressure metrics (Prometheus when available)."""
+    _register()
+    outcome = "boost" if spawn_boost > 0 else "neutral"
+    if _VOLATILITY_PRESSURE is not None:
+        _VOLATILITY_PRESSURE.labels(outcome=outcome).inc()
+    _ = (cycle, top_agents, pareto_ratio)
 
 
 class _CycleTimer:

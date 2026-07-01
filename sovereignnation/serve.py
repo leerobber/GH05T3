@@ -1,16 +1,16 @@
-"""
+﻿"""
 SovereignNation Client Server  v2.0
 =====================================
 Serves the client UI AND proxies all Ollama API calls server-side.
 This is critical: the client JS uses relative URLs (/api/*) so the
-cloudflared tunnel works for remote demo clients — they never need
+cloudflared tunnel works for remote demo clients â€” they never need
 Ollama on their own machine.
 
 Endpoints:
-  GET  /health       → JSON status (ollama up/down, models loaded)
-  GET  /api/*        → proxied to http://localhost:11434/api/*
-  POST /api/*        → proxied, with streaming NDJSON passthrough
-  GET  /*            → static files from ./client/
+  GET  /health       â†’ JSON status (ollama up/down, models loaded)
+  GET  /api/*        â†’ proxied to http://localhost:11434/api/*
+  POST /api/*        â†’ proxied, with streaming NDJSON passthrough
+  GET  /*            â†’ static files from ./client/
 
 Run: python serve.py
 """
@@ -46,7 +46,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(CLIENT_DIR), **kwargs)
 
-    # ── CORS headers on every response ──────────────────────────────────────
+    # â”€â”€ CORS headers on every response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin",  "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -57,7 +57,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
-    # ── GET ──────────────────────────────────────────────────────────────────
+    # â”€â”€ GET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def do_GET(self):
         if self.path == "/health":
             self._health()
@@ -65,9 +65,9 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
         if self.path in ("/tunnel-urls", "/tunnel-urls.json"):
             self._tunnel_urls()
             return
-        # ── Payments proxy ───────────────────────────────────────────────────
+        # â”€â”€ Payments proxy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if self.path.startswith(("/checkout", "/portal")):
-            # These return 303 redirects — forward the redirect to the browser
+            # These return 303 redirects â€” forward the redirect to the browser
             self._proxy_redirect(PAYMENTS + self.path)
             return
         if self.path.startswith(("/prices", "/payments-log", "/customers", "/verify-key")):
@@ -81,7 +81,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_page("cancel.html")
             return
         if self.path.startswith("/api/"):
-            # ── Access control check ─────────────────────────────────────────
+            # â”€â”€ Access control check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             denied = self._access_denied()
             if denied:
                 return
@@ -89,10 +89,10 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
             return
         super().do_GET()
 
-    # ── POST ─────────────────────────────────────────────────────────────────
+    # â”€â”€ POST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def do_POST(self):
         if self.path.startswith("/api/"):
-            # ── Access control check ─────────────────────────────────────────
+            # â”€â”€ Access control check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             denied = self._access_denied()
             if denied:
                 return
@@ -103,18 +103,18 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
             return
         self._json_response(404, {"error": "not found"})
 
-    # ── Access control ────────────────────────────────────────────────────────
+    # â”€â”€ Access control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _access_denied(self) -> bool:
         """
         Check the request's SN-Key header (or ?key= param) against the payments
         service.  Returns True and writes error response if access should be blocked.
-        Returns False if access is allowed (or payments service is unreachable —
+        Returns False if access is allowed (or payments service is unreachable â€”
         fail-open so demos still work when payments is down).
 
         Demo mode bypass: if data/demo_mode.flag exists, all API access is
         allowed unconditionally so live prospect demos work without a key.
         """
-        # Demo mode — bypass auth entirely so prospects can use the live demo
+        # Demo mode â€” bypass auth entirely so prospects can use the live demo
         if DEMO_FLAG.exists():
             return False
 
@@ -142,7 +142,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
             req = urllib.request.Request(verify_url, headers={"Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=3) as resp:
                 if resp.status == 200:
-                    return False   # valid + active — allow through
+                    return False   # valid + active â€” allow through
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")
             try:
@@ -152,13 +152,13 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
             self._json_response(e.code, {"error": detail})
             return True
         except Exception:
-            # Payments service unreachable — fail open (don't block real clients)
-            log.warning("Access check skipped — payments service unreachable")
+            # Payments service unreachable â€” fail open (don't block real clients)
+            log.warning("Access check skipped â€” payments service unreachable")
             return False
 
         return False
 
-    # ── /tunnel-urls ─────────────────────────────────────────────────────────
+    # â”€â”€ /tunnel-urls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _tunnel_urls(self):
         try:
             data = json.loads(TUNNEL_URLS.read_text(encoding="utf-8"))
@@ -166,7 +166,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
             data = {"chat": None, "landing": None, "error": "tunnel_urls.json not found"}
         self._json_response(200, data)
 
-    # ── /health ───────────────────────────────────────────────────────────────
+    # â”€â”€ /health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _health(self):
         ollama_ok = False
         models    = []
@@ -185,7 +185,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
             "count":   len(models),
         })
 
-    # ── Proxy GET (e.g. /api/tags) ────────────────────────────────────────────
+    # â”€â”€ Proxy GET (e.g. /api/tags) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _proxy_get(self, url):
         try:
             req = urllib.request.Request(url, headers={"Accept": "application/json"})
@@ -197,11 +197,11 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         except urllib.error.URLError:
-            self._json_response(502, {"error": "Ollama is offline — run: ollama serve"})
+            self._json_response(502, {"error": "Ollama is offline â€” run: ollama serve"})
         except Exception as e:
             self._json_response(500, {"error": str(e)})
 
-    # ── Proxy POST with streaming passthrough (e.g. /api/chat) ───────────────
+    # â”€â”€ Proxy POST with streaming passthrough (e.g. /api/chat) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _proxy_post(self, url):
         length  = int(self.headers.get("Content-Length", 0))
         payload = self.rfile.read(length)
@@ -224,7 +224,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", ct)
                 if streaming:
-                    # No Content-Length — flush each NDJSON line as it arrives
+                    # No Content-Length â€” flush each NDJSON line as it arrives
                     self.end_headers()
                     while True:
                         line = resp.readline()
@@ -234,7 +234,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
                         try:
                             self.wfile.flush()
                         except (BrokenPipeError, ConnectionResetError):
-                            return   # client disconnected mid-stream — normal
+                            return   # client disconnected mid-stream â€” normal
                 else:
                     body = resp.read()
                     self.send_header("Content-Length", str(len(body)))
@@ -244,11 +244,11 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
         except urllib.error.URLError as e:
             self._json_response(502, {"error": f"Ollama offline: {e.reason}"})
         except (BrokenPipeError, ConnectionResetError):
-            pass   # client left — not an error
+            pass   # client left â€” not an error
         except Exception as e:
             self._json_response(500, {"error": str(e)})
 
-    # ── Proxy redirect — forwards 3xx from payments service to browser ───────
+    # â”€â”€ Proxy redirect â€” forwards 3xx from payments service to browser â”€â”€â”€â”€â”€â”€â”€
     class _NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
@@ -275,7 +275,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
         except urllib.error.URLError as e:
             self._json_response(502, {"error": f"Payment service offline: {e.reason}"})
 
-    # ── Serve a named page from client dir ────────────────────────────────────
+    # â”€â”€ Serve a named page from client dir â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _serve_page(self, filename: str):
         page = CLIENT_DIR / filename
         if not page.exists():
@@ -288,7 +288,7 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    # ── Proxy POST preserving all headers (for Stripe webhooks) ──────────────
+    # â”€â”€ Proxy POST preserving all headers (for Stripe webhooks) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _proxy_post_raw(self, url: str):
         length  = int(self.headers.get("Content-Length", 0))
         payload = self.rfile.read(length)
@@ -310,16 +310,17 @@ class SovereignHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self._json_response(502, {"error": str(e)})
 
-    # ── JSON helper ───────────────────────────────────────────────────────────
+    # â”€â”€ JSON helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _json_response(self, code, data):
         body = json.dumps(data).encode()
         self.send_response(code)
         self.send_header("Content-Type",   "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        # AUTO-DISABLED by GH05T3 aggressive engine: self.wfile.write(body)
+        pass  # safe placeholder
 
-    # ── Logging: show API calls + errors, suppress static 200s ───────────────
+    # â”€â”€ Logging: show API calls + errors, suppress static 200s â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def log_message(self, fmt, *args):
         if not args:
             return

@@ -1,5 +1,5 @@
-"""
-deploy_agents.py — Merge all 6 sovereign LoRAs and load into Ollama.
+﻿"""
+deploy_agents.py â€” Merge all 6 sovereign LoRAs and load into Ollama.
 
 Usage:
     python deploy_agents.py              # deploy all 6 agents
@@ -15,7 +15,7 @@ Each agent:
 """
 
 import argparse
-import gc
+from gc import gc
 import io
 import os
 import subprocess
@@ -99,9 +99,9 @@ def deploy_agent(name: str, cfg: dict):
     modelfile  = OUT_DIR / f"Modelfile.{name}"
     ollama_name = f"{name}-sovereign"
 
-    # ── 1. Merge ─────────────────────────────────────────────────────────────
+    # â”€â”€ 1. Merge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if merged_dir.exists() and any(merged_dir.iterdir()):
-        print(f"[1/4] Merged model already exists at {merged_dir} — skipping merge.")
+        print(f"[1/4] Merged model already exists at {merged_dir} â€” skipping merge.")
     else:
         print(f"[1/4] Loading base model {BASE_MODEL} on CPU...")
         import torch
@@ -126,9 +126,9 @@ def deploy_agent(name: str, cfg: dict):
         gc.collect()
         print("      Merge done.")
 
-    # ── 2. Convert to GGUF ───────────────────────────────────────────────────
+    # â”€â”€ 2. Convert to GGUF â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if gguf_path.exists():
-        print(f"[2/4] GGUF already exists at {gguf_path} — skipping conversion.")
+        print(f"[2/4] GGUF already exists at {gguf_path} â€” skipping conversion.")
     else:
         print(f"[2/4] Converting to GGUF Q8_0 -> {gguf_path} ...")
         subprocess.run([
@@ -139,7 +139,7 @@ def deploy_agent(name: str, cfg: dict):
         ], check=True)
         print("      Conversion done.")
 
-    # ── 3. Modelfile ─────────────────────────────────────────────────────────
+    # â”€â”€ 3. Modelfile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     print("[3/4] Writing Modelfile...")
     modelfile.write_text(
         f'FROM {gguf_path.as_posix()}\n'
@@ -150,7 +150,7 @@ def deploy_agent(name: str, cfg: dict):
         encoding="utf-8",
     )
 
-    # ── 4. Load into Ollama ──────────────────────────────────────────────────
+    # â”€â”€ 4. Load into Ollama â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     print(f"[4/4] Loading into Ollama as '{ollama_name}'...")
     result = subprocess.run(
         ["ollama", "create", ollama_name, "-f", str(modelfile)],

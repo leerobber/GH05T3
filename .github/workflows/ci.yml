@@ -75,6 +75,14 @@ jobs:
           AETHYRO_SKIP_LICENSE: "1"
         run: pytest tests/ -v -m "not live and not integration" --ignore=tests/test_mesh_contract.py
 
+      - name: Omni-Sentient Phase 1+2 gate tests
+        run: |
+          MVS_DRY_RUN=1 pytest tests/test_mvs_core.py tests/test_mvs_dry_run.py \
+            tests/test_volatility_world.py tests/test_meta_export_validation.py \
+            tests/test_theory_lab_volatility.py tests/test_loyalty_proposals.py \
+            tests/test_genomic_schema.py tests/test_omni_mind_phase3.py \
+            tests/test_phase2_gate.py -v --tb=short -m "not slow"
+
       - name: Run root unit tests
         run: pytest tests/ -v -m "not live and not integration" --tb=no || true
         env:

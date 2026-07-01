@@ -37,10 +37,37 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Callable, Awaitable, Any, Optional
 from enum import Enum
+from string import Template
 
+from pydantic import BaseModel, Field
 from swarm.circuit_breaker import get_breaker, CircuitBreakerOpen
 
 log = logging.getLogger("gh0st3.swarm.bus")
+
+# Pre-compiled template for common log content construction (reduces .format overhead in hot KAIROS/swarm paths)
+SWARM_LOG_TMPL = Template("[${src}][${channel}] ${content}")
+
+class LogSchema(BaseModel):
+    """Structured LogSchema for SWARM agent logs and messages.
+    Validates before JSON serialization to protect against malformed data in agents/KAIROS.
+    Replaces ad-hoc .format() for log entries.
+    """
+    id: str
+    channel: str
+    msg_type: str
+    src: str
+    dst: str = "*"
+    content: str
+    metadata: dict = Field(default_factory=dict)
+    timestamp: float
+    seq: int = 0
+    ts_human: Optional[str] = None
+
+    def to_validated_dict(self) -> dict:
+        return self.model_dump(exclude_none=True)
+
+    def to_validated_json(self) -> str:
+        return self.model_dump_json(exclude_none=True)
 
 CHAT_LOG_PATH = Path("memory/conversations.jsonl")
 MAX_HISTORY   = 5000   # messages kept in-memory ring buffer
@@ -122,8 +149,16 @@ class ConversationLog:
 
     def append(self, msg: SwarmMessage):
         self._ring.append(msg)
+        d = msg.to_dict()
+        try:
+            # Use LogSchema to validate structure before serialization (protection for SWARM agents)
+            schema = LogSchema(**d)
+            line = schema.to_validated_json()
+        except Exception as e:
+            log.warning("LogSchema validation failed for %s: %s; falling back", msg.id, e)
+            line = msg.to_json()
         with open(self.path, "a") as f:
-            f.write(msg.to_json() + "\n")
+            f.write(line + "\n")
 
     def recent(self, n: int = 100, channel: str = None,
                src: str = None, msg_type: MsgType = None) -> list[dict]:

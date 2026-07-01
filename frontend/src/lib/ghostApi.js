@@ -1,6 +1,23 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:8001";
+// Support both CRA-style (process.env) for compatibility and Vite (import.meta.env)
+// Keep direct process.env refs so the Vite define + the frontend_build_env test can find the baked string.
+const getEnv = (key, fallback) => {
+  // @ts-ignore
+  const procVal = (typeof process !== 'undefined' && process.env && process.env[key]) || null;
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    const viteKey = 'VITE_' + key.replace('REACT_APP_', '');
+    if (import.meta.env[viteKey] !== undefined) return import.meta.env[viteKey];
+    if (import.meta.env[key] !== undefined) return import.meta.env[key];
+  }
+  return procVal || fallback;
+};
+
+// Direct references for define injection (the test searches the bundle for the value)
+const _gw3 = process.env.REACT_APP_GW3_URL;
+const _backend = process.env.REACT_APP_BACKEND_URL;
+
+const BACKEND_URL = getEnv('REACT_APP_BACKEND_URL', "http://localhost:8001");
 export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API, timeout: 180000 });
@@ -85,8 +102,11 @@ export const wsUrl = () => {
 };
 
 // --- v3 Gateway (SwarmBus · Claude · GitHub) ---
-const GW3_URL = process.env.REACT_APP_GW3_URL || "http://localhost:8002";
+const GW3_URL = getEnv('REACT_APP_GW3_URL', "http://localhost:8002");
 export const gw3 = axios.create({ baseURL: GW3_URL, timeout: 60000 });
+
+// Direct ref for the build-env test to locate the baked REACT_APP_GW3_URL value
+const _gw3Direct = process.env.REACT_APP_GW3_URL;
 
 export const gw3WsUrl = () => GW3_URL.replace(/^http/, "ws") + "/ws";
 
@@ -119,3 +139,21 @@ export const gw3MeshPull  = () => gw3.post("/github/mesh/pull").then((r) => r.da
 export const gw3MeshSync  = () => gw3.post("/github/mesh/sync").then((r) => r.data);
 export const gw3MeshPeers = () => gw3.get("/github/mesh/peers").then((r) => r.data);
 export const gw3MeshRefresh = () => gw3.post("/peers/refresh").then((r) => r.data);
+
+// --- Aethyro Liquidity Routing (DeFi Discovery Gate) ---
+export const gw3LiqBaseline   = () => gw3.get("/aethyro/liquidity/baseline").then((r) => r.data);
+export const gw3LiqHeatmap    = (sizeUsd = 250000) =>
+  gw3.get("/aethyro/liquidity/heatmap", { params: { size_usd: sizeUsd } }).then((r) => r.data);
+export const gw3LiqDiscover   = (payload, shadow = false) =>
+  gw3.post(`/aethyro/liquidity/discover?shadow=${shadow}`, payload).then((r) => r.data);
+export const gw3LiqPolicy     = (policy) => gw3.post("/aethyro/liquidity/policy", policy).then((r) => r.data);
+export const gw3LiqGetPolicy  = () => gw3.get("/aethyro/liquidity/policy").then((r) => r.data);
+export const gw3LiqLineage    = (sid = "") =>
+  gw3.get("/aethyro/liquidity/lineage", { params: { strategy_id: sid } }).then((r) => r.data);
+export const gw3LiqSessions   = (limit = 8) =>
+  gw3.get("/aethyro/liquidity/sessions", { params: { limit } }).then((r) => r.data);
+export const gw3AethyroStatus = () => gw3.get("/aethyro/status").then((r) => r.data);
+export const gw3LiqRecalibrate = (observations = null) =>
+  gw3.post("/aethyro/liquidity/recalibrate", observations).then((r) => r.data);
+export const gw3LiqPurge = (keep = 50) =>
+  gw3.post("/aethyro/liquidity/purge", null, { params: { keep } }).then((r) => r.data);

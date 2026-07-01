@@ -628,7 +628,7 @@ def start_stack(open_browser: bool = True, build: bool = False) -> int:
     _start_inference(results)
 
     # Voice listener (non-critical)
-    voice = ROOT / "whisper_listener.py"
+    voice = ROOT / "scripts" / "runtime" / "whisper_listener.py"
     if voice.exists():
         proc = _spawn("voice", [str(PY), str(voice)], ROOT)
         _procs["voice"] = proc
@@ -636,9 +636,10 @@ def start_stack(open_browser: bool = True, build: bool = False) -> int:
 
     # Training ops — only if enabled and supervisor is not already managing them
     if _read_env("ENABLE_OPS") == "1" and not _supervisor_running():
-        for name, script in (("herald", "herald.py --console"), ("cmd-listener", "cmd_listener.py")):
-            parts = script.split()
-            if (ROOT / parts[0]).exists():
+        for name, rel in (("herald", "scripts/runtime/herald.py --console"), ("cmd-listener", "scripts/runtime/cmd_listener.py")):
+            parts = rel.split()
+            script_path = ROOT / parts[0]
+            if script_path.exists():
                 proc = _spawn(name, [str(PY), *parts], ROOT)
                 _procs[name] = proc
                 results.append((name, "—", "started" if proc.poll() is None else "failed"))

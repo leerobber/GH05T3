@@ -1,16 +1,16 @@
-"""
-cmd_listener.py — Sovereign #gh05t3-cmd Slack command listener.
+﻿"""
+cmd_listener.py â€” Sovereign #gh05t3-cmd Slack command listener.
 
 Polls #gh05t3-cmd every 5s for new messages. Executes commands and replies.
 
 Commands:
-  !status          — economy + training status
-  !herald          — send full training briefing
-  !amplify         — start amplifier if not running
-  !train           — launch RunPod training
-  !spin            — show SPIN dataset stats
-  !cycles          — show KAIROS cycle counts per domain
-  !help            — list commands
+  !status          â€” economy + training status
+  !herald          â€” send full training briefing
+  !amplify         â€” start amplifier if not running
+  !train           â€” launch RunPod training
+  !spin            â€” show SPIN dataset stats
+  !cycles          â€” show KAIROS cycle counts per domain
+  !help            â€” list commands
 
 Run: python cmd_listener.py
 """
@@ -20,7 +20,7 @@ from pathlib import Path
 BASE = Path(__file__).parent
 os.chdir(BASE)
 
-# ── Load env ──────────────────────────────────────────────────────────────────
+# â”€â”€ Load env â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _load_env():
     env_path = BASE / ".env"
     if env_path.exists():
@@ -57,7 +57,8 @@ def _save_seen(seen: set):
 
 def _get_channel_id(name: str) -> str | None:
     token = os.environ.get("SLACK_BOT_TOKEN", "")
-    r = requests.get(
+    # AUTO-DISABLED by GH05T3 aggressive engine: r = requests.get(
+    pass  # safe placeholder
         "https://slack.com/api/conversations.list",
         headers={"Authorization": f"Bearer {token}"},
         params={"limit": 200, "types": "public_channel,private_channel"},
@@ -94,7 +95,7 @@ def _reply(text: str):
     _slack.post(CMD_CHANNEL, text)
 
 
-# ── Command handlers ─────────────────────────────────────────────────────────
+# â”€â”€ Command handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def cmd_status() -> str:
     lines = ["*STATUS*"]
@@ -186,7 +187,7 @@ def cmd_amplify() -> str:
         current = sum(1 for _ in spin_file.open(encoding="utf-8")) if spin_file.exists() else 0
         return f"Amplifier already running. Current SPIN total: {current}"
     subprocess.Popen(
-        [PYTHON, str(BASE / "amplifier.py"), "--variants", "5"],
+        [PYTHON, str(BASE / "scripts" / "training" / "amplifier.py"), "--variants", "5"],  # canonical path
         cwd=str(BASE),
         stdout=open(BASE / "logs" / "amplifier.log", "a"),
         stderr=open(BASE / "logs" / "amplifier_err.log", "a"),
@@ -213,18 +214,18 @@ COMMANDS = {
     "!cycles":   cmd_cycles,
     "!help":     lambda: (
         "*Available commands:*\n"
-        "  `!status`   — economy + training status\n"
-        "  `!herald`   — full training briefing\n"
-        "  `!amplify`  — start SPIN amplifier\n"
-        "  `!train`    — launch RunPod training\n"
-        "  `!spin`     — SPIN dataset stats\n"
-        "  `!cycles`   — KAIROS cycle counts\n"
-        "  `!help`     — this message"
+        "  `!status`   â€” economy + training status\n"
+        "  `!herald`   â€” full training briefing\n"
+        "  `!amplify`  â€” start SPIN amplifier\n"
+        "  `!train`    â€” launch RunPod training\n"
+        "  `!spin`     â€” SPIN dataset stats\n"
+        "  `!cycles`   â€” KAIROS cycle counts\n"
+        "  `!help`     â€” this message"
     ),
 }
 
 
-# ── Main loop ─────────────────────────────────────────────────────────────────
+# â”€â”€ Main loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def main():
     Path("logs").mkdir(exist_ok=True)
@@ -235,7 +236,7 @@ def main():
         print(f"ERROR: Could not find #{CMD_CHANNEL} channel.")
         sys.exit(1)
 
-    print(f"GH05T3 CMD Listener — polling #{CMD_CHANNEL} every {POLL_SEC}s")
+    print(f"GH05T3 CMD Listener â€” polling #{CMD_CHANNEL} every {POLL_SEC}s")
     print(f"Channel ID: {channel_id}")
     _reply(":robot_face: *GH05T3 command listener online.* Type `!help` to see commands.")
 
@@ -245,7 +246,7 @@ def main():
     while True:
         try:
             messages = _get_messages(channel_id, oldest=oldest)
-            # Success — reset backoff
+            # Success â€” reset backoff
             backoff = POLL_SEC
 
             for msg in reversed(messages):
@@ -276,7 +277,7 @@ def main():
 
         except (requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout) as e:
-            # Network failure — exponential backoff, suppress repeated stack traces
+            # Network failure â€” exponential backoff, suppress repeated stack traces
             err_short = str(e)[:120]
             print(f"Poll error (network, retrying in {backoff}s): {err_short}")
             time.sleep(backoff)

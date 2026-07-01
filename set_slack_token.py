@@ -75,7 +75,7 @@ if __name__ == "__main__":
         bot  = result.get("user", "?")
         print(f"  Token valid  workspace={team}  bot={bot}")
 
-    # Save to both env files so cmd_listener finds it regardless of load order
+    # Save to both env files so scripts/runtime/cmd_listener.py finds it (canonical path)
     _update_env(BACKEND_ENV, "SLACK_BOT_TOKEN", token)
     _update_env(ROOT_ENV, "SLACK_BOT_TOKEN", token)
 

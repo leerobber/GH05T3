@@ -61,6 +61,8 @@ echo   Gateway+NEXUS:   http://localhost:8002/docs
 echo   Economy API:     http://localhost:8081/docs
 echo   Supervisor:      http://localhost:8090/status
 echo   SAGE Engine:     http://localhost:8098/health
+echo   Sovereign IFace: http://localhost:8100/health
+echo   Genome Lab UI:   http://localhost:7720/genome_dashboard.html
 echo   Honcho Dash:     http://localhost:8098/status
 echo   IBAC Daemon:     http://localhost:8098/ibac/policy
 echo  ============================================================

@@ -78,7 +78,7 @@ oss/
 ## Requirements
 
 - Python 3.12 with `backend/.venv` activated
-- GH05T3 gateway running on port **8002** (via `run.bat` or `run_stack.py`)
+- GH05T3 gateway running on port **8002** (via `run.bat` or `python run_stack.py`)
 - Optional: Ollama or configured cloud inference for live swarm solves
 
 ---
@@ -88,7 +88,7 @@ oss/
 ### 1. Verify the stack
 
 ```bat
-run.bat --review
+python run_stack.py --review
 curl http://localhost:8002/oss/health
 ```
 

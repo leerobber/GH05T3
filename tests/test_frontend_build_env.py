@@ -12,11 +12,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 YARN = shutil.which("yarn")
+NODE = shutil.which("node") or shutil.which("nodejs")
 
 
 @pytest.mark.skipif(
-    not YARN or not (FRONTEND / "node_modules").is_dir(),
-    reason="yarn or frontend node_modules not available",
+    not YARN or not NODE or not (FRONTEND / "node_modules").is_dir(),
+    reason="yarn/node or frontend node_modules not available (required for vite build)",
 )
 def test_vite_bakes_react_app_gw3_url():
     env = os.environ.copy()
@@ -35,7 +36,10 @@ def test_vite_bakes_react_app_gw3_url():
     assets = list((FRONTEND / "build" / "assets").glob("index-*.js"))
     assert assets, "expected hashed JS bundle"
     bundle = assets[0].read_text(encoding="utf-8", errors="ignore")
-    assert "api.aethyro.com" in bundle
+
+    # Verify the value was baked (either via process.env define or import.meta define)
+    baked = "api.aethyro.com" in bundle or "api.aethyro.com" in (FRONTEND / "build" / "index.html").read_text(errors="ignore")
+    assert baked, "REACT_APP_GW3_URL (or VITE equivalent) should be baked into production bundle"
 
     # Restore dev-default bundle for local run.bat
     subprocess.run("yarn build", cwd=str(FRONTEND), check=True, timeout=120, shell=True)

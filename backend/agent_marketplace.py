@@ -298,11 +298,14 @@ class JobQueue:
                 reward = row[0]
                 _completed_metadata.update(json.loads(row[3] or "{}"))
 
-                c.execute(
+                updated = c.execute(
                     "UPDATE marketplace_jobs SET status=?, result=?, completed_at=? "
-                    "WHERE id=?",
-                    (JobStatus.COMPLETED.value, result[:2000], now, job_id),
-                )
+                    "WHERE id=? AND status=?",
+                    (JobStatus.COMPLETED.value, result[:2000], now,
+                     job_id, JobStatus.CLAIMED.value),
+                ).rowcount
+                if not updated:
+                    return False, 0, 0.0
 
                 # Credit atomically in the same transaction
                 bal_row = c.execute(
@@ -841,25 +844,44 @@ async def ingest_stripe_event(event_type: str, payload: dict) -> Optional[str]:
     return None
 
 
+def _cve_already_queued(cve_id: str) -> bool:
+    """Return True if an active (PENDING/CLAIMED) job for this CVE already exists."""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT id FROM marketplace_jobs "
+            "WHERE json_extract(metadata,'$.cve_id')=? "
+            "AND status IN (?,?)",
+            (cve_id, JobStatus.PENDING.value, JobStatus.CLAIMED.value),
+        ).fetchone()
+    return row is not None
+
+
 async def ingest_cve_feed(cve_records: list[dict]) -> list[str]:
     """Post CVE records as SENTINEL security scan jobs.
 
     Each record: {"id": "CVE-2024-...", "summary": "...", "severity": "CRITICAL"}
+    Skips CVEs that already have an active (PENDING/CLAIMED) job to prevent
+    the hourly feed from creating duplicate jobs for the same vulnerability.
     """
     q    = JobQueue.instance()
     jobs = []
     for cve in cve_records[:20]:   # cap at 20 per batch
+        cve_id   = cve.get("id", "CVE-UNKNOWN")
+        if await asyncio.to_thread(_cve_already_queued, cve_id):
+            LOG.debug("[mkt] CVE %s already queued — skipping", cve_id)
+            continue
         severity = (cve.get("severity") or "UNKNOWN").upper()
         reward   = {"CRITICAL": 80, "HIGH": 50, "MEDIUM": 30, "LOW": 15}.get(severity, 20)
         task     = (
-            f"Analyze {cve.get('id', 'CVE-UNKNOWN')} ({severity}): "
+            f"Analyze {cve_id} ({severity}): "
             f"{cve.get('summary', '')[:300]}\n"
             f"Determine: (1) whether GH05T3 stack is affected, "
             f"(2) mitigation steps, (3) patch priority."
         )
         jid = await q.post(task, tags=["security_scan", "cve", severity.lower()],
                            reward=reward, posted_by="cve_feed",
-                           metadata={"cve_id": cve.get("id"), "severity": severity})
+                           metadata={"cve_id": cve_id, "severity": severity})
         jobs.append(jid)
-    LOG.info("[mkt] ingested %d CVE jobs", len(jobs))
+    LOG.info("[mkt] ingested %d new CVE jobs (%d dupes skipped)",
+             len(jobs), len(cve_records[:20]) - len(jobs))
     return jobs

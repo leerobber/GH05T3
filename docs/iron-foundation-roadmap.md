@@ -3,6 +3,8 @@
 Sequenced checklist to convert the MVS spine into a production-grade, independently deployable stack.
 Execute in order — do not jump to Omni-OS v7 layers until each phase is green in CI.
 
+**Evolution layer (canonical):** [`OMNI_SENTIENT_BUILD_PLAN.md`](OMNI_SENTIENT_BUILD_PLAN.md) — phased MVS → OmniWorld → OmniMind → DNA v2 → Omni-Net → Singularity, plus elite zero-bottleneck architecture and master implementation checklist.
+
 **Canonical tooling:** `scripts/pact/run.sh` / `run.ps1`, `scripts/oss_smoke.py`, `docs/contract-testing.md`
 
 ---

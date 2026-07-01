@@ -1,10 +1,11 @@
 {
   "version": 2,
   "outputDirectory": "frontend/build",
-  "buildCommand": "cd frontend && npm run build",
-  "installCommand": "cd frontend && npm install",
+  "buildCommand": "cd frontend && yarn build",
+  "installCommand": "cd frontend && yarn install",
   "env": {
-    "REACT_APP_GW3_URL": "https://api.aethyro.com"
+    "REACT_APP_GW3_URL": "https://api.aethyro.com",
+    "VITE_REACT_APP_GW3_URL": "https://api.aethyro.com"
   },
   "routes": [
     {

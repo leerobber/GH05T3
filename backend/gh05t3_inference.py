@@ -1,14 +1,14 @@
-"""
-GH05T3 Local Inference Server — v3
+﻿"""
+GH05T3 Local Inference Server â€” v3
 ====================================
 OpenAI-compatible /v1/chat/completions at port 8010.
 
 Backend auto-selection (priority order):
-  1. vLLM AsyncLLMEngine  — NVFP4 on Blackwell sm_120 (~8,000 tok/s)
+  1. vLLM AsyncLLMEngine  â€” NVFP4 on Blackwell sm_120 (~8,000 tok/s)
                             FP8   on Hopper  sm_90  (~4,000 tok/s)
                             BF16  fallback          (~1,000 tok/s)
-                            True SSE streaming · multi-LoRA hot-swap (up to 8)
-  2. HuggingFace + PEFT   — NF4 BitsAndBytes fallback (~300 tok/s)
+                            True SSE streaming Â· multi-LoRA hot-swap (up to 8)
+  2. HuggingFace + PEFT   â€” NF4 BitsAndBytes fallback (~300 tok/s)
                             SSE streaming via TextIteratorStreamer
 
 Env vars:
@@ -48,7 +48,7 @@ load_dotenv(Path(__file__).parent / ".env")
 log = logging.getLogger("gh05t3.inference")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# ── env config ─────────────────────────────────────────────────────────────────
+# â”€â”€ env config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _BASE_DIR      = Path(__file__).parent
 ADAPTER_PATH   = os.environ.get("GH05T3_ADAPTER_PATH",
                                 str(_BASE_DIR / "models" / "gh05t3_lora_adapter"))
@@ -70,28 +70,28 @@ SYSTEM_PROMPT = (
     "detection and defense over exploitation."
 )
 
-# ── vLLM availability probe ─────────────────────────────────────────────────────
+# â”€â”€ vLLM availability probe â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _VLLM = False
 if not FORCE_HF:
     try:
         from vllm import AsyncLLMEngine, AsyncEngineArgs, SamplingParams  # type: ignore
         from vllm.lora.request import LoRARequest  # type: ignore
         _VLLM = True
-        log.info("vLLM found — AsyncLLMEngine will be primary backend")
+        log.info("vLLM found â€” AsyncLLMEngine will be primary backend")
     except ImportError:
-        log.info("vLLM not installed — using HuggingFace transformers path")
+        log.info("vLLM not installed â€” using HuggingFace transformers path")
 
-# ── runtime state ───────────────────────────────────────────────────────────────
+# â”€â”€ runtime state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _vllm_engine  = None   # AsyncLLMEngine  (vLLM path)
 _hf_model     = None   # PeftModel / AutoModelForCausalLM  (HF path)
-_tokenizer    = None   # always loaded — prompt building for both backends
+_tokenizer    = None   # always loaded â€” prompt building for both backends
 _ready        = False
 _model_id     = DEFAULT_BASE_MODEL
 _backend      = "hf"   # "vllm" | "hf"
 _quant_type   = "none" # "nvfp4" | "fp8" | "nf4" | "none"
 _tok_s_ema    = 0.0    # exponential moving avg of tokens/sec
 _has_adapter  = False
-_hf_lock      = None   # asyncio.Lock — serialize HF generation to prevent CUDA OOM
+_hf_lock      = None   # asyncio.Lock â€” serialize HF generation to prevent CUDA OOM
 
 
 def _update_tok_s(new_val: float) -> None:
@@ -105,16 +105,16 @@ def _pick_vllm_quant() -> str | None:
         return None
     major = torch.cuda.get_device_properties(0).major
     if major >= 12:
-        return "nvfp4"  # Blackwell sm_120 — ~8 000 tok/s native
+        return "nvfp4"  # Blackwell sm_120 â€” ~8 000 tok/s native
     if major >= 9:
-        return "fp8"    # Hopper  sm_90  — ~4 000 tok/s native
-    return None         # Ampere and older — vLLM uses BF16
+        return "fp8"    # Hopper  sm_90  â€” ~4 000 tok/s native
+    return None         # Ampere and older â€” vLLM uses BF16
 
 
 def _pick_kv_cache_dtype() -> str:
     """fp8 KV cache cuts memory ~2x vs fp16, enabling longer context on the same VRAM.
 
-    vLLM only accepts 'auto' or 'fp8' — it selects the optimal fp8 sub-format
+    vLLM only accepts 'auto' or 'fp8' â€” it selects the optimal fp8 sub-format
     (e5m2 vs e4m3) internally based on hardware capability.
     Hopper (sm_90+) and Blackwell (sm_120+) both support fp8 natively.
     """
@@ -122,21 +122,21 @@ def _pick_kv_cache_dtype() -> str:
         return "auto"
     major = torch.cuda.get_device_properties(0).major
     if major >= 9:
-        return "fp8"   # Hopper + Blackwell — vLLM picks e4m3/e5m2 internally
+        return "fp8"   # Hopper + Blackwell â€” vLLM picks e4m3/e5m2 internally
     return "auto"
 
 
-# ── LoRA Farm — domain-specific adapter hot-swap ───────────────────────────────
+# â”€â”€ LoRA Farm â€” domain-specific adapter hot-swap â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class LoRAFarm:
     """Route generation requests to domain-specific LoRA adapters.
 
     Each domain adapter is a separate fine-tune trained on domain-specific data:
-        security  → models/security_adapter     (CVE, exploit reasoning, OWASP)
-        code      → models/code_adapter         (code generation, refactoring)
-        research  → models/research_adapter     (knowledge synthesis, summarization)
-        ops       → models/ops_adapter          (workflow planning, orchestration)
-        default   → models/gh05t3_lora_adapter  (general-purpose fine-tune)
+        security  â†’ models/security_adapter     (CVE, exploit reasoning, OWASP)
+        code      â†’ models/code_adapter         (code generation, refactoring)
+        research  â†’ models/research_adapter     (knowledge synthesis, summarization)
+        ops       â†’ models/ops_adapter          (workflow planning, orchestration)
+        default   â†’ models/gh05t3_lora_adapter  (general-purpose fine-tune)
 
     Adapters are ~150MB each. vLLM holds up to max_loras=8 in VRAM simultaneously,
     swapping on LRU. Falls back gracefully to the default adapter when a domain
@@ -162,7 +162,7 @@ class LoRAFarm:
     def get_lora_request(self, task_domain: str) -> LoRARequest | None:
         if not _VLLM:
             return None
-        # Omni MoE: scientific domain → adapter path (20 disciplines)
+        # Omni MoE: scientific domain â†’ adapter path (20 disciplines)
         try:
             from oss.forge.domains import resolve_domain
             from oss.forge.moe_farm import resolve_adapter_path
@@ -203,9 +203,9 @@ def get_lora_farm() -> "LoRAFarm":
     if _lora_farm is None:
         _lora_farm = LoRAFarm()
     return _lora_farm
-# ── model loading ──────────────────────────────────────────────────────────────
+# â”€â”€ model loading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _resolve_adapter_dir(base: Path | None = None) -> Path:
-    """Find adapter_config.json — handles nested training output layouts."""
+    """Find adapter_config.json â€” handles nested training output layouts."""
     root = base or Path(ADAPTER_PATH)
     if (root / "adapter_config.json").exists():
         return root
@@ -226,7 +226,7 @@ def load_model() -> None:
     adapter_dir  = _resolve_adapter_dir()
     _has_adapter = adapter_dir.exists() and (adapter_dir / "adapter_config.json").exists()
     if not _has_adapter:
-        # weights at root, config nested — symlink-less copy path for PEFT
+        # weights at root, config nested â€” symlink-less copy path for PEFT
         root = Path(ADAPTER_PATH)
         nested = root / root.name
         if (root / "adapter_model.safetensors").exists() and (nested / "adapter_config.json").exists():
@@ -303,9 +303,9 @@ def _load_vllm(base_model: str, adapter_dir, training_cfg: dict) -> None:
             return
         except Exception as exc:
             if quant is not None:
-                log.warning("vLLM quant=%s failed: %s — trying bf16", quant, exc)
+                log.warning("vLLM quant=%s failed: %s â€” trying bf16", quant, exc)
             else:
-                log.warning("vLLM bf16 init failed: %s — falling back to HF path", exc)
+                log.warning("vLLM bf16 init failed: %s â€” falling back to HF path", exc)
                 _load_hf(base_model, adapter_dir, training_cfg)
                 return
 
@@ -318,7 +318,7 @@ def _load_hf(base_model: str, adapter_dir, training_cfg: dict) -> None:
     _quant_type = "nf4" if use_4bit else "none"
     log.info("HF model: %s  4-bit=%s", base_model, use_4bit)
 
-    # Stream weights to GPU — avoids Windows page-file exhaustion (os error 1455)
+    # Stream weights to GPU â€” avoids Windows page-file exhaustion (os error 1455)
     import gc
     gc.collect()
     if DEVICE == "cuda" and torch.cuda.is_available():
@@ -368,7 +368,7 @@ def _load_hf(base_model: str, adapter_dir, training_cfg: dict) -> None:
         _hf_model = peft if use_4bit else peft.merge_and_unload()
         log.info("Adapter %s", "loaded (4-bit, no merge)" if use_4bit else "merged into fp16")
     else:
-        log.warning("No adapter at %s — serving base model only", ADAPTER_PATH)
+        log.warning("No adapter at %s â€” serving base model only", ADAPTER_PATH)
         _hf_model = base
 
     _hf_model.eval()
@@ -377,7 +377,7 @@ def _load_hf(base_model: str, adapter_dir, training_cfg: dict) -> None:
     if DEVICE == "cuda":
         used  = torch.cuda.memory_allocated(0) / 1e9
         total = torch.cuda.get_device_properties(0).total_memory / 1e9
-        log.info("HF ready on %s — %.1f/%.1f GB VRAM", DEVICE, used, total)
+        log.info("HF ready on %s â€” %.1f/%.1f GB VRAM", DEVICE, used, total)
 
 
 def _should_load_4bit(training_cfg: dict) -> bool:
@@ -392,7 +392,7 @@ def _should_load_4bit(training_cfg: dict) -> bool:
     return False
 
 
-# ── prompt ─────────────────────────────────────────────────────────────────────
+# â”€â”€ prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _build_chatml(messages: list[dict]) -> str:
     parts = [f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>" for m in messages]
     parts.append("<|im_start|>assistant\n")
@@ -405,7 +405,7 @@ def _inject_system(messages: list[dict]) -> list[dict]:
     return [{"role": "system", "content": SYSTEM_PROMPT}] + messages
 
 
-# ── vLLM generation ─────────────────────────────────────────────────────────────
+# â”€â”€ vLLM generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async def _vllm_stream_tokens(prompt: str, max_tokens: int, temperature: float,
                                req_id: str, task_domain: str = "default"):
     """Async-yield raw text tokens from vLLM. Aborts the request on cancellation."""
@@ -460,7 +460,7 @@ async def _vllm_generate_full(prompt: str, max_tokens: int, temperature: float,
     return full_text, p_toks, c_toks
 
 
-# ── HF generation ───────────────────────────────────────────────────────────────
+# â”€â”€ HF generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _hf_generate_sync(messages: list[dict], max_tokens: int, temperature: float
                        ) -> tuple[str, int, int]:
     msgs = messages if (messages and messages[0].get("role") == "system") else _inject_system(messages)
@@ -508,7 +508,7 @@ async def _hf_stream_tokens(messages: list[dict], max_tokens: int, temperature: 
         gen_kw.update(do_sample=False)
 
     loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
-    q: asyncio.Queue[str | None]    = asyncio.Queue()  # unbounded — avoids QueueFull
+    q: asyncio.Queue[str | None]    = asyncio.Queue()  # unbounded â€” avoids QueueFull
 
     def _reader():
         for tok in streamer:
@@ -541,7 +541,7 @@ async def _hf_stream_tokens(messages: list[dict], max_tokens: int, temperature: 
         gen_t.join(timeout=5.0)
 
 
-# ── unified SSE response ────────────────────────────────────────────────────────
+# â”€â”€ unified SSE response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async def _sse_stream(messages: list[dict], max_tokens: int, temperature: float,
                       task_domain: str = "default"):
     """Yield SSE data: lines for both vLLM and HF backends."""
@@ -578,7 +578,7 @@ async def _sse_stream(messages: list[dict], max_tokens: int, temperature: float,
     yield "data: [DONE]\n\n"
 
 
-# ── FastAPI ─────────────────────────────────────────────────────────────────────
+# â”€â”€ FastAPI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app = FastAPI(title="GH05T3 Inference", version="3.0.0")
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -596,7 +596,7 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens:  int   = MAX_NEW_TOKENS
     stream:      bool  = False
-    task_domain: str   = ""   # scientific or legacy domain slug — Omni MoE routes adapter
+    task_domain: str   = ""   # scientific or legacy domain slug â€” Omni MoE routes adapter
     session_id:  str   = ""   # epigenetic session affinity across turns
 
 
@@ -648,7 +648,7 @@ async def list_models():
 
 
 def _plan_route(req: ChatRequest) -> tuple[list[dict], str, float, dict]:
-    """Omni MoE routing — spectral classify, holographic context, epigenetic bias."""
+    """Omni MoE routing â€” spectral classify, holographic context, epigenetic bias."""
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
     try:
         from oss.forge.inference_router import plan_inference_route

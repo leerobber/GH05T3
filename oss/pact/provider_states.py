@@ -28,4 +28,4 @@ def apply_provider_state(state_name: str) -> None:
 @router.post("/_pact/provider_states")
 async def provider_states(state: dict) -> dict:
     apply_provider_state(state.get("state", ""))
-    return {"result": "ok"}
+    return {"ok": True, "result": "ok", "state": state.get("state", "")}

@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-GH05T3 Local Training — Qwen2.5-7B-Instruct + QLoRA (4-bit)
+GH05T3 Local Training â€” Qwen2.5-7B-Instruct + QLoRA (4-bit)
 Runs on RTX 5050 (Blackwell, 8 GB VRAM).  No cloud needed.
 
-One-time setup from repo root (run train.bat — it does this automatically):
+One-time setup from repo root (run train.bat â€” it does this automatically):
     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
     pip install transformers==4.40.2 peft==0.10.0 trl==0.8.6 accelerate==0.29.3 \
                 datasets==2.19.0 "huggingface_hub>=0.22.0" "bitsandbytes>=0.44.0" kaggle
@@ -37,13 +37,13 @@ logging.basicConfig(
 )
 log = logging.getLogger("gh05t3-train")
 
-# ── paths ──────────────────────────────────────────────────────────────────────
+# â”€â”€ paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 REPO     = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = REPO / "backend" / "data" / "training"
 OUT_DIR  = REPO / "backend" / "models" / "gh05t3_lora_adapter"
 CKPT_DIR = REPO / "backend" / "training" / "checkpoints"
 
-# ── config ─────────────────────────────────────────────────────────────────────
+# â”€â”€ config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _default_model_id() -> str:
     override = os.environ.get("GH05T3_TRAIN_MODEL")
     if override:
@@ -76,7 +76,7 @@ SYSTEM = (
     "detection and defense over exploitation."
 )
 
-# ── domain-specific system prompts ────────────────────────────────────────────
+# â”€â”€ domain-specific system prompts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 DOMAIN_SYSTEMS = {
     "default":  SYSTEM,
     "security": (
@@ -103,7 +103,7 @@ DOMAIN_SYSTEMS = {
     ),
 }
 
-# ── domain → output directory ─────────────────────────────────────────────────
+# â”€â”€ domain â†’ output directory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 DOMAIN_OUT_DIRS = {
     "default":  REPO / "backend" / "models" / "gh05t3_lora_adapter",
     "security": REPO / "backend" / "models" / "security_adapter",
@@ -113,7 +113,7 @@ DOMAIN_OUT_DIRS = {
 }
 
 
-# ── data ───────────────────────────────────────────────────────────────────────
+# â”€â”€ data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def ensure_data() -> Path:
     required = [
         "adversarial_defense.jsonl",
@@ -202,7 +202,7 @@ def build_dataset(data_dir: Path):
             {"role": "user",      "content": f"Analyze {rec.get('source_cve','CVE')} vulnerability."},
             {"role": "assistant", "content":
                 f"**Pattern:** {p}\n\n**Indicators:**\n" +
-                ("\n".join(f"• {x}" for x in ind) if isinstance(ind, list) else str(ind)) +
+                ("\n".join(f"â€¢ {x}" for x in ind) if isinstance(ind, list) else str(ind)) +
                 f"\n\n**Lessons:** {rec.get('defensive_lessons', 'N/A')}"},
         ]))
 
@@ -220,7 +220,7 @@ def build_dataset(data_dir: Path):
                 f"**Remediation:** {rec.get('remediation', 'N/A')}"},
         ]))
 
-    # ── Sovereign Recall — highest quality source (pre-formatted ChatML) ──────
+    # â”€â”€ Sovereign Recall â€” highest quality source (pre-formatted ChatML) â”€â”€â”€â”€â”€â”€
     recall_file = REPO / "backend" / "data" / "training" / "sovereign_recall.jsonl"
     recall_count = 0
     for rec in read_jsonl(recall_file):
@@ -233,9 +233,9 @@ def build_dataset(data_dir: Path):
         texts.append(text)
         recall_count += 1
     if recall_count:
-        log.info("Sovereign Recall: +%d examples (quality≥4) from %s", recall_count, recall_file)
+        log.info("Sovereign Recall: +%d examples (qualityâ‰¥4) from %s", recall_count, recall_file)
 
-    # ── Omni Forge gold export (quality-gated agency layer) ───────────────────
+    # â”€â”€ Omni Forge gold export (quality-gated agency layer) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     forge_file = REPO / "backend" / "data" / "training" / "forge_gold.jsonl"
     forge_count = 0
     for rec in read_jsonl(forge_file):
@@ -247,7 +247,7 @@ def build_dataset(data_dir: Path):
     if forge_count:
         log.info("Omni Forge: +%d gold examples from %s", forge_count, forge_file)
 
-    # ── OmniStrand Elite export (genetic selection, methylation-weighted) ─────
+    # â”€â”€ OmniStrand Elite export (genetic selection, methylation-weighted) â”€â”€â”€â”€â”€
     elite_file = REPO / "backend" / "data" / "training" / "forge_elite_strands.jsonl"
     elite_count = 0
     for rec in read_jsonl(elite_file):
@@ -279,7 +279,7 @@ def build_dataset(data_dir: Path):
 
 
 def build_forge_dataset() -> "Dataset":
-    """Gold-standard Omni Forge only — forge_gold + methylation-weighted elite strands."""
+    """Gold-standard Omni Forge only â€” forge_gold + methylation-weighted elite strands."""
     from datasets import Dataset
 
     texts: list[str] = []
@@ -305,7 +305,7 @@ def build_forge_dataset() -> "Dataset":
 
     if not texts:
         log.error(
-            "No forge examples in %s — run: python oss/cli/forge_run.py --min-tier gold",
+            "No forge examples in %s â€” run: python oss/cli/forge_run.py --min-tier gold",
             DATA_DIR,
         )
         sys.exit(1)
@@ -322,11 +322,11 @@ def build_forge_dataset() -> "Dataset":
 def build_domain_dataset(domain: str, data_dir: Path):
     """Build a domain-specific training dataset.
 
-    security → CVE/threat/bug-bounty data (all security JSONL files)
-    code     → reasoning chains + synthetic code review examples
-    research → sovereign_recall (quality>=3) + research synthesis templates
-    ops      → operational templates (generated inline, no external file needed)
-    default  → falls through to build_dataset()
+    security â†’ CVE/threat/bug-bounty data (all security JSONL files)
+    code     â†’ reasoning chains + synthetic code review examples
+    research â†’ sovereign_recall (quality>=3) + research synthesis templates
+    ops      â†’ operational templates (generated inline, no external file needed)
+    default  â†’ falls through to build_dataset()
     """
     from datasets import Dataset
 
@@ -359,7 +359,7 @@ def build_domain_dataset(domain: str, data_dir: Path):
                 {"role": "user",      "content": f"Assess {rec.get('source_cve','CVE-UNKNOWN')}."},
                 {"role": "assistant", "content":
                     f"**Pattern:** {p}\n\n**Indicators:**\n" +
-                    ("\n".join(f"• {x}" for x in ind) if isinstance(ind, list) else str(ind)) +
+                    ("\n".join(f"â€¢ {x}" for x in ind) if isinstance(ind, list) else str(ind)) +
                     f"\n\n**Defensive Lessons:** {rec.get('defensive_lessons','N/A')}"},
             ]))
         for rec in read_jsonl(data_dir / "bug_bounty.jsonl"):
@@ -369,7 +369,7 @@ def build_domain_dataset(domain: str, data_dir: Path):
                 continue
             texts.append(chatml([
                 {"role": "system",    "content": system},
-                {"role": "user",      "content": f"Bug bounty report: {tgt} — {vuln}"},
+                {"role": "user",      "content": f"Bug bounty report: {tgt} â€” {vuln}"},
                 {"role": "assistant", "content":
                     f"**Recon Method:** {rec.get('recon_method','N/A')}\n\n"
                     f"**Non-weaponized PoC:** {rec.get('non_weaponized_poc','N/A')}\n\n"
@@ -394,9 +394,9 @@ def build_domain_dataset(domain: str, data_dir: Path):
             ("Review this Python function for correctness, edge cases, and style:\n\n```python\n{snippet}\n```",
              "**Issues found:**\n1. No input validation\n2. Missing error handling\n\n**Improved version:**\n```python\n# validated, edge-cases handled\n{snippet}\n```\n\n**Style:** follows PEP 8. Add docstring explaining params and return value."),
             ("Explain the time and space complexity of this algorithm:\n\n{snippet}",
-             "**Time complexity:** O(n log n) — sorting dominates\n**Space complexity:** O(n) — output list\n\n**Reasoning:** The outer loop runs n times. Inner binary search is O(log n). Combined: O(n log n)."),
+             "**Time complexity:** O(n log n) â€” sorting dominates\n**Space complexity:** O(n) â€” output list\n\n**Reasoning:** The outer loop runs n times. Inner binary search is O(log n). Combined: O(n log n)."),
             ("What design pattern applies here and how would you refactor?\n\n{snippet}",
-             "**Pattern:** Strategy pattern — behaviour varies by type\n**Refactored:** Extract an interface, inject the concrete strategy\n\n**Before:** tight coupling via if/elif\n**After:** `handler = STRATEGY_MAP[type]; result = handler.execute(data)`"),
+             "**Pattern:** Strategy pattern â€” behaviour varies by type\n**Refactored:** Extract an interface, inject the concrete strategy\n\n**Before:** tight coupling via if/elif\n**After:** `handler = STRATEGY_MAP[type]; result = handler.execute(data)`"),
         ]
         snippets = ["def f(x): return x*2", "for i in range(n): arr.sort()", "if t=='a': doA()\nelif t=='b': doB()"]
         for i, (q_tmpl, a_tmpl) in enumerate(_CODE_TEMPLATES * 30):
@@ -426,11 +426,11 @@ def build_domain_dataset(domain: str, data_dir: Path):
             "Summarize the literature on mixture-of-experts scaling laws.",
         ]
         _RESEARCH_A = [
-            "**Overview:** Transformer research has focused on efficiency, length extension, and reasoning.\n\n**Key advances:**\n1. Flash Attention (Dao et al., 2022) — IO-aware attention, 2-4× speedup\n2. RoPE positional encoding — length generalization\n3. Grouped-query attention — KV cache reduction\n\n**Current frontier:** sparse attention, state-space models (Mamba), hybrid architectures.",
+            "**Overview:** Transformer research has focused on efficiency, length extension, and reasoning.\n\n**Key advances:**\n1. Flash Attention (Dao et al., 2022) â€” IO-aware attention, 2-4Ã— speedup\n2. RoPE positional encoding â€” length generalization\n3. Grouped-query attention â€” KV cache reduction\n\n**Current frontier:** sparse attention, state-space models (Mamba), hybrid architectures.",
             "**BM25 strengths:** exact keyword match, no GPU needed, interpretable, fast\n**Dense retrieval strengths:** semantic similarity, handles paraphrase, recall on rare queries\n\n**Production recommendation:** hybrid (RRF fusion of BM25 + dense) consistently outperforms either alone. Use BM25 as initial filter, dense re-ranker on top-k.",
-            "**Techniques:**\n1. RAG — ground responses in retrieved evidence\n2. Constitutional AI — self-critique and revision\n3. Chain-of-thought prompting — forces reasoning before answer\n4. Calibration via RLHF — penalize confident wrong answers\n\n**Best practice:** combine RAG + CoT + refusal for unsupported claims.",
-            "**Higher rank:** more parameters, better expressiveness, slower training, more storage\n**Lower rank (r=4–8):** faster, smaller, often sufficient for narrow domains\n\n**Empirical finding:** r=16, alpha=32 is a reliable starting point. Diminishing returns above r=64 for most tasks.",
-            "**Key papers:** GShard (2021), Switch Transformer (2022), Mixtral (2024)\n\n**Scaling laws:** MoE models achieve same loss as dense models with ~3-4× fewer FLOPs per token. Routing collapse is the main failure mode. Load balancing loss is critical.",
+            "**Techniques:**\n1. RAG â€” ground responses in retrieved evidence\n2. Constitutional AI â€” self-critique and revision\n3. Chain-of-thought prompting â€” forces reasoning before answer\n4. Calibration via RLHF â€” penalize confident wrong answers\n\n**Best practice:** combine RAG + CoT + refusal for unsupported claims.",
+            "**Higher rank:** more parameters, better expressiveness, slower training, more storage\n**Lower rank (r=4â€“8):** faster, smaller, often sufficient for narrow domains\n\n**Empirical finding:** r=16, alpha=32 is a reliable starting point. Diminishing returns above r=64 for most tasks.",
+            "**Key papers:** GShard (2021), Switch Transformer (2022), Mixtral (2024)\n\n**Scaling laws:** MoE models achieve same loss as dense models with ~3-4Ã— fewer FLOPs per token. Routing collapse is the main failure mode. Load balancing loss is critical.",
         ]
         for q, a in zip(_RESEARCH_Q * 20, _RESEARCH_A * 20):
             texts.append(chatml([
@@ -442,15 +442,15 @@ def build_domain_dataset(domain: str, data_dir: Path):
     elif domain == "ops":
         _OPS = [
             ("A service is returning 503 errors. Walk me through the incident response process.",
-             "**Triage (0–5 min):**\n1. Check dashboards — CPU, memory, error rate, latency\n2. Identify affected endpoints and % of traffic impacted\n3. Check recent deploys (last 30 min)\n\n**Containment:**\n4. If recent deploy → rollback immediately\n5. If traffic spike → check rate limits, enable circuit breaker\n\n**Root cause:**\n6. Pull logs: `kubectl logs -l app=svc --since=30m`\n7. Correlate with dependency health checks\n\n**Resolution:**\n8. Apply fix, canary deploy, watch error rate return to baseline\n9. Write postmortem within 24h"),
+             "**Triage (0â€“5 min):**\n1. Check dashboards â€” CPU, memory, error rate, latency\n2. Identify affected endpoints and % of traffic impacted\n3. Check recent deploys (last 30 min)\n\n**Containment:**\n4. If recent deploy â†’ rollback immediately\n5. If traffic spike â†’ check rate limits, enable circuit breaker\n\n**Root cause:**\n6. Pull logs: `kubectl logs -l app=svc --since=30m`\n7. Correlate with dependency health checks\n\n**Resolution:**\n8. Apply fix, canary deploy, watch error rate return to baseline\n9. Write postmortem within 24h"),
             ("Design a deployment pipeline for a Python FastAPI service.",
-             "**Stages:**\n1. **CI** — lint (ruff), type-check (mypy), unit tests, security scan (bandit)\n2. **Build** — Docker multi-stage build, minimal image\n3. **Staging** — deploy to staging, run integration + smoke tests\n4. **Canary** — 5% traffic for 30 min, watch error rate + p99 latency\n5. **Production** — full rollout, auto-rollback on error rate > 1%\n\n**Key practices:** immutable tags, health check endpoint, graceful shutdown (SIGTERM handler), rolling update strategy"),
-            ("How do you capacity plan for 10× traffic growth?",
-             "**Step 1 — Baseline:** measure current p50/p95/p99 latency, CPU %, memory % at current load\n**Step 2 — Bottleneck analysis:** identify the first constraint (usually DB, then app tier)\n**Step 3 — Load test:** use locust to simulate 2×, 5×, 10× load. Find where error rate increases.\n**Step 4 — Horizontal scaling:** stateless app tier → add replicas behind LB\n**Step 5 — DB scaling:** read replicas for read-heavy, sharding or Postgres connection pooling\n**Step 6 — Caching:** Redis in front of expensive queries (cache hit rate target: 80%+)\n**Headroom rule:** provision for 3× peak, alert at 60% utilization"),
+             "**Stages:**\n1. **CI** â€” lint (ruff), type-check (mypy), unit tests, security scan (bandit)\n2. **Build** â€” Docker multi-stage build, minimal image\n3. **Staging** â€” deploy to staging, run integration + smoke tests\n4. **Canary** â€” 5% traffic for 30 min, watch error rate + p99 latency\n5. **Production** â€” full rollout, auto-rollback on error rate > 1%\n\n**Key practices:** immutable tags, health check endpoint, graceful shutdown (SIGTERM handler), rolling update strategy"),
+            ("How do you capacity plan for 10Ã— traffic growth?",
+             "**Step 1 â€” Baseline:** measure current p50/p95/p99 latency, CPU %, memory % at current load\n**Step 2 â€” Bottleneck analysis:** identify the first constraint (usually DB, then app tier)\n**Step 3 â€” Load test:** use locust to simulate 2Ã—, 5Ã—, 10Ã— load. Find where error rate increases.\n**Step 4 â€” Horizontal scaling:** stateless app tier â†’ add replicas behind LB\n**Step 5 â€” DB scaling:** read replicas for read-heavy, sharding or Postgres connection pooling\n**Step 6 â€” Caching:** Redis in front of expensive queries (cache hit rate target: 80%+)\n**Headroom rule:** provision for 3Ã— peak, alert at 60% utilization"),
             ("Write a runbook for rotating API keys in production.",
              "**Runbook: API Key Rotation**\n\n**Pre-checks:**\n- [ ] Identify all services using the key\n- [ ] Ensure new key is generated and tested in staging\n\n**Steps:**\n1. Generate new key in provider console\n2. Add new key to secrets manager alongside old key\n3. Deploy services with dual-key support (accept both during transition)\n4. Update all consumers to use new key (gradual, verify each)\n5. Verify new key traffic in logs\n6. Revoke old key\n7. Remove old key from secrets manager\n\n**Rollback:** Re-enable old key (keep 24h after rotation before deletion)"),
             ("Explain blue-green vs canary deployments and when to use each.",
-             "**Blue-Green:**\n- Two identical environments, switch DNS/LB instantly\n- Zero downtime, instant rollback by switching back\n- Cost: 2× infrastructure during transition\n- Best for: major releases, DB migrations where you need clean cutover\n\n**Canary:**\n- Gradual traffic shift (1% → 10% → 50% → 100%)\n- Real user traffic validates before full rollout\n- Detects issues at small scale before blast radius grows\n- Best for: high-traffic services, A/B testing, risky changes\n\n**Rule of thumb:** use canary by default; blue-green when you need instant rollback or schema changes"),
+             "**Blue-Green:**\n- Two identical environments, switch DNS/LB instantly\n- Zero downtime, instant rollback by switching back\n- Cost: 2Ã— infrastructure during transition\n- Best for: major releases, DB migrations where you need clean cutover\n\n**Canary:**\n- Gradual traffic shift (1% â†’ 10% â†’ 50% â†’ 100%)\n- Real user traffic validates before full rollout\n- Detects issues at small scale before blast radius grows\n- Best for: high-traffic services, A/B testing, risky changes\n\n**Rule of thumb:** use canary by default; blue-green when you need instant rollback or schema changes"),
         ]
         for q, a in _OPS * 30:
             texts.append(chatml([
@@ -469,12 +469,12 @@ def build_domain_dataset(domain: str, data_dir: Path):
     return Dataset.from_dict({"text": texts})
 
 
-# ── main ───────────────────────────────────────────────────────────────────────
+# â”€â”€ main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def main():
     import argparse
     import torch
 
-    parser = argparse.ArgumentParser(description="GH05T3 LoRA trainer — default or domain-specific")
+    parser = argparse.ArgumentParser(description="GH05T3 LoRA trainer â€” default or domain-specific")
     parser.add_argument("--domain", default="default",
                         choices=["default", "security", "code", "research", "ops"],
                         help="Domain adapter to train (default trains the base GH05T3 adapter)")
@@ -521,7 +521,7 @@ def main():
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from trl import SFTTrainer
 
-    # Use bf16 on Ampere+ (sm_80+) and Blackwell — more numerically stable than fp16
+    # Use bf16 on Ampere+ (sm_80+) and Blackwell â€” more numerically stable than fp16
     use_bf16 = gpu.major >= 8
     compute_dtype = torch.bfloat16 if use_bf16 else torch.float16
     log.info("Precision: %s", "bf16" if use_bf16 else "fp16")
@@ -529,30 +529,30 @@ def main():
     # Adjust batch for tight VRAM
     batch = BATCH if vram >= 8 else 1
 
-    log.info("Domain: %s → %s", domain, out_dir)
+    log.info("Domain: %s â†’ %s", domain, out_dir)
 
-    # ── data ──
+    # â”€â”€ data â”€â”€
     if forge_only:
         dataset = build_forge_dataset()
     else:
         data_dir = ensure_data()
         dataset  = build_domain_dataset(domain, data_dir)
 
-    # ── tokenizer ──
+    # â”€â”€ tokenizer â”€â”€
     log.info("Loading %s ...", MODEL_ID)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # ── 4-bit quantized base model ─────────────────────────────────────────────
-    # 7B fp16 = 14 GB → doesn't fit in 8 GB.  4-bit NF4 = ~3.5 GB → fits easily.
+    # â”€â”€ 4-bit quantized base model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # 7B fp16 = 14 GB â†’ doesn't fit in 8 GB.  4-bit NF4 = ~3.5 GB â†’ fits easily.
     bnb_cfg = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=compute_dtype,
         bnb_4bit_use_double_quant=True,   # nested quant saves ~0.4 GB extra
     )
-    # Cap GPU budget — leave headroom if inference/other processes share the card.
+    # Cap GPU budget â€” leave headroom if inference/other processes share the card.
     gpu_budget = float(os.environ.get("GH05T3_TRAIN_GPU_FRAC", "0.75"))
     offload_dir = REPO / "backend" / "models" / "_train_offload"
     offload_dir.mkdir(parents=True, exist_ok=True)
@@ -573,7 +573,7 @@ def main():
         if "1455" in str(exc) or "paging file" in str(exc).lower():
             fallback = "Qwen/Qwen2.5-1.5B-Instruct"
             log.warning(
-                "Paging-file OOM loading %s — falling back to %s for smoke train",
+                "Paging-file OOM loading %s â€” falling back to %s for smoke train",
                 MODEL_ID, fallback,
             )
             gc.collect()
@@ -588,15 +588,15 @@ def main():
         load_kw["local_files_only"] = False
         model = AutoModelForCausalLM.from_pretrained(MODEL_ID, **load_kw)
     model.config.use_cache = False
-    log.info("Model loaded — %.1f/%.1f GB VRAM", torch.cuda.memory_allocated(0)/1e9, vram)
+    log.info("Model loaded â€” %.1f/%.1f GB VRAM", torch.cuda.memory_allocated(0)/1e9, vram)
 
-    # ── prepare for k-bit training ─────────────────────────────────────────────
+    # â”€â”€ prepare for k-bit training â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Handles enable_input_require_grads() and casts layer norms to fp32 for stability.
-    # use_gradient_checkpointing=False here — let TrainingArguments own it so we can
+    # use_gradient_checkpointing=False here â€” let TrainingArguments own it so we can
     # pass gradient_checkpointing_kwargs={"use_reentrant": False} (see below).
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
 
-    # ── LoRA ──────────────────────────────────────────────────────────────────
+    # â”€â”€ LoRA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # No manual fp16 cast needed: bitsandbytes compute_dtype handles adapter precision.
     lora_cfg = LoraConfig(
         r=LORA_RANK,
@@ -613,7 +613,7 @@ def main():
     log.info("LoRA: %s trainable / %s total (%.2f%%)",
              f"{trainable:,}", f"{total:,}", 100 * trainable / total)
 
-    # ── training ──────────────────────────────────────────────────────────────
+    # â”€â”€ training â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     ckpt_dir = CKPT_DIR / domain
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -628,7 +628,7 @@ def main():
         gradient_accumulation_steps=grad_accum,
         gradient_checkpointing=True,
         # CRITICAL: use_reentrant=True (default) reruns forward during backward.
-        # With fp16/bf16 + PEFT hooks this produces NaN gradients → loss collapses.
+        # With fp16/bf16 + PEFT hooks this produces NaN gradients â†’ loss collapses.
         gradient_checkpointing_kwargs={"use_reentrant": False},
         warmup_steps=warmup,
         learning_rate=LR,
@@ -636,7 +636,7 @@ def main():
         bf16=use_bf16,
         max_grad_norm=MAX_GRAD,
         logging_steps=10,
-        # paged_adamw_8bit keeps optimizer state in CPU-paged memory → ~500 MB instead of ~2 GB
+        # paged_adamw_8bit keeps optimizer state in CPU-paged memory â†’ ~500 MB instead of ~2 GB
         optim="paged_adamw_8bit",
         lr_scheduler_type="cosine",
         seed=42,
@@ -652,26 +652,26 @@ def main():
         train_dataset=dataset,
         dataset_text_field="text",
         max_seq_length=MAX_SEQ_LEN,
-        packing=True,   # concat examples to fill windows — ~2x training efficiency
+        packing=True,   # concat examples to fill windows â€” ~2x training efficiency
         args=args,
     )
 
-    log.info("Training — domain=%s steps=%d lr=%s batch=%d×%d=%d eff optim=paged_adamw_8bit",
+    log.info("Training â€” domain=%s steps=%d lr=%s batch=%dÃ—%d=%d eff optim=paged_adamw_8bit",
              domain, steps, LR, batch, grad_accum, batch * grad_accum)
 
     stats = trainer.train()
     loss  = stats.training_loss
-    log.info("Done — loss: %.4f | steps: %d", loss, stats.global_step)
+    log.info("Done â€” loss: %.4f | steps: %d", loss, stats.global_step)
 
-    # RULE 3 — Collapse detection. Loss outside 0.3–10 means the adapter is useless.
+    # RULE 3 â€” Collapse detection. Loss outside 0.3â€“10 means the adapter is useless.
     # 0.0 = gradient collapse (NaN killed updates), >10 = diverged, never converged.
     if not (0.3 < loss < 10):
         log.error("Training failed (loss=%.4f). Expected 0.3 < loss < 10.", loss)
-        log.error("loss=0.0 → gradient collapse: check bitsandbytes>=0.44, use_reentrant=False")
-        log.error("loss>10  → diverged: lower lr, check dataset quality")
+        log.error("loss=0.0 â†’ gradient collapse: check bitsandbytes>=0.44, use_reentrant=False")
+        log.error("loss>10  â†’ diverged: lower lr, check dataset quality")
         sys.exit(1)
 
-    # ── save ──────────────────────────────────────────────────────────────────
+    # â”€â”€ save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     model.save_pretrained(str(out_dir))
     tokenizer.save_pretrained(str(out_dir))
     with open(out_dir / "training_config.json", "w") as f:
@@ -686,17 +686,17 @@ def main():
             "gpu":           gpu.name,
             "sm":            f"{gpu.major}{gpu.minor}",
             "pytorch":       torch.__version__,
-            "quantized":     True,    # inference server reads this → loads 4-bit
+            "quantized":     True,    # inference server reads this â†’ loads 4-bit
             "compute_dtype": "bf16" if use_bf16 else "fp16",
         }, f, indent=2)
 
-    log.info("Adapter saved → %s", out_dir)
+    log.info("Adapter saved â†’ %s", out_dir)
     if domain == "default":
         log.info("Set LLM_PROVIDER=gh05t3 in backend/.env then run run.bat")
     else:
-        log.info("Domain adapter ready — LoRAFarm will auto-load for '%s' tasks", domain)
+        log.info("Domain adapter ready â€” LoRAFarm will auto-load for '%s' tasks", domain)
 
-    # ── optional AWQ export (Blackwell sm_120 + vLLM NVFP4 fast path) ─────────
+    # â”€â”€ optional AWQ export (Blackwell sm_120 + vLLM NVFP4 fast path) â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if gpu.major >= 12:
         _try_awq_export(out_dir, tokenizer)
 
@@ -713,7 +713,7 @@ def _try_awq_export(adapter_dir: Path, tokenizer) -> None:
         from peft import PeftModel
         from transformers import AutoModelForCausalLM
     except ImportError:
-        log.info("autoawq not installed — skipping AWQ export "
+        log.info("autoawq not installed â€” skipping AWQ export "
                  "(pip install autoawq to enable NVFP4-ready merged model)")
         return
 
@@ -742,7 +742,7 @@ def _try_awq_export(adapter_dir: Path, tokenizer) -> None:
             torch.cuda.empty_cache()
 
         # Step 2: AWQ quantize merged model; tokenizer required for calibration
-        log.info("AWQ export: quantizing merged model → %s", awq_dir)
+        log.info("AWQ export: quantizing merged model â†’ %s", awq_dir)
         awq_dir.mkdir(parents=True, exist_ok=True)
         awq_model = AutoAWQForCausalLM.from_pretrained(str(merged_dir))
         awq_model.quantize(
@@ -752,7 +752,7 @@ def _try_awq_export(adapter_dir: Path, tokenizer) -> None:
         )
         awq_model.save_quantized(str(awq_dir))
         tokenizer.save_pretrained(str(awq_dir))
-        log.info("AWQ export complete → %s", awq_dir)
+        log.info("AWQ export complete â†’ %s", awq_dir)
         log.info("For max speed: GH05T3_BASE_MODEL=%s GH05T3_ADAPTER_PATH=", awq_dir)
     except Exception as exc:
         log.warning("AWQ export failed (non-fatal): %s", exc)

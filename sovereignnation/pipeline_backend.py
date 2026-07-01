@@ -834,6 +834,365 @@ async def manual_reflect(agent: str, request: Request, background_tasks: Backgro
     return {"status": "reflection_scheduled", "agent": agent}
 
 
+# ─── Real-time OSS monitoring endpoints ──────────────────────────────────────
+
+@app.get("/oss/breakthroughs")
+async def oss_breakthroughs(limit: int = 20, domain: str = "", verified_only: bool = False):
+    """
+    Real-time breakthrough feed from the Omni-Sentient Ecosystem.
+    Queries the persisted SQLite log so results survive restarts.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.breakthrough_detector import get_breakthrough_detector
+        bd = get_breakthrough_detector()
+        results = bd.query(limit=limit, domain=domain or None, verified_only=verified_only)
+        return {"breakthroughs": results, "stats": bd.stats()}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/desire-culture")
+async def oss_desire_culture():
+    """
+    Real-time snapshot of what the agent population collectively desires.
+    Higher weight = more agents are drawn to this kind of work.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.desire_system import get_desire_system
+        ds = get_desire_system()
+        return {"culture": ds.population_desire_culture(), "stats": ds.stats()}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/oss/ecosystem/cycle")
+async def oss_run_cycle(request: Request):
+    """
+    Trigger one Omni-Sentient Ecosystem cycle and return live metrics including
+    breakthroughs detected, desire culture shift, and spawned agents.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        body      = await request.json()
+        num_tasks = int(body.get("num_tasks", 5))
+        from backend.oss.genomic.ecosystem import OmniSentientEcosystem
+        eco = OmniSentientEcosystem()
+        result = eco.run_cycle(num_tasks=num_tasks)
+        return result
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/frontier")
+async def oss_frontier(domain: str = "llm_architecture", n: int = 2):
+    """
+    Run a FrontierResearchLab cycle in a specific domain and return results.
+    Includes domain-adjusted scores, leaderboard, and breakthrough detections.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.lab.frontier_research_lab import FrontierResearchLab
+        lab = FrontierResearchLab(domain=domain, fast_dry_run=True)
+        result = lab.run_frontier_cycle(n=n)
+        return result
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/oss/pdac")
+async def oss_run_pdac(request: Request):
+    """
+    Run a PDAC (Plan→Delegate→Act→Codify) loop on a task.
+    Requires: {prompt, type, domain} in request body.
+    Returns per-phase fitness, pdac_score, context_maturity.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        body = await request.json()
+        from backend.oss.genomic.ecosystem import OmniSentientEcosystem
+        from backend.oss.pdac_loop import PDACLoop
+        eco = OmniSentientEcosystem()
+        if not eco.swarm.agents:
+            eco.add_agent()
+        loop = PDACLoop(eco.swarm)
+        result = loop.run(body)
+        return result.to_dict()
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/skill-registry")
+async def oss_skill_registry(agent_id: str = ""):
+    """
+    List all skills in the registry grouped by permission tier.
+    Pass ?agent_id= with a known agent to see which skills it can access.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.skill_registry import get_skill_registry
+        reg = get_skill_registry()
+        tiers = reg.permission_tiers()
+        payload: dict = {"tiers": tiers, "total_skills": len(reg.all_skills())}
+        if agent_id:
+            from backend.oss.genomic.ecosystem import OmniSentientEcosystem
+            eco = OmniSentientEcosystem()
+            agent = eco.swarm.agents.get(agent_id)
+            if agent:
+                payload["unlocked_for_agent"] = [
+                    s.skill_id for s in reg.unlocked_for(agent.genome)
+                ]
+            else:
+                payload["agent_not_found"] = agent_id
+        return payload
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/oss/context-world/challenge")
+async def oss_context_world_challenge(request: Request):
+    """
+    Run a sparse-context challenge against a random agent.
+    Body: {challenge_id?: str}  — omit to get a random challenge.
+    Returns keyword_recovery score and how well the agent extracted signal.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        body = await request.json()
+        from backend.oss.world.context_world import ContextWorld
+        from backend.oss.genomic.ecosystem import OmniSentientEcosystem
+        eco = OmniSentientEcosystem()
+        if not eco.swarm.agents:
+            eco.add_agent()
+        import random
+        agent = random.choice(list(eco.swarm.agents.values()))
+        world = ContextWorld()
+        result = world.run_challenge(agent, challenge_id=body.get("challenge_id"))
+        return result
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/synthesizer/status")
+async def oss_synthesizer_status():
+    """Status of the Proactive Context Synthesizer background thread."""
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.proactive_context_synthesizer import get_proactive_synthesizer
+        synth = get_proactive_synthesizer()
+        return synth.status()
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/oss/synthesizer/scan")
+async def oss_synthesizer_scan():
+    """Trigger a manual one-shot scan of agent_logs/ for failures."""
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.proactive_context_synthesizer import get_proactive_synthesizer
+        synth = get_proactive_synthesizer()
+        return synth.trigger_scan()
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/distiller/learnings")
+async def oss_distiller_learnings(limit: int = 20):
+    """Return the most recent auto-distilled learnings from the genome feedback loop."""
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.auto_distiller import get_auto_distiller
+        d = get_auto_distiller()
+        return {"learnings": d.recent(limit=limit), "stats": d.stats()}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/context-maturity")
+async def oss_context_maturity(agent_id: str = ""):
+    """
+    Score the context maturity (1-8) of all agents or a specific agent.
+    Indicates where each agent sits on the context depth framework.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.genomic.ecosystem import OmniSentientEcosystem
+        from backend.oss.context_maturity import get_context_maturity_scorer
+        eco    = OmniSentientEcosystem()
+        scorer = get_context_maturity_scorer()
+        agents = eco.swarm.agents
+        if agent_id and agent_id in agents:
+            agents = {agent_id: agents[agent_id]}
+        results = {}
+        for aid, agent in agents.items():
+            score = scorer.score(agent.genome, {})
+            results[aid] = score.to_dict()
+        return {"agents": results, "count": len(results)}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+# ─── Aethyro Core — Binary Execution Plane endpoints ─────────────────────────
+
+@app.get("/oss/ledger/stats")
+async def oss_ledger_stats():
+    """
+    ChronosLedger stats: active slots, mean fitness, mean desire profile.
+    This is the real-time Execution Plane heartbeat.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.core.chronos_ledger import get_chronos_ledger
+        ledger = get_chronos_ledger()
+        return ledger.stats()
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/ledger/agent/{slot}")
+async def oss_ledger_agent(slot: int):
+    """Read a single agent's binary state from the ChronosLedger by slot index."""
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.core.chronos_ledger import get_chronos_ledger
+        return get_chronos_ledger().read_agent(slot)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/genesis/status")
+async def oss_genesis_status():
+    """Genesis Thread heartbeat: ticks, orphans pruned, dissent passes, LEX triggers."""
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.core.genesis_thread import get_genesis_thread
+        return get_genesis_thread().stats()
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/oss/genesis/start")
+async def oss_genesis_start():
+    """Start the Genesis Thread if not already running."""
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.core.genesis_thread import get_genesis_thread
+        from backend.oss.patent_office import get_patent_office
+        from backend.oss.genomic.ecosystem import OmniSentientEcosystem
+        eco = OmniSentientEcosystem()
+        gen = get_genesis_thread(swarm=eco.swarm)
+        gen._patent_office = get_patent_office()
+        gen.start()
+        return {"started": True, "stats": gen.stats()}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.get("/oss/patent/portfolio")
+async def oss_patent_portfolio(limit: int = 50, status: str = ""):
+    """
+    Patent Portfolio — LEX-GEN drafted disclosures from breakthrough events.
+    Control Plane data: stored in data/patent_portfolio.db.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.patent_office import get_patent_office
+        office = get_patent_office()
+        return {"portfolio": office.get_portfolio(limit=limit, status=status), "stats": office.stats()}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.post("/oss/patent/scan")
+async def oss_patent_scan():
+    """
+    Trigger a LEX-GEN patent scan cycle. Finds novelty events >= 0.85,
+    drafts disclosures, persists to patent_portfolio.db.
+    """
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        from backend.oss.patent_office import get_patent_office
+        office = get_patent_office()
+        disclosures = office.scan_cycle()
+        return {
+            "new_disclosures": len(disclosures),
+            "disclosures":     [d.to_dict() for d in disclosures],
+            "stats":           office.stats(),
+        }
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
+@app.patch("/oss/patent/{disclosure_id}/status")
+async def oss_patent_update_status(disclosure_id: str, request: Request):
+    """Update a patent disclosure status: DRAFT → REVIEWED → FILED | REJECTED."""
+    try:
+        import sys, os
+        gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
+        if gh05t3_root not in sys.path:
+            sys.path.insert(0, gh05t3_root)
+        body = await request.json()
+        status = body.get("status", "")
+        from backend.oss.patent_office import get_patent_office
+        ok = get_patent_office().update_status(disclosure_id, status)
+        return {"updated": ok, "disclosure_id": disclosure_id, "status": status}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": str(exc)})
+
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

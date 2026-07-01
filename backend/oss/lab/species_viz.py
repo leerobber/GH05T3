@@ -35,10 +35,8 @@ except Exception:
 
 try:
     from oss.genomic_substrate import get_substrate
-    from oss.traits import load_traits
 except Exception:
     from backend.oss.genomic_substrate import get_substrate
-    from backend.oss.traits import load_traits
 
 def logs_to_dataframe(sub):
     """Convert substrate genomes into a dataframe-like list of dicts."""
@@ -50,8 +48,9 @@ def logs_to_dataframe(sub):
             "cycle": len(rec.fitness_history),
             "fitness": rec.fitness_history[-1] if rec.fitness_history else 0.0,
         }
-        for k, v in rec.segment.traits.items():
+        for k, v in rec.dna.get_traits().items():
             row[f"trait_{k}"] = v
+        row["lineage"] = sub.get_lineage(gid)
         row["neurocoins"] = random.uniform(800, 2200)  # simulated; wire to real ledger in future
         rows.append(row)
     return rows

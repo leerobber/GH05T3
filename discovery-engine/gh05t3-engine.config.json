@@ -1,0 +1,10 @@
+﻿{
+  "exclude": [
+    ".venv",
+    "backend/.venv",
+    "*/.venv/*"
+  ],
+  "mode": "aggressive",
+  "flagNonLocalModules": true,
+  "rootDir": "C:\\Users\\leer4\\GH05T3"
+}

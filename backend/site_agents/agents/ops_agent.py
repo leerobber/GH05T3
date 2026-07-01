@@ -189,10 +189,10 @@ The full stack to deploy (in correct order):
 6. Pipeline Console :8099 (uvicorn pipeline_backend:app in GH05T3/sovereignnation/)
 7. Phi NPU :8112 (phi_service.py in GH05T3/sovereignnation/)
 8. Chat Interface :3211 (GH05T3_CHAT_NOW.py in GH05T3/)
-9. Continuous Learner (continuous_learner.py in GH05T3/)
-10. Amplifier (amplifier.py --variants 5 in GH05T3/)
-11. Cmd Listener (cmd_listener.py in GH05T3/)
-12. Tunnel Watcher (tunnel_watcher.py in GH05T3/)
+9. Continuous Learner (scripts/training/continuous_learner.py - canonical)
+10. Amplifier (scripts/training/amplifier.py - canonical)
+11. Cmd Listener (scripts/runtime/cmd_listener.py - canonical)
+12. Tunnel Watcher (scripts/runtime/tunnel_watcher.py - canonical)
 
 For each service provide:
 - Exact start command (PowerShell syntax)

@@ -9,7 +9,8 @@ import os
 import sys
 
 PORT = 3210
-FRONTEND_BUILD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "build")
+# Resolve from repo root (this script lives in scripts/runtime/)
+FRONTEND_BUILD = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "build")
 
 class GH05T3Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):

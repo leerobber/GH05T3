@@ -75,6 +75,8 @@ See `.env.example` for the full list with inline docs.
 
 ## Repo layout
 
+> Detailed canonical paths, launchers, UIs and duplication cleanup status: [docs/details/canonical-paths.md](docs/details/canonical-paths.md)
+
 ```
 GH05T3/
 ├── oss/                    Canonical OSS layer — import as `oss.*` (tests + gateway mount)

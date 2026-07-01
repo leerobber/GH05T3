@@ -32,7 +32,6 @@ frontend/
 └── src/
     ├── main.jsx                     React root
     ├── App.jsx                      App shell + error boundary
-    ├── GH05T3Dashboard_v3.jsx       v3 dashboard layout
     ├── index.css                    Global styles (Tailwind + custom)
     ├── lib/
     │   ├── ghostApi.js              Gateway API wrappers

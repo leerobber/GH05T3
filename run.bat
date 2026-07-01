@@ -93,7 +93,7 @@ REM ── Frontend ────────────────────
 start "frontend" cmd /c "cd /d "%APP%" && "%PY%" -m http.server 3210 --directory frontend\build"
 
 REM ── Voice listener (non-critical, failure is OK) ──────────────────────────
-start "voice" cmd /c "cd /d "%APP%" && "%PY%" whisper_listener.py"
+start "voice" cmd /c "cd /d "%APP%" && "%PY%" scripts\runtime\whisper_listener.py"
 
 REM ── Training ops tools (set ENABLE_OPS=1 in environment or .env to activate)
 set ENABLE_OPS=
@@ -104,8 +104,8 @@ if exist "%APP%backend\.env" (
 )
 if "%ENABLE_OPS%"=="1" (
     echo Starting training ops tools ^(herald + cmd-listener^)...
-    start "herald" cmd /c "cd /d "%APP%" && "%PY%" herald.py --console"
-    start "cmd-listener" cmd /c "cd /d "%APP%" && "%PY%" cmd_listener.py"
+    start "herald" cmd /c "cd /d "%APP%" && "%PY%" scripts\runtime\herald.py --console"
+    start "cmd-listener" cmd /c "cd /d "%APP%" && "%PY%" scripts\runtime\cmd_listener.py"
 )
 
 echo.

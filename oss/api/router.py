@@ -387,6 +387,15 @@ class OmniRouteRequest(BaseModel):
     prompt: str = Field(default="", max_length=8000)
 
 
+class BMECycleRequest(BaseModel):
+    cycles: int = Field(default=1, ge=1, le=1000)
+    target_universe: int | None = Field(default=None, ge=0, le=7)
+    allow_migration: bool = True
+    allow_promotion: bool = True
+    allow_breakthrough: bool = True
+    push_sovereign_core: bool = False
+
+
 @router.get("/mvs/status")
 async def mvs_status() -> dict[str, Any]:
     try:
@@ -529,6 +538,64 @@ async def omni_route(body: OmniRouteRequest) -> dict[str, Any]:
         }
     except Exception as exc:
         return {"error": str(exc), "route": "degraded"}
+
+
+# ---------------------------------------------------------------------------
+# Binary Multiverse Engine routes
+# ---------------------------------------------------------------------------
+
+@router.get("/bme/status")
+async def bme_status() -> dict[str, Any]:
+    from backend.oss.core.bme_bridge import get_bme_bridge
+    return get_bme_bridge().collect_stats().as_dict()
+
+
+@router.get("/bme/flagships")
+async def bme_flagships() -> dict[str, Any]:
+    from backend.oss.core.bme_bridge import get_bme_bridge
+    return get_bme_bridge().flagship_profiles()
+
+
+@router.get("/bme/flagships/{species_name}")
+async def bme_flagship(species_name: str) -> dict[str, Any]:
+    from backend.oss.core.bme_bridge import get_bme_bridge
+    return get_bme_bridge().flagship_profile(species_name)
+
+
+@router.post("/bme/cycle")
+async def bme_cycle(body: BMECycleRequest) -> dict[str, Any]:
+    from backend.oss.core.bme_bridge import get_bme_bridge
+    bridge = get_bme_bridge()
+    last_result: dict[str, Any] = {}
+    for _ in range(body.cycles):
+        last_result = bridge.universe_pass(
+            target_universe=body.target_universe,
+            allow_migration=body.allow_migration and body.target_universe is None,
+            allow_promotion=body.allow_promotion,
+            allow_breakthrough=body.allow_breakthrough,
+        )
+
+    stats = bridge.collect_stats().as_dict()
+    sovereign_pushed = False
+    if body.push_sovereign_core:
+        sovereign_pushed = await bridge.push_to_sovereign_core(
+            universe_counts=last_result.get("universe_counts", {}),
+            migrations=last_result.get("migrations", 0),
+            promotions=last_result.get("promotions", 0),
+            tick=last_result.get("agents_processed", 0),
+        )
+
+    return {
+        "cycle_completed": True,
+        "ran": body.cycles,
+        "target_universe": body.target_universe,
+        "allow_migration": body.allow_migration,
+        "allow_promotion": body.allow_promotion,
+        "allow_breakthrough": body.allow_breakthrough,
+        "sovereign_core_pushed": sovereign_pushed,
+        **last_result,
+        **stats,
+    }
 
 
 # ── Civilization Kernel ───────────────────────────────────────────────────────
@@ -819,3 +886,117 @@ async def living_loop_run() -> dict[str, Any]:
     from oss.kernel.sandbox import reset_sandbox
     reset_sandbox()
     return run_living_cycle(domain="growth", tick=1, dry_run=True)
+
+
+# ---------------------------------------------------------------------------
+# Attention kernel lab routes
+# ---------------------------------------------------------------------------
+
+class AttentionRunRequest(BaseModel):
+    # New-API fields (embed_dim, num_heads) and legacy (seq_len, d_model, n_heads)
+    x: list[list[list[float]]] | list[list[float]] | None = Field(
+        default=None, description="Input tensor as nested list [[...]] or [batch, seq, dim]"
+    )
+    seq_len: int = Field(default=8, ge=1, le=512)
+    d_model: int | None = Field(default=None, ge=8, le=2048)
+    n_heads: int | None = Field(default=None, ge=1, le=32)
+    embed_dim: int = Field(default=64, ge=8, le=2048)
+    num_heads: int = Field(default=4, ge=1, le=32)
+    training_binary_ratio: float = Field(default=1.0, ge=0.0, le=2.0)
+    temperature: float = Field(default=1.0, gt=0.0, le=10.0)
+    max_growth: float = Field(default=0.5, ge=0.0, le=10.0)
+    seed: int = Field(default=42, ge=0)
+    agent_id: str = Field(default="lab_runner", max_length=64)
+    use_torch: bool = Field(default=False, description="Use Triton GPU kernel if available")
+
+
+@router.get("/lab/attention")
+async def lab_attention_status() -> dict[str, Any]:
+    """MA-INBL attention kernel status and backend availability."""
+    from oss.attention.kernel import TRITON_AVAILABLE
+    from oss.attention.telemetry import AttentionTelemetrySink
+    sink = AttentionTelemetrySink()
+    return {
+        "status": "ok",
+        "backend": "triton" if TRITON_AVAILABLE else "numpy",
+        "triton_available": TRITON_AVAILABLE,
+        "total_logged_entries": len(sink.load_all()),
+        "components": ["MA-INBL", "BinaryLinear-XNOR+popcount",
+                       "dual-scale", "MGC", "ORS"],
+    }
+
+
+@router.get("/lab/attention/ping")
+async def lab_attention_ping() -> dict[str, Any]:
+    """Health check for the MA-INBL attention sub-system."""
+    return {"status": "ok", "component": "attention"}
+
+
+@router.get("/lab/attention/telemetry")
+async def lab_attention_telemetry(limit: int = 100) -> dict[str, Any]:
+    """Return the most recent attention telemetry entries."""
+    from oss.lab.metrics import load_logs
+    from oss.attention.telemetry import AttentionTelemetrySink
+    # Entries from the attention-specific log
+    sink = AttentionTelemetrySink()
+    attn_entries = sink.load_all()
+    # Also expose OSS lab entries that originated from attention
+    oss_entries = [
+        e for e in load_logs()
+        if e.get("role") == "attention_kernel"
+    ]
+    all_entries = attn_entries[-limit:]
+    return {
+        "total_attention_log": len(attn_entries),
+        "total_oss_lab": len(oss_entries),
+        "entries": all_entries,
+    }
+
+
+@router.post("/lab/attention/run")
+async def lab_attention_run(body: AttentionRunRequest) -> dict[str, Any]:
+    """Run a MA-INBL attention pass and record telemetry."""
+    import numpy as np
+    from oss.attention.attention import MA_INBLAttention
+    from oss.attention.telemetry import AttentionTelemetrySink
+
+    # Resolve dimensions (new API takes precedence over legacy)
+    eff_dim = body.d_model or body.embed_dim
+    eff_heads = body.n_heads or body.num_heads
+
+    if eff_dim % eff_heads != 0:
+        raise HTTPException(
+            400, f"embed_dim={eff_dim} must be divisible by num_heads={eff_heads}"
+        )
+
+    if body.x is not None:
+        x = np.array(body.x, dtype=np.float32)
+    else:
+        rng = np.random.default_rng(body.seed)
+        x = rng.standard_normal((body.seq_len, eff_dim)).astype(np.float32)
+
+    from oss.attention.kernel import TRITON_AVAILABLE
+    backend = "triton" if (body.use_torch and TRITON_AVAILABLE) else ("triton" if body.use_torch else "numpy")
+    attn = MA_INBLAttention(
+        embed_dim=eff_dim,
+        num_heads=eff_heads,
+        training_binary_ratio=body.training_binary_ratio,
+        temperature=body.temperature,
+        max_growth=body.max_growth,
+        seed=body.seed,
+        backend=backend,
+    )
+    output, tel = attn.forward(x)
+
+    sink = AttentionTelemetrySink()
+    record = sink.record(tel, agent_id=body.agent_id)
+
+    return {
+        "output_shape": list(output.shape),
+        "output_norm": float(np.linalg.norm(output)),
+        "telemetry": tel,
+        "logged": record,
+        "backend": attn.active_backend,
+        "use_torch": body.use_torch,
+        "triton_available": TRITON_AVAILABLE,
+    }

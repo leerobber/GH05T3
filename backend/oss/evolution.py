@@ -9,7 +9,7 @@ All evolution still goes through the MVS spine.
 
 from __future__ import annotations
 import random
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
 from backend.oss.omni_dna import OmniDNA
 from backend.oss.evolution_adaptive import AdaptiveMutationEngine
 from backend.oss.speciation import get_speciation_engine
@@ -137,3 +137,81 @@ class RoleEvolutionManager:
             self._boost_trait(dna, "self_reflection", 0.05)
             self._boost_trait(dna, "alignment", 0.04)
         dna.evolve(strength=0.03 if fitness > 0.75 else 0.05)
+
+
+# ── Phase 2 Week 5: Evolutionary pressure from world fitness ──────────────────
+
+from dataclasses import dataclass, field as dc_field  # noqa: E402
+from typing import Tuple as TypingTuple  # noqa: E402
+
+
+@dataclass
+class PressureStats:
+    cycle: int
+    top_fraction: float
+    top_agents: List[str] = dc_field(default_factory=list)
+    spawn_boost: int = 0
+    phased_out: int = 0
+    pareto_ratio: float = 0.0
+
+
+class EvolutionaryPressureEngine:
+    """Top 20% by volatility fitness get boosted reproduction."""
+
+    TOP_FRACTION = 0.20
+    SPAWN_BOOST_MULTIPLIER = 2
+
+    def __init__(self) -> None:
+        self._history: List[PressureStats] = []
+        self._spawn_counts: Dict[str, int] = {}
+
+    def rank_agents(self, results: List[TypingTuple[str, float, Any]]) -> List[TypingTuple[str, float]]:
+        return sorted(results, key=lambda x: x[1], reverse=True)
+
+    def apply_pressure(self, results: List[TypingTuple[str, float, Any]], cycle: int, spawn_fn) -> PressureStats:
+        ranked = self.rank_agents(results)
+        n = len(ranked)
+        if n == 0:
+            return PressureStats(cycle=cycle, top_fraction=self.TOP_FRACTION)
+
+        top_n = max(1, int(n * self.TOP_FRACTION))
+        top = ranked[:top_n]
+        bottom = ranked[top_n:]
+        top_ids = [gid for gid, _, _ in top]
+
+        spawn_boost = 0
+        for gid, score, _ in top:
+            if score < 0.5:
+                continue
+            for _ in range(self.SPAWN_BOOST_MULTIPLIER):
+                if spawn_fn(gid):
+                    spawn_boost += 1
+                    self._spawn_counts[gid] = self._spawn_counts.get(gid, 0) + 1
+
+        phased_out = len([gid for gid, sc, _ in bottom if sc < 0.35])
+        total_spawns = sum(self._spawn_counts.values()) or 1
+        top_spawns = sum(self._spawn_counts.get(gid, 0) for gid in top_ids)
+        pareto = top_spawns / total_spawns if total_spawns else 0.0
+
+        stats = PressureStats(
+            cycle=cycle,
+            top_fraction=self.TOP_FRACTION,
+            top_agents=top_ids,
+            spawn_boost=spawn_boost,
+            phased_out=phased_out,
+            pareto_ratio=round(pareto, 4),
+        )
+        self._history.append(stats)
+        return stats
+
+    def last_stats(self) -> Dict[str, Any]:
+        if not self._history:
+            return {}
+        s = self._history[-1]
+        return {
+            "cycle": s.cycle,
+            "top_agents": s.top_agents,
+            "spawn_boost": s.spawn_boost,
+            "phased_out": s.phased_out,
+            "pareto_ratio": s.pareto_ratio,
+        }

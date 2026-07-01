@@ -8,6 +8,7 @@ from pathlib import Path
 from oss.forge.omni_lex import shard_to_chatml
 from oss.forge.schemas import ForgeDomain, QualityTier, TrainingShard
 from oss.forge.store import get_store
+from oss.substrate.attention_config import AttentionConfig
 
 LOG = logging.getLogger("oss.forge.train_bridge")
 
@@ -63,6 +64,20 @@ def preflight_report() -> dict:
     }
 
 
+def _attention_config_for_shard(shard: TrainingShard) -> dict:
+    """Derive an AttentionConfig dict for a shard, using genome substrate when available."""
+    try:
+        from oss.substrate.genomic import get_substrate
+        substrate = get_substrate()
+        seg = substrate.segment(shard.genome_id) if shard.genome_id else None
+        if seg is not None and seg.attention_config is not None:
+            return seg.attention_config.to_dict()
+        traits = seg.traits if seg is not None else {}
+    except Exception:
+        traits = {}
+    return AttentionConfig.from_genome_traits(traits, shard.genome_id).to_dict()
+
+
 def export_gold(
     min_tier: QualityTier = QualityTier.SILVER,
     domain: ForgeDomain | None = None,
@@ -82,12 +97,15 @@ def export_gold(
             if key in seen:
                 continue
             seen.add(key)
+            attn_cfg = _attention_config_for_shard(shard)
             record = {
                 "text": shard_to_chatml(shard),
                 "domain": shard.domain.value,
                 "genome_id": shard.genome_id,
                 "source": shard.source,
                 "shard_id": shard.shard_id,
+                "attention_config": attn_cfg,
+                "attention_backend": attn_cfg.get("backend", "auto"),
             }
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
             exported += 1

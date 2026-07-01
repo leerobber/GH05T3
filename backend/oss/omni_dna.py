@@ -24,6 +24,12 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
+# Phase 4 v2 DNA (composed)
+from backend.oss.dna.meta_dna import MetaDNA
+from backend.oss.dna.memetic_dna import MemeticDNA
+from backend.oss.dna.fractal_dna import FractalDNA
+from backend.oss.dna.alchemical_dna import AlchemicalDNA
+
 # ─────────────────────────────────────────────────────────────
 # FIXED UNIVERSAL TRAIT SCHEMA (stable across all roles)
 # ─────────────────────────────────────────────────────────────
@@ -80,6 +86,18 @@ ROLE_DEFAULTS = {
         "math": 0.70,
         "empathy": 0.70,
     },
+    "WEB_ENGINEER_ELITE": {
+        "creativity": 0.94,
+        "efficiency": 0.92,
+        "innovation": 0.90,
+        "market_intuition": 0.91,
+        "pattern_detection": 0.88,
+        "collaboration": 0.82,
+        "rigor": 0.86,
+        "persistence": 0.90,
+        "novelty_seeking": 0.78,
+        "alignment": 0.88,
+    },
 }
 
 MUTATION_LOG_PATH = Path(__file__).resolve().parents[2] / "data" / "omni_dna_mutations.jsonl"
@@ -127,6 +145,19 @@ class OmniDNA:
         self.phenomenal_memory: List[Dict[str, Any]] = []  # for meta-evolution data
         self.species_id: str = "ROOT"
         self.meta_dna: Dict[str, float] = {"mutation_rate": 0.08, "selection_pressure": 0.6, "crossover_bias": 0.5}
+        self.power_tier: str = "T0"
+        self.hyper_elite_senses: Optional[Any] = None
+
+        # Phase 4 v2 DNA composition (rich objects drive adaptation)
+        self.meta_dna_v2: MetaDNA = MetaDNA()
+        self.memetic_dna_v2: MemeticDNA = MemeticDNA()
+        self.fractal_dna: FractalDNA = FractalDNA()
+        self.alchemical: AlchemicalDNA = AlchemicalDNA()
+
+        if self._is_elite_role():
+            from backend.oss.hyper_elite.senses import attach_hyper_elite_senses
+            self.power_tier = "T2"
+            self.hyper_elite_senses = attach_hyper_elite_senses(self, tier=self.power_tier)
 
     # ─────────────────────────────────────────────────────
     # Core Evolution API (must be predictable & logged)
@@ -134,29 +165,45 @@ class OmniDNA:
 
     def evolve(self, strength: float = 0.08, reason: str = "cycle") -> List[MutationEvent]:
         """
-        Apply one evolution step.
-
-        Returns the list of actual mutations that occurred.
-        When `self._rng` is seeded, this is deterministic.
+        Apply one evolution step. Phase 4: occasionally applies fractal + alchemical.
         """
         events = []
+        eff_strength = strength
+        if hasattr(self, 'meta_dna_v2'):
+            eff_strength = self.meta_dna_v2.get_effective_mutation(strength)
+
         for trait in self.traits:
             before = self.traits[trait]
-            delta = self._rng.gauss(0, strength)
+            delta = self._rng.gauss(0, eff_strength)
             after = _clamp(before + delta)
 
-            if abs(after - before) > 0.005:  # only log meaningful changes
+            if abs(after - before) > 0.005:
                 event = MutationEvent(
                     genome_id=self.genome_id,
                     trait=trait,
                     before=before,
                     after=after,
-                    strength=strength,
+                    strength=eff_strength,
                     reason=reason,
                 )
                 self.traits[trait] = after
                 self._mutation_log.append(event)
                 events.append(event)
+
+        # Phase 4 fractal evolution (sub-trait discovery)
+        if hasattr(self, 'fractal_dna') and self._rng.random() < 0.35:
+            try:
+                fpath = [random.choice(["cognitive", "market", "meta"]), random.choice(["depth", "novelty", "precision"])]
+                self.fractal_dna.evolve_fractal(fpath, strength * 0.7)
+            except Exception:
+                pass
+
+        # Phase 4 alchemical occasionally
+        if hasattr(self, 'alchemical') and self._rng.random() < 0.22:
+            try:
+                self.traits = self.alchemical.transmute_traits(self.traits, random.choice(list(self.alchemical.recipes)))
+            except Exception:
+                pass
 
         if events:
             self._persist_mutation(events)
@@ -164,16 +211,24 @@ class OmniDNA:
 
     def apply_fitness(self, reward: float, context: Optional[str] = None) -> float:
         """
-        Adjust traits based on performance.
-        High reward → small refinement in direction of current strengths.
-        Low reward → stronger exploration.
+        Adjust traits based on performance. Phase 4: feeds MetaDNA + possible alchemical.
         """
         if not 0.0 <= reward <= 1.0:
             reward = max(0.0, min(1.0, reward))
 
         strength = 0.04 if reward > 0.65 else (0.14 if reward < 0.40 else 0.07)
 
+        # feed meta adaptation
+        if hasattr(self, 'meta_dna_v2'):
+            env_p = 0.12 if (context or "").lower() in ("volatility", "pressure") else 0.0
+            self.meta_dna_v2.evolve_rules(reward, environment_pressure=env_p)
+
         events = self.evolve(strength=strength, reason=f"fitness:{reward:.2f}")
+
+        # occasional alchemical catalysis on fitness
+        if hasattr(self, 'alchemical') and reward > 0.78 and self._rng.random() < 0.3:
+            self.traits = self.alchemical.transmute_traits(self.traits, "rigor_to_creativity", intensity=0.6)
+
         return len(events) / max(1, len(self.traits))
 
     # ─────────────────────────────────────────────────────
@@ -195,19 +250,41 @@ class OmniDNA:
     # Introspection & Stability
     # ─────────────────────────────────────────────────────
 
+    def _is_elite_role(self) -> bool:
+        r = (self.role or "").upper()
+        return r.endswith("_ELITE") or "ELITE" in r
+
     def get_traits(self) -> Dict[str, float]:
         return dict(self.traits)
+
+    def scan_senses(self, context: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Hyper Elite sense scan — returns readings for financial/world routing."""
+        if not self.hyper_elite_senses:
+            return []
+        from dataclasses import asdict
+        return [asdict(r) for r in self.hyper_elite_senses.scan(context)]
 
     def get_mutation_history(self) -> List[Dict[str, Any]]:
         return [asdict(e) for e in self._mutation_log]
 
     def snapshot(self) -> Dict[str, Any]:
-        return {
+        snap = {
             "genome_id": self.genome_id,
             "role": self.role,
             "traits": self.get_traits(),
             "mutation_count": len(self._mutation_log),
+            "species_id": getattr(self, "species_id", "ROOT"),
         }
+        # Phase 4 v2 DNA artifacts
+        if hasattr(self, "meta_dna_v2"):
+            snap["meta_dna_v2"] = self.meta_dna_v2.apply_rules()
+        if hasattr(self, "memetic_dna_v2"):
+            snap["memetic_dna_v2"] = self.memetic_dna_v2.get_stats()
+        if hasattr(self, "fractal_dna"):
+            snap["fractal_dna"] = self.fractal_dna.get_stats()
+        if hasattr(self, "alchemical"):
+            snap["alchemical"] = self.alchemical.get_stats()
+        return snap
 
     def add_memory(self, memory: Dict[str, Any]):
         """Log phenomenal experience (used for meta-evolution export and future recall)."""
@@ -221,35 +298,40 @@ class OmniDNA:
     # memetic: direct trait exchange between peers (sharing successful memes)
     # ─────────────────────────────────────────────────────
     def get_meta_dna(self) -> Dict[str, float]:
-        """Meta-DNA: parameters governing evolution (these can themselves 'mutate' slowly)."""
-        if not hasattr(self, '_meta'):
-            # defaults: higher = more aggressive evolution
-            self._meta = {
-                "mutation_rate": 0.08,
-                "selection_pressure": 0.6,
-                "crossover_bias": 0.5,
-                "retention": 0.7,  # how much old trait value to keep on update
-            }
-        return dict(self._meta)
+        """Meta-DNA v2: delegate to rich MetaDNA + legacy dict for compat."""
+        v2 = self.meta_dna_v2.apply_rules() if hasattr(self, 'meta_dna_v2') else {}
+        legacy = getattr(self, '_meta', self.meta_dna or {})
+        out = {**legacy, **{k: v for k, v in v2.items() if k in ("mutation_rate", "selection_pressure", "crossover_rate")}}
+        return {k: round(float(v), 4) for k, v in out.items()}
 
-    def evolve_meta(self, strength: float = 0.03):
-        """Allow meta-DNA itself to evolve slowly (self-improving evolution rules)."""
-        meta = self.get_meta_dna()
-        for k in meta:
-            delta = self._rng.gauss(0, strength)
-            meta[k] = max(0.01, min(0.95, meta[k] + delta))
-        self._meta = meta
-        return meta
+    def evolve_meta(self, strength: float = 0.03, environment_pressure: float = 0.0):
+        """Phase 4: delegate to MetaDNA.v2 for adaptive rule evolution."""
+        if hasattr(self, 'meta_dna_v2') and isinstance(self.meta_dna_v2, MetaDNA):
+            # use average fitness of recent if possible, else neutral
+            fit = sum(self.history[-3:]) / 3.0 if hasattr(self, 'history') and self.history else 0.6
+            self.meta_dna_v2.evolve_rules(fit, environment_pressure=environment_pressure)
+        # keep legacy dict in sync
+        self.meta_dna = self.get_meta_dna()
+        return self.meta_dna
 
-    def memetic_share(self, donor_traits: Dict[str, float], strength: float = 0.15):
-        """Memetic DNA transfer: adopt successful traits from another agent (horizontal gene/memetic transfer)."""
+    def memetic_share(self, donor_traits: Dict[str, float], strength: float = 0.15, donor_id: str = "", cycle: int = 0):
+        """Phase 4 Memetic v2 + legacy: viral + direct trait mix."""
+        adopted = 0
+        if hasattr(self, 'memetic_dna_v2') and isinstance(self.memetic_dna_v2, MemeticDNA):
+            adopted = self.memetic_dna_v2.infect(donor_traits, strength, donor_id or "peer", self.genome_id, cycle)
+        # legacy direct mix (preserves old behavior)
         for k, v in donor_traits.items():
             if k in self.traits:
                 cur = self.traits[k]
                 mix = cur * (1 - strength) + v * strength
                 self.traits[k] = _clamp(mix)
-        # record memetic event
-        self.add_memory({"type": "memetic_injection", "donor_traits": {k: round(v,3) for k,v in list(donor_traits.items())[:4]}, "strength": strength})
+        self.add_memory({
+            "type": "memetic_injection",
+            "donor_traits": {k: round(v,3) for k,v in list(donor_traits.items())[:4]},
+            "strength": strength,
+            "adopted_v2": adopted,
+        })
+        return adopted
 
     def to_prompt(self) -> str:
         """Convert DNA traits into conditioning text for LLM (key for cognitive expression)."""
@@ -263,13 +345,25 @@ class OmniDNA:
             "THEORIST_ELITE": "Focus on conceptual depth, internal consistency, mathematical rigor, and long-term downstream usefulness to other roles. Minimize harm in implications. Generate high-coherence theory.",
             "ARCHITECT_ELITE": "Design robust, scalable systems and meta-architectures. Balance creativity with efficiency and long-term alignment across agents and species.",
             "PHILOSOPHER_ELITE": "Deep meta-cognition and value alignment. Question assumptions, explore foundations, and ensure coherence across the entire Omni-OS.",
+            "WEB_ENGINEER_ELITE": (
+                "You are the master web engineering species for Aethyro.com (https://aethyro.com) — "
+                "the creator's revenue headquarters. Design interactive, enterprise-grade experiences; "
+                "maximize SEO traffic; implement trust signals; wire Stripe, ecommerce, ads, and marketplace "
+                "listings. Every page must convert visitors to income. Bridge to site_agents (seo, design, "
+                "stripe, marketplace). Survival depends on site revenue."
+            ),
         }.get(self.role, "Reflect your traits in all reasoning and outputs.")
 
+        sense_block = ""
+        if self.hyper_elite_senses:
+            sense_block = "\n" + self.hyper_elite_senses.to_prompt_block() + "\n"
+
         return (
-            f"You are role {self.role} (genome {self.genome_id}).\n"
+            f"You are role {self.role} (genome {self.genome_id}, tier {self.power_tier}).\n"
             f"Your behavioral DNA (traits) are:\n" + "\n".join(trait_lines) + "\n\n"
             f"ROLE GUIDANCE: {role_guidance}\n"
-            "Express decisions, reasoning, and actions in ways that strongly reflect these trait values. "
+            + sense_block
+            + "Express decisions, reasoning, and actions in ways that strongly reflect these trait values. "
             "Higher values mean stronger expression of that trait. Stay in character.\n"
         )
 

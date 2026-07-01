@@ -46,7 +46,8 @@ async def post_job(
 
 
 def list_jobs(status: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
-    with _conn() as c:
+    try:
+        c = _conn()
         if status:
             rows = c.execute(
                 "SELECT id, task, tags, reward, status, posted_by, claimed_by, "
@@ -61,6 +62,9 @@ def list_jobs(status: str | None = None, limit: int = 20) -> list[dict[str, Any]
                 "ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
+        c.close()
+    except sqlite3.DatabaseError:
+        return []
     out = []
     for row in rows:
         out.append({

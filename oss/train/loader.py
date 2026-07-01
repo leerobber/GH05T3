@@ -1,4 +1,4 @@
-"""Windows-safe model + LoRA loader — no TRL, constitution enforced."""
+﻿"""Windows-safe model + LoRA loader â€” no TRL, constitution enforced."""
 from __future__ import annotations
 
 import gc
@@ -66,7 +66,7 @@ def load_train_stack(config: TrainConfig):
     except OSError as exc:
         if "1455" in str(exc) or "paging file" in str(exc).lower():
             fallback = "Qwen/Qwen2.5-1.5B-Instruct"
-            LOG.warning("Paging-file OOM — falling back to %s", fallback)
+            LOG.warning("Paging-file OOM â€” falling back to %s", fallback)
             gc.collect()
             torch.cuda.empty_cache()
             model_id = fallback
@@ -101,7 +101,7 @@ def load_train_stack(config: TrainConfig):
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
     LOG.info(
-        "LoRA attached — %s trainable / %s total (%.2f%%)",
+        "LoRA attached â€” %s trainable / %s total (%.2f%%)",
         f"{trainable:,}", f"{total:,}", 100 * trainable / max(total, 1),
     )
     LOG.info("VRAM after load: %.1f GB", torch.cuda.memory_allocated(0) / 1e9)

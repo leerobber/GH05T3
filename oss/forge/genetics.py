@@ -15,6 +15,7 @@ from oss.forge.schemas import (
     TrainingShard,
 )
 from oss.forge.omni_lex import shard_to_chatml
+from oss.substrate.attention_config import AttentionConfig
 
 
 def methylation_from_score(score: float, tier: QualityTier) -> MethylationProfile:
@@ -83,6 +84,7 @@ def transcribe_strand(
     sid = hashlib.sha256(
         f"{shard.shard_id}:{fitness}:{rank}".encode()
     ).hexdigest()[:16]
+    attn_cfg = AttentionConfig.from_genome_traits({}, genome_id=shard.genome_id or "gh05t3").to_dict()
     return OmniStrand(
         strand_id=sid,
         shard_id=shard.shard_id,
@@ -94,6 +96,7 @@ def transcribe_strand(
         paradigm=TrainingParadigm.OMNI_STRAND_SFT,
         capability_amplifier=capability_amplifier(fitness, shard.domain, rank),
         crispr_targets=crispr_targets(shard),
+        attention_config=attn_cfg,
     )
 
 

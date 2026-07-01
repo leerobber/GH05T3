@@ -110,9 +110,10 @@ class OmniStrand:
     paradigm: TrainingParadigm = TrainingParadigm.OMNI_STRAND_SFT
     capability_amplifier: float = 1.0
     crispr_targets: list[str] = field(default_factory=list)
+    attention_config: dict[str, Any] | None = field(default=None)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "strand_id": self.strand_id,
             "shard_id": self.shard_id,
             "domain": self.domain.value,
@@ -125,6 +126,9 @@ class OmniStrand:
             "crispr_targets": self.crispr_targets,
             "training_method": "omni_strand_sft",
         }
+        if self.attention_config is not None:
+            d["attention_config"] = self.attention_config
+        return d
 
 
 @dataclass

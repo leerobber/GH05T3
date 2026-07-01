@@ -168,7 +168,10 @@ async def fetch_page(url: str, timeout: float = 15.0) -> PageData:
 
 
 def _parse_html(html: str, page: PageData, base_url: str) -> None:
-    soup = BeautifulSoup(html, "lxml")
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        soup = BeautifulSoup(html, "html.parser")
 
     # Remove noise
     for tag in soup(["script", "style", "noscript", "nav", "footer", "header"]):

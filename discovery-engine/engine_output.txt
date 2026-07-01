@@ -1,0 +1,44 @@
+﻿
+> discovery-engine@1.0.0 start
+> node dist/index.js C:\Users\leer4\GH05T3
+
+[discovery-engine] rootDir: C:\Users\leer4\GH05T3
+[discovery-engine] files scanned: 58267
+[discovery-engine] dependency edges: 317
+[discovery-engine] runtime issues: 1
+[discovery-engine] python traceback issues: 91
+[discovery-engine] python import issues: 0
+[discovery-engine] created __init__.py: 0
+[discovery-engine] import fix suggestions: 0
+[discovery-engine] static issues (raw): 1
+
+=== Files to fix first ===
+CRITICAL  C:\Users\leer4\GH05T3\backend\telegram_bot.py {"python":["Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)","Python traceback (line 176)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\httpx\_client.py {"python":["Python traceback (line 1629)","Python traceback (line 1657)","Python traceback (line 1694)","Python traceback (line 1730)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\httpcore\_async\connection_pool.py {"python":["Python traceback (line 256)","Python traceback (line 236)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\httpcore\_async\connection.py {"python":["Python traceback (line 101)","Python traceback (line 78)","Python traceback (line 124)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\anyio\_core\_sockets.py {"python":["Python traceback (line 235)","Python traceback (line 240)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\anyio\_backends\_asyncio.py {"python":["Python traceback (line 803)","Python traceback (line 1804)"]}
+CRITICAL  C:\Users\leer4\GH05T3\scripts\runtime\cmd_listener.py {"python":["Python traceback (line 293)","Python traceback (line 233)","Python traceback (line 60)","Python traceback (line 293)","Python traceback (line 233)","Python traceback (line 60)","Python traceback (line 293)","Python traceback (line 233)","Python traceback (line 60)","Python traceback (line 293)","Python traceback (line 233)","Python traceback (line 60)"]}
+CRITICAL  C:\Users\leer4\GH05T3\scripts\training\continuous_learner.py {"python":["Python traceback (line 357)","Python traceback (line 182)"]}
+CRITICAL  C:\Users\leer4\GH05T3\<frozen runpy> {"python":["Python traceback (line 198)","Python traceback (line 88)","Python traceback (line 198)","Python traceback (line 88)","Python traceback (line 198)","Python traceback (line 88)"]}
+CRITICAL  C:\Users\leer4\GH05T3\<frozen importlib._bootstrap> {"python":["Python traceback (line 1387)","Python traceback (line 1360)","Python traceback (line 1331)","Python traceback (line 935)","Python traceback (line 488)","Python traceback (line 1387)","Python traceback (line 1360)","Python traceback (line 1331)","Python traceback (line 935)","Python traceback (line 488)","Python traceback (line 1387)","Python traceback (line 1360)","Python traceback (line 1331)","Python traceback (line 935)","Python traceback (line 488)"]}
+CRITICAL  C:\Users\leer4\GH05T3\<frozen importlib._bootstrap_external> {"python":["Python traceback (line 999)","Python traceback (line 999)","Python traceback (line 999)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\gateway_v3.py {"python":["Python traceback (line 63)","Python traceback (line 63)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\click\core.py {"python":["Python traceback (line 1485)","Python traceback (line 1406)","Python traceback (line 1269)","Python traceback (line 824)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\uvicorn\main.py {"python":["Python traceback (line 441)","Python traceback (line 617)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\uvicorn\server.py {"python":["Python traceback (line 75)","Python traceback (line 79)","Python traceback (line 86)"]}
+CRITICAL  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\uvicorn\importer.py {"python":["Python traceback (line 22)","Python traceback (line 19)"]}
+CRITICAL  C:\Users\leer4\GH05T3\sovereignnation\serve.py {"python":["Python traceback (line 47)","Python traceback (line 63)","Python traceback (line 180)","Python traceback (line 320)"]}
+CRITICAL  C:\Users\leer4\GH05T3\sovereignnation\sovereign_interface.py {"python":["Python traceback (line 130)","Python traceback (line 112)"]}
+MEDIUM  runtime:unknown {"runtime":["TypeError: create_hyper_elite_psychology_genome() got an unexpected keyword argument 'cognitive_bias'\r"]}
+MEDIUM  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\httpx\_transports\default.py {"python":["Python traceback (line 394)"]}
+MEDIUM  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\httpcore\_backends\auto.py {"python":["Python traceback (line 31)"]}
+MEDIUM  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\httpcore\_backends\anyio.py {"python":["Python traceback (line 115)"]}
+MEDIUM  C:\Users\leer4\GH05T3\scripts\training\ghost_trainer.py {"python":["Python traceback (line 10)"]}
+MEDIUM  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\uvicorn\__main__.py {"python":["Python traceback (line 4)"]}
+MEDIUM  C:\Users\leer4\GH05T3\backend\.venv\Lib\site-packages\uvicorn\config.py {"python":["Python traceback (line 449)"]}
+MEDIUM  C:\Users\leer4\GH05T3\scripts\runtime\whisper_listener.py {"python":["Python traceback (line 15)"]}
+LOW  static:global {"static":["\nOops! Something went wrong! :(\n\nESLint: 10.6.0\n\nESLint couldn't find an eslint.config.(js|mjs|cjs) file.\n\nFrom ESLint v9.0.0, the default configuration file is now eslint.config.js.\nIf you are using "]}
+
+=== Suggested Python Import Fixes ===

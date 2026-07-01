@@ -1,21 +1,21 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-╔══════════════════════════════════════════════════════════════════╗
-║          GH05T3  ·  SOVEREIGN COMPANION AGENT  v2.0             ║
-║          Local execution node for the Sovereign Core mesh       ║
-╠══════════════════════════════════════════════════════════════════╣
-║  Enhancements over v1:                                          ║
-║  • ReAct reasoning loop — plan → act → observe → reflect       ║
-║  • Local LLM routing  — hits port 8000 gateway (TatorTot mesh) ║
-║  • SQLite memory      — persistent cross-session recall         ║
-║  • Mic → STT pipeline — vosk offline transcription             ║
-║  • Process manager    — launch / monitor / kill local procs     ║
-║  • Sys health beacon  — CPU/RAM/GPU pushed every N seconds      ║
-║  • Secure token vault — encrypted credential store (Fernet)    ║
-║  • Structured audit   — JSONL tamper-evident action log        ║
-║  • Reconnect with JTI — jitter+backoff, session continuity     ║
-║  • Kill switch        — Ctrl+Shift+K global hotkey             ║
-╚══════════════════════════════════════════════════════════════════╝
+â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+â•‘          GH05T3  Â·  SOVEREIGN COMPANION AGENT  v2.0             â•‘
+â•‘          Local execution node for the Sovereign Core mesh       â•‘
+â• â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•£
+â•‘  Enhancements over v1:                                          â•‘
+â•‘  â€¢ ReAct reasoning loop â€” plan â†’ act â†’ observe â†’ reflect       â•‘
+â•‘  â€¢ Local LLM routing  â€” hits port 8000 gateway (TatorTot mesh) â•‘
+â•‘  â€¢ SQLite memory      â€” persistent cross-session recall         â•‘
+â•‘  â€¢ Mic â†’ STT pipeline â€” vosk offline transcription             â•‘
+â•‘  â€¢ Process manager    â€” launch / monitor / kill local procs     â•‘
+â•‘  â€¢ Sys health beacon  â€” CPU/RAM/GPU pushed every N seconds      â•‘
+â•‘  â€¢ Secure token vault â€” encrypted credential store (Fernet)    â•‘
+â•‘  â€¢ Structured audit   â€” JSONL tamper-evident action log        â•‘
+â•‘  â€¢ Reconnect with JTI â€” jitter+backoff, session continuity     â•‘
+â•‘  â€¢ Kill switch        â€” Ctrl+Shift+K global hotkey             â•‘
+â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 Install:
     pip install websockets psutil cryptography pillow mss pyperclip \
@@ -41,7 +41,7 @@ import logging
 import os
 import platform
 import queue
-import shlex
+from shlex import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -56,7 +56,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-# ── Optional heavy imports (graceful degradation) ────────────────────────────
+# â”€â”€ Optional heavy imports (graceful degradation) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try:
     import websockets
 except ImportError:
@@ -95,7 +95,7 @@ try:
 except ImportError:
     HAS_RICH = False
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# â”€â”€ Logging â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 _handlers = [logging.FileHandler("ghost_agent.log")]
 if HAS_RICH:
     _handlers.append(RichHandler(console=_console, rich_tracebacks=True, show_path=False))
@@ -110,7 +110,7 @@ logging.basicConfig(
 )
 LOG = logging.getLogger("GH05T3")
 
-# ── Audit log (JSONL, tamper-evident via HMAC chain) ─────────────────────────
+# â”€â”€ Audit log (JSONL, tamper-evident via HMAC chain) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 AUDIT_LOG = Path("ghost_audit.jsonl")
 _AUDIT_SECRET = os.environ.get("GHOST_AUDIT_SECRET", "gh05t3-default-secret").encode()
 _last_audit_hash = "GENESIS"
@@ -135,7 +135,7 @@ def _audit(action: str, actor: str, outcome: str, detail: dict | None = None):
 
 _SESSION_ID = str(uuid.uuid4())[:8]
 
-# ── Shell allowlist ───────────────────────────────────────────────────────────
+# â”€â”€ Shell allowlist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 SHELL_ALLOWLIST = {
     "git", "ls", "dir", "pwd", "cat", "type", "echo", "python", "python3",
     "pytest", "node", "yarn", "npm", "pip", "pip3", "make", "cmake",
@@ -149,7 +149,7 @@ SHELL_ALLOWLIST = {
     "tasklist", "taskkill",                       # Windows process management
 }
 
-# ── Dataclasses ───────────────────────────────────────────────────────────────
+# â”€â”€ Dataclasses â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 @dataclass
 class ReActStep:
     thought: str
@@ -176,9 +176,9 @@ class AgentConfig:
     vault_key: bytes | None
 
 
-# ═══════════════════════════════════════════════════════════════════
-# MEMORY — SQLite-backed persistent recall
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# MEMORY â€” SQLite-backed persistent recall
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class GhostMemory:
     """Lightweight persistent memory using aiosqlite or sync sqlite3."""
 
@@ -254,13 +254,13 @@ class GhostMemory:
 MEMORY = GhostMemory()
 
 
-# ═══════════════════════════════════════════════════════════════════
-# SECURE VAULT — encrypted credential/secret storage
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# SECURE VAULT â€” encrypted credential/secret storage
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 class GhostVault:
     def __init__(self, key: bytes | None = None):
         if not HAS_CRYPTO:
-            LOG.warning("cryptography not installed — vault disabled")
+            LOG.warning("cryptography not installed â€” vault disabled")
             self._fernet = None
             return
         if key is None:
@@ -286,9 +286,9 @@ class GhostVault:
         return {"keys": list(self._store.keys())}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # SYSTEM HEALTH BEACON
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 def _collect_health() -> dict:
     h: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -306,7 +306,7 @@ def _collect_health() -> dict:
             h["disk_free_gb"] = round(disk.free / 1e9, 2)
         except Exception:
             pass
-    # GPU — nvidia-smi
+    # GPU â€” nvidia-smi
     if shutil.which("nvidia-smi"):
         try:
             out = subprocess.run(
@@ -338,7 +338,7 @@ def _collect_health() -> dict:
 
 
 async def _health_beacon_loop(ws, interval: int):
-    LOG.info("Health beacon started — interval=%ds", interval)
+    LOG.info("Health beacon started â€” interval=%ds", interval)
     while True:
         try:
             await asyncio.sleep(interval)
@@ -350,9 +350,9 @@ async def _health_beacon_loop(ws, interval: int):
             LOG.exception("health beacon error")
 
 
-# ═══════════════════════════════════════════════════════════════════
-# LOCAL LLM BRIDGE — routes to TatorTot mesh (port 8000 gateway)
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# LOCAL LLM BRIDGE â€” routes to TatorTot mesh (port 8000 gateway)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async def call_local_llm(
     prompt: str,
     llm_port: int = 8000,
@@ -362,7 +362,7 @@ async def call_local_llm(
 ) -> str:
     """Hit the Sovereign Core FastAPI gateway. Falls back gracefully."""
     if not HAS_AIOHTTP:
-        return "[LLM unavailable — pip install aiohttp]"
+        return "[LLM unavailable â€” pip install aiohttp]"
     url = f"http://localhost:{llm_port}/v1/chat/completions"
     payload = {
         "model": model,
@@ -386,9 +386,9 @@ async def call_local_llm(
         return f"[LLM unreachable: {e}]"
 
 
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # ReAct REASONING LOOP
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async def react_loop(
     goal: str,
     dispatch_fn,
@@ -396,7 +396,7 @@ async def react_loop(
     max_steps: int = 6,
 ) -> dict:
     """
-    Plan → Act → Observe → Reflect loop.
+    Plan â†’ Act â†’ Observe â†’ Reflect loop.
     Each iteration calls local LLM to decide the next action,
     executes it via _dispatch, feeds result back.
     """
@@ -487,9 +487,9 @@ async def react_loop(
     return {"steps": [asdict(s) for s in steps], "outcome": outcome}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # PROCESS MANAGER
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 _PROCESSES: dict[str, subprocess.Popen] = {}
 
 def cap_proc_launch(name: str, cmd: str, caps: set[str]) -> dict:
@@ -527,9 +527,9 @@ def cap_proc_kill(name: str) -> dict:
     return {"killed": name, "returncode": proc.returncode}
 
 
-# ═══════════════════════════════════════════════════════════════════
-# MICROPHONE CAPTURE → offline STT (vosk)
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# MICROPHONE CAPTURE â†’ offline STT (vosk)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 def cap_mic_capture(duration_s: int = 5, model_path: str = "vosk-model") -> dict:
     try:
         import sounddevice as sd
@@ -559,9 +559,9 @@ def cap_mic_capture(duration_s: int = 5, model_path: str = "vosk-model") -> dict
     return {"transcript": text, "duration_s": duration_s}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # CAPABILITY IMPLEMENTATIONS (enhanced)
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 def cap_screenshot(monitor: int = 1, scale_width: int = 1280) -> dict:
     try:
         import mss
@@ -753,9 +753,9 @@ def cap_env_info() -> dict:
     return info
 
 
-# ═══════════════════════════════════════════════════════════════════
-# GhostEye — enhanced with diff detection
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# GhostEye â€” enhanced with diff detection
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 def _ocr_png_b64(png_b64: str) -> str:
     try:
         import pytesseract
@@ -800,7 +800,7 @@ def _active_app_title() -> str:
 
 
 async def _ghosteye_loop(ws, enabled_flag: dict, interval: int, ocr: bool):
-    LOG.info("GhostEye online — interval=%ds ocr=%s", interval, ocr)
+    LOG.info("GhostEye online â€” interval=%ds ocr=%s", interval, ocr)
     _last_hash = ""
     while True:
         try:
@@ -810,7 +810,7 @@ async def _ghosteye_loop(ws, enabled_flag: dict, interval: int, ocr: bool):
             frame = cap_screenshot()
             if "error" in frame:
                 continue
-            # Change detection — only push if screen changed (hash of first 500 bytes of b64)
+            # Change detection â€” only push if screen changed (hash of first 500 bytes of b64)
             frame_thumb = frame["png_b64"][:500]
             frame_hash = hashlib.md5(frame_thumb.encode()).hexdigest()
             changed = frame_hash != _last_hash
@@ -835,27 +835,27 @@ async def _ghosteye_loop(ws, enabled_flag: dict, interval: int, ocr: bool):
             LOG.exception("ghosteye frame error")
 
 
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # CENTRAL DISPATCH
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 _VAULT = GhostVault()  # initialized at module level; key set in main()
 
 def _dispatch(action: str, args: dict, cfg: AgentConfig) -> dict:
     _log_args = {k: (v if len(str(v)) < 80 else f"<{len(str(v))}B>") for k, v in args.items()}
-    LOG.info("▶ %s %s", action, _log_args)
+    LOG.info("â–¶ %s %s", action, _log_args)
 
     caps = cfg.caps
     fr = cfg.fs_read_roots
     fw = cfg.fs_write_roots
     allow_any = cfg.allow_any_shell
 
-    # ── Screen ────────────────────────────────────────────────────
+    # â”€â”€ Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "screenshot":
         if "screen_read" not in caps:
             return {"error": "screen_read not granted"}
         return cap_screenshot(monitor=args.get("monitor", 1))
 
-    # ── Shell ─────────────────────────────────────────────────────
+    # â”€â”€ Shell â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "shell":
         if "shell_exec" not in caps:
             return {"error": "shell_exec not granted"}
@@ -863,7 +863,7 @@ def _dispatch(action: str, args: dict, cfg: AgentConfig) -> dict:
                          timeout=int(args.get("timeout", 30)),
                          cwd=args.get("cwd"))
 
-    # ── Filesystem ────────────────────────────────────────────────
+    # â”€â”€ Filesystem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "fs_read":
         if "fs_read" not in caps:
             return {"error": "fs_read not granted"}
@@ -881,7 +881,7 @@ def _dispatch(action: str, args: dict, cfg: AgentConfig) -> dict:
         return cap_fs_list_tree(args.get("path", str(Path.home())), fr,
                                 depth=int(args.get("depth", 3)))
 
-    # ── Clipboard ─────────────────────────────────────────────────
+    # â”€â”€ Clipboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "clipboard_read":
         if "clipboard" not in caps:
             return {"error": "clipboard not granted"}
@@ -892,21 +892,21 @@ def _dispatch(action: str, args: dict, cfg: AgentConfig) -> dict:
             return {"error": "clipboard not granted"}
         return cap_clipboard_write(args.get("text", ""))
 
-    # ── Notify ────────────────────────────────────────────────────
+    # â”€â”€ Notify â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "notify":
         if "notify" not in caps:
             return {"error": "notify not granted"}
         return cap_notify(args.get("title", "GH05T3"), args.get("body", ""),
                           args.get("urgency", "normal"))
 
-    # ── Mic ───────────────────────────────────────────────────────
+    # â”€â”€ Mic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "mic_capture":
         if "mic" not in caps:
             return {"error": "mic not granted"}
         return cap_mic_capture(duration_s=int(args.get("duration_s", 5)),
                                model_path=args.get("vosk_model", "vosk-model"))
 
-    # ── Process manager ───────────────────────────────────────────
+    # â”€â”€ Process manager â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "proc_launch":
         return cap_proc_launch(args.get("name", "proc"), args.get("cmd", ""), caps)
 
@@ -916,7 +916,7 @@ def _dispatch(action: str, args: dict, cfg: AgentConfig) -> dict:
     if action == "proc_kill":
         return cap_proc_kill(args.get("name", ""))
 
-    # ── Memory ────────────────────────────────────────────────────
+    # â”€â”€ Memory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "memory_store":
         MEMORY.remember(args.get("key", "note"), args.get("value"), args.get("tags", ""))
         return {"stored": args.get("key")}
@@ -927,7 +927,7 @@ def _dispatch(action: str, args: dict, cfg: AgentConfig) -> dict:
     if action == "memory_recent":
         return {"memories": MEMORY.recall_recent(limit=int(args.get("limit", 20)))}
 
-    # ── Vault ─────────────────────────────────────────────────────
+    # â”€â”€ Vault â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "vault_put":
         return _VAULT.put(args.get("name", ""), args.get("secret", ""))
 
@@ -937,14 +937,14 @@ def _dispatch(action: str, args: dict, cfg: AgentConfig) -> dict:
     if action == "vault_list":
         return _VAULT.list_keys()
 
-    # ── System health ─────────────────────────────────────────────
+    # â”€â”€ System health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "sys_health":
         return _collect_health()
 
     if action == "env_info":
         return cap_env_info()
 
-    # ── Audit log export ─────────────────────────────────────────
+    # â”€â”€ Audit log export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if action == "audit_tail":
         n = int(args.get("n", 20))
         try:
@@ -956,14 +956,14 @@ def _dispatch(action: str, args: dict, cfg: AgentConfig) -> dict:
     return {"error": f"unknown action '{action}'"}
 
 
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # MAIN CONNECTION LOOP
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 async def run(cfg: AgentConfig):
     parsed = urlparse(cfg.gateway)
     scheme = "wss" if parsed.scheme == "https" else "ws"
     ws_url = f"{scheme}://{parsed.netloc}/api/companion/ws"
-    LOG.info("Connecting → %s  label=%s  caps=%s", ws_url, cfg.label, sorted(cfg.caps))
+    LOG.info("Connecting â†’ %s  label=%s  caps=%s", ws_url, cfg.label, sorted(cfg.caps))
 
     handshake = {
         "token": cfg.token,
@@ -998,7 +998,7 @@ async def run(cfg: AgentConfig):
                                           ping_interval=30, ping_timeout=10) as ws:
                 await ws.send(json.dumps(handshake))
                 hello = json.loads(await ws.recv())
-                LOG.info("✓ Paired: %s", hello)
+                LOG.info("âœ“ Paired: %s", hello)
                 _audit("connect", "agent", "ok", {"gateway": cfg.gateway, "label": cfg.label})
                 backoff = 2
 
@@ -1055,15 +1055,15 @@ async def run(cfg: AgentConfig):
                     await asyncio.gather(*tasks, return_exceptions=True)
 
         except Exception as e:
-            LOG.warning("Connection error: %s — retry in %ds", e, backoff)
+            LOG.warning("Connection error: %s â€” retry in %ds", e, backoff)
             _audit("disconnect", "agent", "retry", {"error": str(e), "backoff": backoff})
             await asyncio.sleep(backoff)
             backoff = min(120, int(backoff * 1.8))
 
 
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # CLAIM TOKEN
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 def _claim(gateway: str, code: str, label: str) -> str:
     import urllib.request
     import urllib.parse
@@ -1074,9 +1074,9 @@ def _claim(gateway: str, code: str, label: str) -> str:
         return json.load(r)["token"]
 
 
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # CLI
-# ═══════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 def _parse_args():
     p = argparse.ArgumentParser(
         description="GH05T3 Sovereign Companion Agent v2.0",
@@ -1129,7 +1129,7 @@ def main():
     gateway = args.gateway or input("Gateway URL: ").strip()
     code = args.pair_code or input("Pairing code: ").strip()
     token = _claim(gateway, code, args.label)
-    LOG.info("Token acquired ✓")
+    LOG.info("Token acquired âœ“")
 
     caps: set[str] = set()
     if args.all:
@@ -1154,7 +1154,7 @@ def main():
             global _VAULT
             _VAULT = GhostVault(key=vault_key)
         except Exception as e:
-            LOG.warning("Bad vault key: %s — generating new one", e)
+            LOG.warning("Bad vault key: %s â€” generating new one", e)
 
     cfg = AgentConfig(
         gateway=gateway,
@@ -1180,7 +1180,7 @@ def main():
     try:
         import keyboard
         def _kill():
-            LOG.warning("Kill switch triggered — shutting down")
+            LOG.warning("Kill switch triggered â€” shutting down")
             _audit("killswitch", "operator", "shutdown", {})
             os._exit(0)
         keyboard.add_hotkey("ctrl+shift+k", _kill)
@@ -1192,7 +1192,7 @@ def main():
         asyncio.run(run(cfg))
     except KeyboardInterrupt:
         _audit("stop", "operator", "keyboard_interrupt", {})
-        LOG.info("Companion stopped ✓")
+        LOG.info("Companion stopped âœ“")
 
 
 if __name__ == "__main__":

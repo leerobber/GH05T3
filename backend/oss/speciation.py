@@ -34,6 +34,7 @@ from typing import Dict, List, Any, Optional
 
 from backend.oss.omni_dna import OmniDNA, UNIVERSAL_TRAITS
 from backend.oss.species_memory import get_species_memory
+from backend.oss.dna.meta_dna import MetaDNA  # Phase 4 v2
 
 
 @dataclass
@@ -41,9 +42,9 @@ class Species:
     species_id: str
     parent_id: Optional[str]
     birth_cycle: int
-    meta_dna: Dict[str, float] = field(default_factory=dict)  # evolution rules for this species
-    niche: str = "general"  # e.g. "volatility", "alignment", "meta"
-    trait_signature: Dict[str, float] = field(default_factory=dict)  # average traits at speciation
+    meta_dna: MetaDNA = field(default_factory=MetaDNA)  # Phase 4: rich MetaDNA instance per species
+    niche: str = "general"
+    trait_signature: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -104,12 +105,14 @@ class SpeciationEngine:
 
     def get_or_create_species(self, species_id: str, parent: Optional[str] = None, niche: str = "general") -> Species:
         if species_id not in self.species:
+            base = MetaDNA(niche=niche)
+            base.evolve_rules(0.55, environment_pressure=0.1 if "vol" in niche else 0.0)
             self.species[species_id] = Species(
                 species_id=species_id,
                 parent_id=parent,
                 birth_cycle=len(self.events),
                 niche=niche,
-                meta_dna={k: 0.5 + random.uniform(-0.1, 0.1) for k in ["mutation_rate", "selection_pressure", "crossover_bias"]},
+                meta_dna=base,
             )
         return self.species[species_id]
 
@@ -119,15 +122,18 @@ class SpeciationEngine:
         t2 = dna2.get_traits()
         trait_dist = sum(abs(t1.get(k, 0.5) - t2.get(k, 0.5)) for k in UNIVERSAL_TRAITS) / len(UNIVERSAL_TRAITS)
 
-        # Meta-DNA divergence if available
+        # Phase 4 Meta-DNA v2 divergence (rich rules + legacy)
         meta_dist = 0.0
-        if hasattr(dna1, 'get_meta_dna') and hasattr(dna2, 'get_meta_dna'):
-            m1 = dna1.get_meta_dna()
-            m2 = dna2.get_meta_dna()
-            if m1 and m2:
-                meta_dist = sum(abs(m1.get(k, 0.5) - m2.get(k, 0.5)) for k in m1) / max(1, len(m1))
+        try:
+            m1 = dna1.meta_dna_v2.apply_rules() if hasattr(dna1, 'meta_dna_v2') else dna1.get_meta_dna()
+            m2 = dna2.meta_dna_v2.apply_rules() if hasattr(dna2, 'meta_dna_v2') else dna2.get_meta_dna()
+            keys = set(m1) | set(m2)
+            if keys:
+                meta_dist = sum(abs(m1.get(k, 0.5) - m2.get(k, 0.5)) for k in keys) / max(1, len(keys))
+        except Exception:
+            pass
 
-        return (trait_dist * 0.7 + meta_dist * 0.3)
+        return (trait_dist * 0.65 + meta_dist * 0.35)
 
     def measure_group_divergence(self, genome_ids: List[str]) -> float:
         """Average pairwise divergence for a genome group (0.0 if insufficient data)."""
@@ -201,9 +207,8 @@ class SpeciationEngine:
                     sp.trait_signature = {
                         k: round(v / trait_counts, 4) for k, v in trait_sums.items()
                     }
-                # Specialize meta for the new species
-                for k in sp.meta_dna:
-                    sp.meta_dna[k] = max(0.1, min(0.9, sp.meta_dna[k] + random.uniform(-0.15, 0.15)))
+                # Phase 4: specialize rich MetaDNA for new species (different evolution personality)
+                sp.meta_dna = sp.meta_dna.clone_for_new_species(niche) if hasattr(sp, 'meta_dna') and isinstance(sp.meta_dna, MetaDNA) else MetaDNA(niche=niche)
 
                 # Tag the new genomes
                 for gid in new_group:
@@ -274,11 +279,11 @@ class SpeciationEngine:
                 continue
             dna = self.substrate.genomes[gid].dna
             traits = dna.get_traits()
-            # Push some traits in opposite directions for demo
-            factor = 1 if i % 2 == 0 else -1
-            for k in ["novelty_seeking", "math", "alignment"]:
+            # Real niche-driven divergence (Phase 6)
+            factor = 1 if (hash(gid) % 2 == 0) else -1
+            for k in ["novelty_seeking", "math", "alignment", "risk_tolerance"]:
                 if k in traits:
-                    traits[k] = max(0.1, min(0.95, traits[k] + factor * strength))
+                    traits[k] = max(0.1, min(0.95, traits[k] + factor * strength * random.uniform(0.6, 1.4)))
             dna.traits.update(traits)
 
     def get_species_for_genome(self, gid: str) -> Optional[str]:
@@ -286,6 +291,18 @@ class SpeciationEngine:
             dna = self.substrate.genomes[gid].dna
             return getattr(dna, 'species_id', 'ROOT')
         return None
+
+    def get_trait_deltas(self, species_id: str) -> Dict[str, float]:
+        """Phase 6: documented trait deltas for a species vs ROOT."""
+        if species_id not in self.species:
+            return {}
+        sp = self.species[species_id]
+        root_sig = self.species.get("ROOT", type("x", (), {"trait_signature": {}})()).trait_signature or {}
+        deltas = {}
+        for k, v in sp.trait_signature.items():
+            base = root_sig.get(k, 0.5)
+            deltas[k] = round(v - base, 4)
+        return deltas
 
     def should_isolate(self, gid1: str, gid2: str) -> bool:
         """High divergence → no memetic/crossover between them."""
@@ -321,10 +338,10 @@ def render_phylogeny_ascii(
     """
     Render a simple ASCII phylogenetic tree from speciation events.
 
-    Example (demo species from speciation_phase):
+    Example (real species):
         ROOT
-        ├── DEMO-SPECIES-01  (Experiment 1)
-        └── DEMO-SPECIES-05  (Experiment 5)
+        ├── SPECIES-001  (volatility niche)
+        └── SPECIES-003  (alignment niche)
     """
     engine = get_speciation_engine()
     evts = events if events is not None else engine.events

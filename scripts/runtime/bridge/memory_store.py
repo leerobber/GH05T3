@@ -1,18 +1,18 @@
-# memory_store.py — long-horizon memory for the judicial mesh.
+﻿# memory_store.py â€” long-horizon memory for the judicial mesh.
 #
 # Two tiers:
 #   - episodic  : one record per mesh run (ledger.jsonl), with an embedding
 #   - semantic  : distilled "learnings" (learnings.json), always injected
 #
 # Embedder chain (best-effort, never fatal): NPU :8111 -> Ollama -> lexical.
-# Privacy: secrets/keys are redacted on write; full source is never stored —
+# Privacy: secrets/keys are redacted on write; full source is never stored â€”
 # only the issue text, touched paths, outcome, and a short comment.
 import json
 import math
 import re
 import time
 import urllib.request
-import zlib
+from zlib import zlib
 from pathlib import Path
 
 from _common import BRIDGE_DIR
@@ -148,18 +148,18 @@ def format_context(repo, issue, focus, paths, k=3) -> str:
     if cases:
         lines = []
         for c in cases:
-            files = ", ".join(c.get("paths", [])[:3]) or "—"
+            files = ", ".join(c.get("paths", [])[:3]) or "â€”"
             lines.append(
                 f"- [{c.get('verdict')}] \"{c.get('issue','')[:80]}\" "
                 f"(files: {files}; tests: {c.get('test_outcome')}; rounds: {c.get('n_rounds')})"
-                + (f" — note: {c['comment'][:120]}" if c.get("comment") else "")
+                + (f" â€” note: {c['comment'][:120]}" if c.get("comment") else "")
             )
-        parts.append("Similar past runs (learn from these — don't repeat rejected approaches):\n"
+        parts.append("Similar past runs (learn from these â€” don't repeat rejected approaches):\n"
                      + "\n".join(lines))
     return "\n\n".join(parts)
 
 
-# ─── semantic tier ───────────────────────────────────────────────────────────
+# â”€â”€â”€ semantic tier â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def get_learnings() -> list[str]:
     if LEARNINGS.exists():
         try:
@@ -180,7 +180,7 @@ def add_learning(text: str):
         LEARNINGS.write_text(json.dumps(items, indent=2), encoding="utf-8")
 
 
-# ─── forgetting / compression ────────────────────────────────────────────────
+# â”€â”€â”€ forgetting / compression â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _maybe_compress():
     """Keep the ledger bounded: retain all SIGNED (high value) + most-recent others."""
     recs = _load()

@@ -27,7 +27,6 @@ This is the "heartbeat" that can later be connected to real agents, gh05t3_infer
 from __future__ import annotations
 
 import json
-import logging
 import os
 import random
 import sys
@@ -36,7 +35,9 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-LOG = logging.getLogger(__name__)
+from .log_config import get_logger
+
+LOG = get_logger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:

@@ -1,4 +1,4 @@
-"""
+﻿"""
 merge_avery_3b.py
 =================
 Post-Kaggle rebuild for Avery on Qwen2.5-3B-Instruct base.
@@ -9,7 +9,7 @@ Steps:
   3. Convert merged model to GGUF Q8_0 via llama.cpp
   4. Write Modelfile pointing to new 3B GGUF
   5. ollama create avery-sovereign:latest
-  6. Smoke test — verify Avery responds correctly
+  6. Smoke test â€” verify Avery responds correctly
 
 Run: python merge_avery_3b.py
      python merge_avery_3b.py --skip-merge   (if merged dir already exists)
@@ -17,7 +17,7 @@ Run: python merge_avery_3b.py
 """
 
 import argparse
-import gc
+from gc import gc
 import json
 import logging
 import subprocess
@@ -25,7 +25,7 @@ import sys
 import time
 from pathlib import Path
 
-# ── Config ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 ROOT        = Path(__file__).parent
 WORK_DIR    = ROOT / "avery-3b-merged"        # merged safetensors output
 GGUF_PATH   = ROOT / "avery-3b-sovereign-q8.gguf"
@@ -38,14 +38,14 @@ OLLAMA_NAME = "avery-sovereign"
 LOG_FILE    = ROOT / "merge_avery_3b.log"
 
 SYSTEM = (
-    "You are Avery, the sovereign business strategist for SovereignNation — "
+    "You are Avery, the sovereign business strategist for SovereignNation â€” "
     "a fixed-cost AI platform built for professional services firms, lower and "
     "middle class families, children's education, and affordable connectivity. "
     "Use the KAIROS framework: Kickoff, Alignment, Implementation, Refinement, "
     "Optimization, Scaling. Be direct, structured, and actionable."
 )
 
-# ── Logging ────────────────────────────────────────────────────────────────────
+# â”€â”€ Logging â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-7s  %(message)s",
@@ -57,7 +57,7 @@ logging.basicConfig(
 log = logging.getLogger("merge_avery")
 
 
-# ── Step 1+2: Merge LoRA into base model ──────────────────────────────────────
+# â”€â”€ Step 1+2: Merge LoRA into base model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def step_merge() -> bool:
     log.info("=" * 60)
     log.info("  STEP 1-2: Merge LoRA -> %s", BASE_MODEL)
@@ -67,7 +67,7 @@ def step_merge() -> bool:
     safetensors = list(WORK_DIR.glob("*.safetensors"))
     if safetensors and WORK_DIR.exists():
         total_size = sum(f.stat().st_size for f in safetensors)
-        log.info("Merged weights already present (%d files, %.1f GB) — skipping.",
+        log.info("Merged weights already present (%d files, %.1f GB) â€” skipping.",
                  len(safetensors), total_size / 1e9)
         return True
 
@@ -122,14 +122,14 @@ def step_merge() -> bool:
     return True
 
 
-# ── Step 3: GGUF conversion ────────────────────────────────────────────────────
+# â”€â”€ Step 3: GGUF conversion â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def step_gguf() -> bool:
     log.info("=" * 60)
     log.info("  STEP 3: Convert to GGUF Q8_0")
     log.info("=" * 60)
 
     if GGUF_PATH.exists() and GGUF_PATH.stat().st_size > 100_000_000:
-        log.info("GGUF already exists (%.2f GB) — skipping.", GGUF_PATH.stat().st_size / 1e9)
+        log.info("GGUF already exists (%.2f GB) â€” skipping.", GGUF_PATH.stat().st_size / 1e9)
         return True
 
     if not LLAMA_CPP.exists():
@@ -159,7 +159,7 @@ def step_gguf() -> bool:
     return True
 
 
-# ── Step 4: Modelfile ──────────────────────────────────────────────────────────
+# â”€â”€ Step 4: Modelfile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def step_modelfile() -> bool:
     log.info("=" * 60)
     log.info("  STEP 4: Write Modelfile")
@@ -177,7 +177,7 @@ def step_modelfile() -> bool:
     return True
 
 
-# ── Step 5: ollama create ──────────────────────────────────────────────────────
+# â”€â”€ Step 5: ollama create â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def step_ollama_create() -> bool:
     log.info("=" * 60)
     log.info("  STEP 5: ollama create %s", OLLAMA_NAME)
@@ -207,7 +207,7 @@ def step_ollama_create() -> bool:
     return True
 
 
-# ── Step 6: Smoke test ─────────────────────────────────────────────────────────
+# â”€â”€ Step 6: Smoke test â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def step_smoke_test() -> bool:
     log.info("=" * 60)
     log.info("  STEP 6: Smoke test")
@@ -242,16 +242,16 @@ def step_smoke_test() -> bool:
         word_count = len(response.split())
 
         if word_count < 30:
-            log.error("SMOKE TEST FAILED — response too short (%d words): %s",
+            log.error("SMOKE TEST FAILED â€” response too short (%d words): %s",
                       word_count, response[:200])
             return False
 
-        log.info("SMOKE TEST PASSED — %d words", word_count)
+        log.info("SMOKE TEST PASSED â€” %d words", word_count)
         log.info("Response preview:\n%s", response[:500])
 
         # Check for KAIROS in response (Avery should use her framework)
         if any(k in response for k in ["KAIROS", "Kickoff", "Alignment", "Implementation"]):
-            log.info("KAIROS framework detected in response — avery is aligned!")
+            log.info("KAIROS framework detected in response â€” avery is aligned!")
 
         return True
 
@@ -260,7 +260,7 @@ def step_smoke_test() -> bool:
         return False
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def main(skip_merge: bool = False, test_only: bool = False):
     log.info("\n" + "=" * 60)
     log.info("  Avery 3B Rebuild Pipeline")

@@ -138,7 +138,7 @@ SERVICES = [
     # ── GH05T3 learning pipeline ───────────────────────────────────────────────
     {
         "name":    "continuous-learner",
-        "cmd":     [str(SYS_PY), "continuous_learner.py"],
+        "cmd":     [str(SYS_PY), str(ROOT / "scripts" / "training" / "continuous_learner.py")],
         "cwd":     str(ROOT),
         "port":    None,
         "health":  None,        # uses heartbeat file check below
@@ -149,7 +149,7 @@ SERVICES = [
     },
     {
         "name":    "cmd-listener",
-        "cmd":     [str(SYS_PY), "cmd_listener.py"],
+        "cmd":     [str(SYS_PY), str(ROOT / "scripts" / "runtime" / "cmd_listener.py")],
         "cwd":     str(ROOT),
         "port":    None,
         "health":  None,
@@ -158,7 +158,7 @@ SERVICES = [
     },
     {
         "name":    "amplifier",
-        "cmd":     [str(SYS_PY), "amplifier.py", "--variants", "5"],
+        "cmd":     [str(SYS_PY), str(ROOT / "scripts" / "training" / "amplifier.py"), "--variants", "5"],
         "cwd":     str(ROOT),
         "port":    None,
         "health":  None,
@@ -207,6 +207,28 @@ SERVICES = [
         "timeout": 15,
         "restart": True,
     },
+    # ── Sovereign Interface — Genomic dispatch + Theory Lab (port 8100) ──────────
+    {
+        "name":    "sovereign-interface",
+        "cmd":     [str(SYS_PY), "-m", "uvicorn", "sovereign_interface:app",
+                    "--host", "0.0.0.0", "--port", "8100", "--log-level", "warning"],
+        "cwd":     str(ROOT / "sovereignnation"),
+        "port":    8100,
+        "health":  "http://localhost:8100/health",
+        "timeout": 20,
+        "restart": True,
+    },
+    # ── Genome Lab UI — enterprise dashboard static server (port 7720) ───────────
+    {
+        "name":    "genome-lab-ui",
+        "cmd":     [str(SYS_PY), "-m", "http.server", "7720",
+                    "--directory", str(ROOT / "frontend")],
+        "cwd":     str(ROOT),
+        "port":    7720,
+        "health":  "http://localhost:7720/genome_dashboard.html",
+        "timeout": 5,
+        "restart": True,
+    },
     # ── NPU Embedding Service (RyzenAI ryzen-ai-1.7.0 env, BGE-large ONNX) ──────
     {
         "name":    "npu-embed",
@@ -223,7 +245,7 @@ SERVICES = [
         "name":    "sage-engine",
         "cmd":     [str(SYS_PY), "-m", "uvicorn", "start_sage:app",
                     "--host", "0.0.0.0", "--port", "8098", "--log-level", "warning"],
-        "cwd":     str(ROOT),
+        "cwd":     str(ROOT / "scripts" / "runtime"),
         "port":    8098,
         "health":  "http://localhost:8098/health",
         "timeout": 20,
@@ -270,7 +292,7 @@ SERVICES = [
     # ── Tunnel URL watcher ────────────────────────────────────────────────────
     {
         "name":    "tunnel-watcher",
-        "cmd":     [str(SYS_PY), "tunnel_watcher.py"],
+        "cmd":     [str(SYS_PY), str(ROOT / "scripts" / "runtime" / "tunnel_watcher.py")],
         "cwd":     str(ROOT),
         "port":    None,
         "health":  None,

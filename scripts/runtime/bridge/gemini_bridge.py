@@ -1,5 +1,5 @@
-#!/usr/bin/env python
-# gemini_bridge.py — Phase 1 of the Claude <-> Gemini bridge.
+﻿#!/usr/bin/env python
+# gemini_bridge.py â€” Phase 1 of the Claude <-> Gemini bridge.
 #
 # An on-demand tool so Claude Code (or any caller) can hand work to Gemini:
 # text, images, or file attachments in, Gemini's answer out.
@@ -14,7 +14,7 @@
 #   from bridge.gemini_bridge import GeminiBridge
 #   g = GeminiBridge(); print(g.ask("hi", images=["shot.png"]))
 import argparse
-import mimetypes
+from mimetypes import mimetypes
 import sys
 from pathlib import Path
 

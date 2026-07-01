@@ -1,11 +1,11 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 GH05T3 Local Companion Agent
 ============================
 
 Runs on YOUR laptop (Windows / macOS / Linux). Dials OUT to the GH05T3
 gateway over WebSocket after you paste a one-time 6-digit pairing code.
-No inbound ports, no listening services — completely NAT-friendly.
+No inbound ports, no listening services â€” completely NAT-friendly.
 
 Install:
     pip install -r requirements.txt
@@ -16,7 +16,7 @@ Run (you'll be prompted for the gateway URL and pair code):
 Or headless:
     GHOST_GATEWAY_URL=https://your-gh05t3.app PAIR_CODE=123456 python ghost_agent.py
 
-Permission surface — toggle from CLI flags (default: all OFF except notify):
+Permission surface â€” toggle from CLI flags (default: all OFF except notify):
     --screen-read        allow screen capture requests
     --shell-exec         allow shell commands (with allow-list)
     --fs-read PATH       allow read inside PATH (repeat for multiple roots)
@@ -40,7 +40,7 @@ import json
 import logging
 import os
 import platform
-import shlex
+from shlex import shlex
 import shutil
 import subprocess
 import sys
@@ -255,7 +255,7 @@ async def run(gateway: str, token: str, label: str, caps: set[str],
                     if eye_task:
                         eye_task.cancel()
         except Exception as e:
-            LOG.warning("connection error: %s — retrying in %ds", e, backoff)
+            LOG.warning("connection error: %s â€” retrying in %ds", e, backoff)
             await asyncio.sleep(backoff)
             backoff = min(60, backoff * 2)
 

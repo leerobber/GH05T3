@@ -1,11 +1,11 @@
-#!/usr/bin/env python
-# judicial_mesh.py — Claude <-> Gemini judicial code-improvement mesh (local, no Docker).
+﻿#!/usr/bin/env python
+# judicial_mesh.py â€” Claude <-> Gemini judicial code-improvement mesh (local, no Docker).
 #
 # Gemini scans a repo and proposes a concrete fix. Claude reviews it with deeper
 # analysis. They negotiate a single candidate set of file changes. A patch is
 # only "signed" when BOTH sign-off conditions hold:
-#   (1) consensus  — both agents approve the *same* candidate, and
-#   (2) evidence   — the patched code passes the repo's tests in a sandbox.
+#   (1) consensus  â€” both agents approve the *same* candidate, and
+#   (2) evidence   â€” the patched code passes the repo's tests in a sandbox.
 # Neither alone is enough. A failing test is fed back so the agents must revise.
 #
 #   python judicial_mesh.py --path C:\Users\leer4\GH05T3\sovereignnation
@@ -15,7 +15,7 @@
 # Output: <workspace>/agent_patch.md  (default workspace = bridge/workspace)
 import argparse
 import datetime as dt
-import difflib
+from difflib import difflib
 import json
 import os
 import re
@@ -60,7 +60,7 @@ PROTOCOL = (
     "- 'propose' = put forward or revise the candidate; include FULL file content for every file you touch.\n"
     "- 'approve' = you accept the CURRENT candidate exactly as-is; add no FILE blocks.\n"
     "- 'no_issue' = the code already satisfies the task and tests; nothing should change.\n"
-    "- Do NOT gold-plate. If the code works and tests pass, use 'no_issue' or 'approve' — never invent "
+    "- Do NOT gold-plate. If the code works and tests pass, use 'no_issue' or 'approve' â€” never invent "
     "stylistic or speculative changes."
 )
 
@@ -83,7 +83,7 @@ def reviewer_sys(name: str, peer: str) -> str:
     )
 
 
-# ─── repo helpers ────────────────────────────────────────────────────────────
+# â”€â”€â”€ repo helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _iter_files(root: Path):
     for dp, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in IGNORE]
@@ -116,7 +116,7 @@ def build_digest(root: Path, max_files: int, char_budget: int, focus: str | None
         except Exception:
             continue
         if len(text) > 12000:
-            text = text[:12000] + "\n# … (truncated) …"
+            text = text[:12000] + "\n# â€¦ (truncated) â€¦"
         block = f"\n### {p.relative_to(root)}\n```\n{text}\n```\n"
         out.append(block); used += len(block); shown += 1
     return "".join(out)
@@ -135,8 +135,8 @@ def detect_test_cmd(root: Path) -> str | None:
     return None
 
 
-# ─── protocol parsing ────────────────────────────────────────────────────────
-# Plain-text fence format — robust for code (no JSON escaping of newlines/quotes).
+# â”€â”€â”€ protocol parsing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Plain-text fence format â€” robust for code (no JSON escaping of newlines/quotes).
 _FILE_RE = re.compile(r"---\s*FILE:\s*(.+?)\s*---\r?\n(.*?)\r?\n---\s*END FILE\s*---", re.DOTALL)
 
 
@@ -150,7 +150,7 @@ def parse_turn(text: str) -> dict | None:
     cm = re.search(r"COMMENT:\s*(.+?)(?=\n---\s*FILE:|\Z)", text, re.DOTALL)
     comment = cm.group(1).strip() if cm else ""
     files = [{"path": m.group(1).strip(), "new_content": m.group(2)} for m in _FILE_RE.finditer(text)]
-    # A 'propose' with no parseable file blocks is not actionable — reject so the
+    # A 'propose' with no parseable file blocks is not actionable â€” reject so the
     # turn is retried rather than silently advancing an empty candidate.
     if action == "propose" and not files:
         return None
@@ -161,7 +161,7 @@ def candidate_key(files: list[dict]) -> str:
     return json.dumps(sorted((f["path"], f.get("new_content", "")) for f in files))
 
 
-# ─── evidence gate ───────────────────────────────────────────────────────────
+# â”€â”€â”€ evidence gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _ignore_copy(_dir, names):
     return [n for n in names if n in IGNORE or Path(n).suffix.lower() in IGNORE_SUFFIX]
 
@@ -189,7 +189,7 @@ def run_evidence(root: Path, files: list[dict], test_cmd: str) -> tuple[bool, st
         shutil.rmtree(sandbox, ignore_errors=True)
 
 
-# ─── the mesh ────────────────────────────────────────────────────────────────
+# â”€â”€â”€ the mesh â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def diff_for(root: Path, files: list[dict]) -> str:
     chunks = []
     for f in files:
@@ -231,10 +231,10 @@ def run(path: Path, turns: int, test_cmd: str | None, focus: str | None,
 
     print(f"[judicial] path={path}")
     print(f"[judicial] seats: proposer={p_name} vs reviewer={r_name}")
-    print(f"[judicial] test gate: {test_cmd or 'NONE FOUND — patch will be UNVERIFIED'}")
+    print(f"[judicial] test gate: {test_cmd or 'NONE FOUND â€” patch will be UNVERIFIED'}")
     print(f"[judicial] digest: {len(digest)} chars, focus={focus!r}\n")
 
-    transcript = [f"# Judicial mesh — {ts}\n\n{goal}\n**Test gate:** `{test_cmd or 'none'}`\n\n---\n"]
+    transcript = [f"# Judicial mesh â€” {ts}\n\n{goal}\n**Test gate:** `{test_cmd or 'none'}`\n\n---\n"]
     candidate: list[dict] = []
     approvals: set[str] = set()
     last_evidence = ""
@@ -270,7 +270,7 @@ def run(path: Path, turns: int, test_cmd: str | None, focus: str | None,
             ctx.append("\n## CURRENT CANDIDATE PATCH\n" + diff_for(path, candidate))
             ctx.append(f"\nApproved so far by: {', '.join(sorted(approvals)) or 'nobody'}")
         if last_evidence:
-            ctx.append("\n## LATEST TEST RESULT (ground truth — must pass)\n```\n" + last_evidence + "\n```")
+            ctx.append("\n## LATEST TEST RESULT (ground truth â€” must pass)\n```\n" + last_evidence + "\n```")
         ctx.append(f"\n## TRANSCRIPT\n{''.join(transcript)[-6000:]}")
         ctx.append(f"\nYou are {who}. Give your next move per the protocol.")
         user = "\n".join(ctx)
@@ -278,14 +278,14 @@ def run(path: Path, turns: int, test_cmd: str | None, focus: str | None,
         raw = agent.ask(agent_sys, user)
         move = parse_turn(raw)
         if move is None:
-            transcript.append(f"\n## Turn {turn} — {who} (unparseable, skipped)\n{raw[:800]}\n")
+            transcript.append(f"\n## Turn {turn} â€” {who} (unparseable, skipped)\n{raw[:800]}\n")
             print(f"[turn {turn}] {who}: unparseable response, skipping")
             continue
 
         action, issue, comment = move["action"], move["issue"], move["comment"]
         last_issue, last_comment = issue or last_issue, comment or last_comment
-        transcript.append(f"\n## Turn {turn} — {who}: {action.upper()}\n**Issue:** {issue}\n\n{comment}\n")
-        print(f"[turn {turn}] {who}: {action} — {issue[:70]}")
+        transcript.append(f"\n## Turn {turn} â€” {who}: {action.upper()}\n**Issue:** {issue}\n\n{comment}\n")
+        print(f"[turn {turn}] {who}: {action} â€” {issue[:70]}")
 
         if action == "propose" and move["files"]:
             new_key = candidate_key(move["files"])
@@ -302,25 +302,25 @@ def run(path: Path, turns: int, test_cmd: str | None, focus: str | None,
             no_issue_votes.add(who)
             if no_issue_votes >= {p_name, r_name}:   # both judges: nothing to fix
                 verdict = "no_issue"
-                print("[judicial] both agents judged the code correct — no change needed.")
+                print("[judicial] both agents judged the code correct â€” no change needed.")
                 break
 
         # Consensus reached? Then run the evidence gate.
         if candidate and approvals >= {p_name, r_name}:
             if not test_cmd:
-                rejected_reason = "Consensus reached but NO test suite found — patch is UNVERIFIED."
+                rejected_reason = "Consensus reached but NO test suite found â€” patch is UNVERIFIED."
                 print(f"[judicial] {rejected_reason}")
                 break
-            print(f"[judicial] consensus on candidate → running evidence gate: {test_cmd}")
+            print(f"[judicial] consensus on candidate â†’ running evidence gate: {test_cmd}")
             passed, last_evidence = run_evidence(path, candidate, test_cmd)
-            transcript.append(f"\n## Evidence gate (turn {turn})\n`{test_cmd}` → "
+            transcript.append(f"\n## Evidence gate (turn {turn})\n`{test_cmd}` â†’ "
                               f"{'PASS' if passed else 'FAIL'}\n```\n{last_evidence}\n```\n")
             if passed:
                 signed = True
-                print("[judicial] ✅ tests pass — patch SIGNED.")
+                print("[judicial] âœ… tests pass â€” patch SIGNED.")
                 break
             else:
-                print("[judicial] ❌ tests fail — sending failure back for revision.")
+                print("[judicial] âŒ tests fail â€” sending failure back for revision.")
                 approvals.clear()            # must re-earn consensus on a fixed candidate
 
     _write_patch(out_md, ts, goal, test_cmd, path, candidate, transcript,
@@ -336,20 +336,20 @@ def run(path: Path, turns: int, test_cmd: str | None, focus: str | None,
             [f["path"] for f in candidate] if candidate else [],
             outcome, final, f"{p_name} vs {r_name}", turn, comment=last_comment)
 
-    tag = "SIGNED ✅" if signed else ("NO ISSUE FOUND ✅" if verdict == "no_issue" else "NOT SIGNED ❌")
-    print(f"\n[judicial] {tag} — written to {out_md}")
+    tag = "SIGNED âœ…" if signed else ("NO ISSUE FOUND âœ…" if verdict == "no_issue" else "NOT SIGNED âŒ")
+    print(f"\n[judicial] {tag} â€” written to {out_md}")
     return out_md
 
 
 def _write_patch(out_md, ts, goal, test_cmd, path, candidate, transcript,
                  signed, rejected_reason, last_evidence, verdict=""):
     if signed:
-        status = "✅ SIGNED (consensus + tests green)"
+        status = "âœ… SIGNED (consensus + tests green)"
     elif verdict == "no_issue":
-        status = "✅ NO ISSUE — both judges found the code already correct; no change made"
+        status = "âœ… NO ISSUE â€” both judges found the code already correct; no change made"
     else:
-        status = "❌ NOT SIGNED — " + (rejected_reason or "no consensus reached within turn limit")
-    body = [f"# Agent Patch — {ts}\n", f"**Status:** {status}\n", f"\n{goal}\n",
+        status = "âŒ NOT SIGNED â€” " + (rejected_reason or "no consensus reached within turn limit")
+    body = [f"# Agent Patch â€” {ts}\n", f"**Status:** {status}\n", f"\n{goal}\n",
             f"**Test gate:** `{test_cmd or 'none'}`\n"]
     if candidate:
         body.append("\n## Proposed changes (unified diff)\n```diff\n" + diff_for(path, candidate) + "\n```\n")

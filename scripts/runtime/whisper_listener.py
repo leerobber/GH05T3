@@ -1,4 +1,4 @@
-"""GH05T3 whisper listener — native edge-tts voice of "stuck alerts" etc.
+﻿"""GH05T3 whisper listener â€” native edge-tts voice of "stuck alerts" etc.
 
 Runs alongside the main voice loop (or standalone). Subscribes to
 ws://.../api/ws and speaks every `ghosteye_whisper` event locally using
@@ -12,7 +12,8 @@ import os
 from pathlib import Path
 
 import sounddevice as sd
-import soundfile as sf
+# AUTO-DISABLED by GH05T3 aggressive engine: import soundfile as sf
+pass  # safe placeholder
 import websockets
 import edge_tts
 
@@ -69,7 +70,7 @@ async def run():
                     global _current_task
                     _current_task = asyncio.create_task(synth_and_play(text, voice, priority))
         except Exception as e:
-            LOG.warning("ws error: %s — retry in %ds", e, backoff)
+            LOG.warning("ws error: %s â€” retry in %ds", e, backoff)
             await asyncio.sleep(backoff)
             backoff = min(60, backoff * 2)
 

@@ -14,6 +14,7 @@ It is the "filesystem + class registry" replacement for the entire OSS.
 from __future__ import annotations
 
 import json
+import os
 import random
 import time
 import uuid
@@ -41,12 +42,6 @@ def refresh_model_version():
     global CURRENT_MODEL_VERSION
     CURRENT_MODEL_VERSION = _get_current_model_version()
     return CURRENT_MODEL_VERSION
-
-# Local imports (robust for module use)
-try:
-    from .traits import TraitVector, load_traits, save_traits
-except Exception:
-    from backend.oss.traits import TraitVector, load_traits, save_traits
 
 try:
     from .omni_dna import OmniDNA
@@ -116,60 +111,114 @@ class AgentHandle:
         return conditioned
 
     def act(self, task: Dict[str, Any]) -> Dict[str, Any]:
-        """MVS-exclusive DNA-conditioned action. 
+        """MVS-exclusive DNA-conditioned action.
         Task-Level Conditioning + full prompt for LLM.
         For THEORIST_ELITE: extra emphasis on depth and coherence.
         """
-        conditioned_task = self.condition_task_with_dna(task)
-        dna_prompt = self.dna_to_prompt()
-
-        task_prompt = conditioned_task.get("prompt", str(conditioned_task))
-        if "THEORIST" in self.role.upper():
-            task_prompt += "\n\nAs Theorist Elite, prioritize mathematical rigor, internal logical consistency, novel but grounded insights, and clear downstream utility for other roles. Explicitly state assumptions."
-
-        full_prompt = f"{dna_prompt}\n\nCURRENT TASK (DNA-conditioned):\n{task_prompt}\n\nOutput structured response reflecting your exact trait profile."
-
-        current_version = _get_current_model_version()
-        task_domain = "omni" if "omni" in str(current_version).lower() or current_version != "base" else ""
-
-        llm_output = None
         try:
-            import asyncio, sys
-            from pathlib import Path
-            ROOT = Path(__file__).resolve().parents[2]
-            if str(ROOT) not in sys.path:
-                sys.path.insert(0, str(ROOT))
-            if str(ROOT / "backend") not in sys.path:
-                sys.path.insert(0, str(ROOT / "backend"))
-            from backend.ghost_llm import _call_gh05t3
-            system = f"You are a senior {self.role} in the OSS system. Your every output must embody your current DNA traits. No fluff."
-            llm_output = asyncio.run(_call_gh05t3(system, full_prompt, task_domain=task_domain))
-        except Exception:
-            # Sophisticated MVS-only fallback for Theorist (rich synthetic theory for data + pressure)
+            conditioned_task = self.condition_task_with_dna(task)
+            dna_prompt = self.dna_to_prompt()
+
+            task_prompt = conditioned_task.get("prompt", str(conditioned_task))
+            if "THEORIST" in self.role.upper():
+                task_prompt += (
+                    "\n\nAs Theorist Elite, prioritize mathematical rigor, internal logical consistency, "
+                    "novel but grounded insights, and clear downstream utility for other roles. "
+                    "Explicitly state assumptions."
+                )
+
+            full_prompt = (
+                f"{dna_prompt}\n\nCURRENT TASK (DNA-conditioned):\n{task_prompt}\n\n"
+                "Output structured response reflecting your exact trait profile."
+            )
+
+            current_version = _get_current_model_version()
+            task_domain = "omni" if "omni" in str(current_version).lower() or current_version != "base" else ""
+
+            llm_output = None
+            used_fallback = False
+            dry_run = os.environ.get("MVS_DRY_RUN", "").lower() in ("1", "true", "yes")
+            if dry_run:
+                used_fallback = True
+                t = self.dna.get_traits()
+                llm_output = (
+                    self._theorist_fallback(task, t)
+                    if "THEORIST" in self.role.upper()
+                    else f"[DNA phenotype] {self.role}: {task.get('summary', task.get('prompt', 'action'))} "
+                    f"with traits {dict(list(t.items())[:4])}."
+                )
+            else:
+                try:
+                    import asyncio
+                    import sys
+                    from pathlib import Path
+                    ROOT = Path(__file__).resolve().parents[2]
+                    if str(ROOT) not in sys.path:
+                        sys.path.insert(0, str(ROOT))
+                    if str(ROOT / "backend") not in sys.path:
+                        sys.path.insert(0, str(ROOT / "backend"))
+                    from backend.ghost_llm import _call_gh05t3
+                    system = (
+                        f"You are a senior {self.role} in the OSS system. "
+                        "Your every output must embody your current DNA traits. No fluff."
+                    )
+                    llm_output = asyncio.run(_call_gh05t3(system, full_prompt, task_domain=task_domain))
+                except Exception:
+                    used_fallback = True
+                    t = self.dna.get_traits()
+                    llm_output = (
+                        self._theorist_fallback(task, t)
+                        if "THEORIST" in self.role.upper()
+                        else f"[DNA phenotype] {self.role}: {task.get('summary', 'action')} "
+                        f"with traits {dict(list(t.items())[:4])}."
+                    )
+
+            current_version = _get_current_model_version()
+
+            self.dna.add_memory({
+                "type": "act",
+                "task": conditioned_task,
+                "full_prompt": full_prompt,
+                "output": llm_output,
+                "timestamp": time.time(),
+                "role": self.role,
+                "model_version": current_version,
+                "fallback": used_fallback,
+            })
+
+            return {
+                "agent_id": self.genome_id,
+                "role": self.role,
+                "traits": self.dna.get_traits(),
+                "conditioned_task": conditioned_task,
+                "raw_output": llm_output,
+                "phenomenal_memory_logged": True,
+                "model_version": current_version,
+                "fallback": used_fallback,
+            }
+        except Exception as e:
+            self.dna.add_memory({
+                "type": "error",
+                "error": str(e),
+                "task": task,
+                "timestamp": time.time(),
+                "role": self.role,
+            })
             t = self.dna.get_traits()
-            llm_output = self._theorist_fallback(task, t) if "THEORIST" in self.role.upper() else f"[DNA phenotype] {self.role}: {task.get('summary', 'action')} with traits {dict(list(t.items())[:4])}."
-
-        current_version = _get_current_model_version()
-
-        self.dna.add_memory({
-            "type": "act",
-            "task": conditioned_task,
-            "full_prompt": full_prompt,
-            "output": llm_output,
-            "timestamp": time.time(),
-            "role": self.role,
-            "model_version": current_version,
-        })
-
-        return {
-            "agent_id": self.genome_id,
-            "role": self.role,
-            "traits": self.dna.get_traits(),
-            "conditioned_task": conditioned_task,
-            "raw_output": llm_output,
-            "phenomenal_memory_logged": True,
-            "model_version": current_version,
-        }
+            fallback_output = (
+                self._theorist_fallback(task, t)
+                if "THEORIST" in self.role.upper()
+                else f"[MVS fallback] {self.role}: {task.get('summary', 'action')}"
+            )
+            return {
+                "agent_id": self.genome_id,
+                "role": self.role,
+                "traits": t,
+                "raw_output": fallback_output,
+                "error": str(e),
+                "fallback": True,
+                "phenomenal_memory_logged": True,
+            }
 
     def _theorist_fallback(self, task: dict, traits: dict) -> str:
         """Special high-quality fallback for Theorist Elite to simulate deep reasoning.
@@ -246,6 +295,13 @@ class GenomicSubstrate:
 
         # --- MVS Core Operations ---
     def register_genome(self, dna: OmniDNA, role: Optional[str] = None) -> str:
+        if not isinstance(dna, OmniDNA):
+            raise TypeError("register_genome requires OmniDNA")
+        if not dna.genome_id or not str(dna.genome_id).strip():
+            raise ValueError("register_genome requires non-empty genome_id")
+        traits = dna.get_traits()
+        if not traits:
+            raise ValueError("register_genome requires non-empty traits")
         if dna.genome_id in self.genomes:
             return dna.genome_id
         rec = GenomeRecord(
@@ -282,7 +338,6 @@ class GenomicSubstrate:
     def mutate(self, genome_id: str, intensity: float = 0.08) -> GenomeRecord:
         rec = self.genomes[genome_id]
         rec.dna.evolve(strength=intensity, reason="substrate_mutate")
-        rec.last_evolved = time.time()
         self._save()
         return rec
 

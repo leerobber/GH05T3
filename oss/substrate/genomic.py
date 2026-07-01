@@ -10,6 +10,7 @@ from typing import Any
 
 from oss.dna.omni_dna import OmniDNA
 from oss.schemas.genome import DNAType, Trait
+from oss.substrate.attention_config import AttentionConfig, traits_to_vector
 
 GenomeId = str
 
@@ -40,9 +41,10 @@ class GenomeSegment:
     role: str = ""
     fitness: float = 0.0
     generation: int = 0
+    attention_config: "AttentionConfig | None" = field(default=None, compare=False)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "genome_id": self.genome_id,
             "capabilities": list(self.capabilities),
             "domains": list(self.domains),
@@ -52,6 +54,14 @@ class GenomeSegment:
             "fitness": round(self.fitness, 4),
             "generation": self.generation,
         }
+        if self.attention_config is not None:
+            d["attention_config"] = self.attention_config.to_dict()
+        return d
+
+    def trait_vector(self) -> "np.ndarray":
+        """Return the canonical 32-D trait vector for this genome segment."""
+        import numpy as np  # local import — substrate is numpy-optional at import time
+        return traits_to_vector(self.traits)
 
 
 @dataclass
@@ -221,6 +231,7 @@ class GenomicSubstrate:
         if not dna:
             return None
         traits = {k: round(t.value, 4) for k, t in dna.traits.items()}
+        attn_cfg = AttentionConfig.from_genome_traits(traits, genome_id=genome_id)
         return GenomeSegment(
             genome_id=genome_id,
             capabilities=self._infer_capabilities(traits),
@@ -230,7 +241,42 @@ class GenomicSubstrate:
             role=str(dna.meta_dna.get("species_role", "")),
             fitness=self._mean_fitness(genome_id),
             generation=dna.generation,
+            attention_config=attn_cfg,
         )
+
+    def get_attention_module(self, genome_id: GenomeId):
+        """
+        Build and return an MA_INBLAttention module tuned to this genome's traits.
+
+        The module's hyperparameters (temperature, max_growth, training_binary_ratio)
+        are derived deterministically from the genome's trait values and genome_id.
+        """
+        seg = self.segment(genome_id)
+        if seg is None:
+            raise KeyError(f"Genome not found: {genome_id}")
+        if seg.attention_config is None:
+            from oss.substrate.attention_config import AttentionConfig
+            cfg = AttentionConfig.from_genome_traits(seg.traits, genome_id=genome_id)
+        else:
+            cfg = seg.attention_config
+        return cfg.build_module()
+
+    def build_model(self, genome_id: GenomeId, *, num_layers: int = 2):
+        """
+        Build a full SubstrateModel (stacked MA_INBLAttention blocks) tuned to
+        this genome's trait profile.
+
+        num_layers : number of transformer blocks (default 2)
+        Returns    : SubstrateTransformer ready for encode() / score_candidates()
+        """
+        seg = self.segment(genome_id)
+        if seg is None:
+            raise KeyError(f"Genome not found: {genome_id}")
+        cfg = seg.attention_config or AttentionConfig.from_genome_traits(
+            seg.traits, genome_id=genome_id
+        )
+        from oss.substrate.transformer import SubstrateTransformer
+        return SubstrateTransformer.from_attention_config(cfg, num_layers=num_layers)
 
     def count(self) -> int:
         return len(self._genomes)

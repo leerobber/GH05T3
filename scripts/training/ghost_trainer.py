@@ -1,4 +1,4 @@
-import json, os, re, time, sqlite3, argparse, subprocess, sys, tempfile
+﻿import json, os, re, time, sqlite3, argparse, subprocess, sys, tempfile
 from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
@@ -6,8 +6,9 @@ import requests as _req
 try:
     from groq import Groq as _Groq
 except ImportError:
-    _Groq = None   # groq optional — all production models use Ollama
-from ghost_domains import get_domain, DOMAINS
+    _Groq = None   # groq optional â€” all production models use Ollama
+# AUTO-DISABLED by GH05T3 aggressive engine: from ghost_domains import get_domain, DOMAINS
+pass  # safe placeholder
 try:
     from repo_scanner import load_capability_summary
 except ImportError:
@@ -22,15 +23,15 @@ except ImportError:
     _eco = None
 
 GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
-PROPOSER = "gemma3:12b"           # Ollama — strongest local model, no quota
-VERIFIER = "qwen2.5:7b-instruct"  # Ollama — instruction-tuned rubric judge
-CRITIC   = "dolphin-llama3:8b"    # Ollama — uncensored attacker, brutally honest
-META     = "llama3.2:3b"          # Ollama — tiny + fast for meta rewrites
+PROPOSER = "gemma3:12b"           # Ollama â€” strongest local model, no quota
+VERIFIER = "qwen2.5:7b-instruct"  # Ollama â€” instruction-tuned rubric judge
+CRITIC   = "dolphin-llama3:8b"    # Ollama â€” uncensored attacker, brutally honest
+META     = "llama3.2:3b"          # Ollama â€” tiny + fast for meta rewrites
 
-# Groq client — optional (all current models use Ollama, groq kept for future)
+# Groq client â€” optional (all current models use Ollama, groq kept for future)
 _groq = _Groq(api_key=GROQ_KEY) if (_Groq and GROQ_KEY) else None
 
-# 4-axis scoring weights — must sum to 1.0
+# 4-axis scoring weights â€” must sum to 1.0
 W = {"spec": 0.30, "exec": 0.35, "innov": 0.25, "rev": 0.10}
 PASS_THRESH  = 0.55   # weighted score threshold
 SANDBOX_TO   = 6      # seconds for code execution
@@ -63,7 +64,7 @@ GOALS = [
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
 
-# ── routing: ":" in name = Ollama REST, else = Groq ──────────────────────────
+# â”€â”€ routing: ":" in name = Ollama REST, else = Groq â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _call(model, msgs, temp=0.72, max_tok=512, _retries=4):
     if ":" in model:
@@ -127,7 +128,7 @@ def _trunc(t, n=200):
     return t[:n] + "..." if len(t) > n else t
 
 
-# ── sandbox execution ─────────────────────────────────────────────────────────
+# â”€â”€ sandbox execution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _extract_code(text):
     blocks = re.findall(r'```python\n(.*?)```', text, re.DOTALL)
@@ -148,7 +149,7 @@ def _run_sandbox(code):
         Path(fname).unlink(missing_ok=True)
 
 
-# ── 3-tier wisdom store ───────────────────────────────────────────────────────
+# â”€â”€ 3-tier wisdom store â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tier 1: insights (what works)   data/wisdom_insights_{domain}.txt
 # Tier 2: warnings (what fails)   data/wisdom_warnings_{domain}.txt
 # Tier 3: master synthesis         data/wisdom_master_{domain}.txt  (compacted every 50 cycles)
@@ -178,7 +179,7 @@ def _seed_wisdom(domain_data, domain):
         p.write_text("\n".join(domain_data["wisdom_seeds"]), encoding="utf-8")
 
 
-# ── goal priority queue with evolution ───────────────────────────────────────
+# â”€â”€ goal priority queue with evolution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class GoalQueue:
     def __init__(self, domain_goals=None, extra=None):
@@ -242,7 +243,7 @@ class GoalQueue:
         return [g for g in self.goals if g not in self._base]
 
 
-# ── falsification monitor ─────────────────────────────────────────────────────
+# â”€â”€ falsification monitor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class FalsificationMonitor:
     """
@@ -281,7 +282,7 @@ class FalsificationMonitor:
         total   = trainer.passes + trainer.fails
         actions = []
 
-        # C1: Score collapse — rolling-8 mean < 0.40 for 3 consecutive windows
+        # C1: Score collapse â€” rolling-8 mean < 0.40 for 3 consecutive windows
         if len(scores) >= self.SCORE_WINDOW:
             win_mean = sum(scores[-self.SCORE_WINDOW:]) / self.SCORE_WINDOW
             self.score_window_means.append(win_mean)
@@ -296,7 +297,7 @@ class FalsificationMonitor:
                 self.low_window_streak = 0
                 actions.append("score_collapse")
 
-        # C2: Baseline divergence — baseline < -0.5
+        # C2: Baseline divergence â€” baseline < -0.5
         if trainer.baseline < -0.5:
             self._log(cycle, "baseline_dive", "reset_baseline",
                       f"baseline={trainer.baseline:.3f}")
@@ -304,7 +305,7 @@ class FalsificationMonitor:
             trainer.history  = []
             actions.append("baseline_dive")
 
-        # C3: Pass rate floor — < 20% over last 50 cycles
+        # C3: Pass rate floor â€” < 20% over last 50 cycles
         if total >= 50:
             recent_passes = sum(1 for s in scores[-50:] if s >= PASS_THRESH)
             recent_rate   = recent_passes / 50
@@ -314,7 +315,7 @@ class FalsificationMonitor:
                 queue.swap_hardest_for_easier(5)
                 actions.append("pass_floor")
 
-        # C4: Reward stagnation — std of last 16 rewards < 0.02
+        # C4: Reward stagnation â€” std of last 16 rewards < 0.02
         self.reward_history.append(reward)
         if len(self.reward_history) >= self.STAGNATION_WINDOW:
             self.reward_history = self.reward_history[-self.STAGNATION_WINDOW:]
@@ -326,7 +327,7 @@ class FalsificationMonitor:
                 trainer._forced_goal = adversarial
                 actions.append("reward_stagnation")
 
-        # C5: Wisdom growth halt — 0 new wisdom lines in last 20 cycles
+        # C5: Wisdom growth halt â€” 0 new wisdom lines in last 20 cycles
         wc = self._count_wisdom(domain)
         self.wisdom_counts.append(wc)
         if len(self.wisdom_counts) >= self.WISDOM_HALT_WINDOW:
@@ -339,7 +340,7 @@ class FalsificationMonitor:
                           f"{old:.2f}->{trainer._wisdom_thresh:.2f}")
                 actions.append("wisdom_halt")
 
-        # C6: Goal mastery timeout — same goal picked 10+ consecutive cycles
+        # C6: Goal mastery timeout â€” same goal picked 10+ consecutive cycles
         if queue._pick_streak >= 10:
             self._log(cycle, "goal_timeout", "force_evolve",
                       f"goal={goal[:40]} streak={queue._pick_streak}")
@@ -355,7 +356,7 @@ class FalsificationMonitor:
         return actions
 
 
-# ── archive ───────────────────────────────────────────────────────────────────
+# â”€â”€ archive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class Archive:
     def __init__(self, conn):
@@ -379,7 +380,7 @@ class Archive:
         self.conn.commit()
 
 
-# ── sparkline ─────────────────────────────────────────────────────────────────
+# â”€â”€ sparkline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 _BARS = " ._-~+*#@"
 
@@ -390,14 +391,14 @@ def sparkline(scores, w=32):
     return "".join(_BARS[min(8, int(v / mx * 8))] for v in s)
 
 
-# ── dataclass ─────────────────────────────────────────────────────────────────
+# â”€â”€ dataclass â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @dataclass
 class R:
     cycle: int; goal: str; proposal: str; score: float; reward: float
 
 
-# ── trainer ───────────────────────────────────────────────────────────────────
+# â”€â”€ trainer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class Trainer:
     def __init__(self, domain="core"):
@@ -473,7 +474,7 @@ class Trainer:
         if _eco and count > 0:
             _eco.on_spin_upload(count)
 
-    # ── prompts ───────────────────────────────────────────────────────────────
+    # â”€â”€ prompts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _propose_prompt(self, goal):
         d = self.domain_data
@@ -508,31 +509,31 @@ class Trainer:
             repo_of_cycle = _REPOS[self.cycle % len(_REPOS)]
             if self.domain == "sales":
                 parts.append(
-                    f"\nSPEC CHECKLIST — include ALL 5 or spec score = 0.4:\n"
+                    f"\nSPEC CHECKLIST â€” include ALL 5 or spec score = 0.4:\n"
                     f"[1] NAMED ICP: Specific role + company stage + pain "
                     "(e.g. 'ML team lead at 15-person Series A fintech struggling with LLM cost')\n"
                     "[2] EXACT COPY: At least one real subject line, opening line, or script excerpt "
-                    "(e.g. Subject: 'Cut your GPT-4 bill by 60% — how [Company] did it')\n"
+                    "(e.g. Subject: 'Cut your GPT-4 bill by 60% â€” how [Company] did it')\n"
                     "[3] OBJECTION + RESPONSE: One scripted objection exchange "
-                    "(e.g. 'We already use OpenAI' → 'That's exactly who our best customers came from...')\n"
+                    "(e.g. 'We already use OpenAI' â†’ 'That's exactly who our best customers came from...')\n"
                     "[4] CHANNEL + SEQUENCE: Specific platform and step count "
-                    "(e.g. 'LinkedIn: connection → voice note → case study DM → Calendly')\n"
+                    "(e.g. 'LinkedIn: connection â†’ voice note â†’ case study DM â†’ Calendly')\n"
                     "[5] SUCCESS METRIC: Response rate, close rate, or pipeline target "
-                    "(e.g. '10% reply rate → 3 demos → 1 close at $299/mo = $299 MRR in 30 days')\n"
-                    "Missing actual copy or objection handling → spec ≤ 0.4. All 5 present → spec 0.8+."
+                    "(e.g. '10% reply rate â†’ 3 demos â†’ 1 close at $299/mo = $299 MRR in 30 days')\n"
+                    "Missing actual copy or objection handling â†’ spec â‰¤ 0.4. All 5 present â†’ spec 0.8+."
                 )
             else:
                 parts.append(
-                    f"\nSPEC CHECKLIST — include ALL 5 or spec score = 0.4:\n"
+                    f"\nSPEC CHECKLIST â€” include ALL 5 or spec score = 0.4:\n"
                     f"[1] REPO FOUNDATION: Build on {repo_of_cycle} (or name a better-fit repo with reason)\n"
                     "[2] PRICING: Exact dollar amounts + tier structure "
-                    "(e.g. '$99/mo / 10K calls — $299/mo / 100K calls — $999/mo enterprise')\n"
+                    "(e.g. '$99/mo / 10K calls â€” $299/mo / 100K calls â€” $999/mo enterprise')\n"
                     "[3] CUSTOMER PERSONA: Named ICP with company stage/size "
                     "(e.g. 'ML team lead at 20-person Series A fintech')\n"
                     "[4] IMPLEMENTATION STEPS: 3+ numbered steps executable THIS WEEK\n"
                     "[5] SUCCESS METRIC: Measurable target "
                     "(e.g. '3 paying customers in 45 days at $299/mo = $897 MRR')\n"
-                    "Missing any of these → spec ≤ 0.4. All 5 present → spec 0.8+."
+                    "Missing any of these â†’ spec â‰¤ 0.4. All 5 present â†’ spec 0.8+."
                 )
 
         parts.append(
@@ -554,16 +555,16 @@ class Trainer:
     def _verify_prompt(self, proposal, goal, exec_ev=""):
         ev = f"\nEXECUTION RESULT: {exec_ev}" if exec_ev else ""
         return (
-            f"GH05T3 Strict Verifier. You MUST differentiate scores — do NOT default to 0.7/0.8.\n"
+            f"GH05T3 Strict Verifier. You MUST differentiate scores â€” do NOT default to 0.7/0.8.\n"
             f"GOAL: {goal}\nPROPOSAL: {_trunc(proposal, 440)}{ev}\n\n"
             "Rate each axis 0.0-1.0 (use the FULL range):\n"
-            "spec  — concrete implementation detail? "
+            "spec  â€” concrete implementation detail? "
             "0.1=just an idea, 0.4=vague steps, 0.7=clear steps, 0.9=real code/commands\n"
-            "exec  — buildable TODAY? "
+            "exec  â€” buildable TODAY? "
             "0.1=needs unknown tech, 0.5=needs setup, 0.8=near-runnable, 1.0=copy-paste ready\n"
-            "innov — intelligence advance? "
+            "innov â€” intelligence advance? "
             "0.1=already exists, 0.4=minor tweak, 0.7=meaningful upgrade, 1.0=novel breakthrough\n"
-            "rev   — safe rollback? "
+            "rev   â€” safe rollback? "
             "0.2=destructive, 0.6=partial rollback, 0.9=fully reversible\n\n"
             "Think briefly: what score does each axis ACTUALLY deserve for THIS specific proposal?\n"
             'Then output ONLY JSON: {"spec":X,"exec":X,"innov":X,"rev":X,"rationale":"1 sentence"}')
@@ -584,7 +585,7 @@ class Trainer:
                 f"Wisdom: {_load_wisdom(2)[:80]}. "
                 "Write ONE specific rule (max 120 chars) to improve weakest goals. ONLY the rule:")
 
-    # ── sub-steps ─────────────────────────────────────────────────────────────
+    # â”€â”€ sub-steps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def _debate(self, proposal, goal):
         attack  = _call(CRITIC,   [{"role":"user","content":self._attack_prompt(proposal, goal)}],
@@ -598,7 +599,7 @@ class Trainer:
     def _verify(self, proposal, goal, exec_ev=""):
         raw = _call(VERIFIER, [{"role":"user","content":self._verify_prompt(proposal, goal, exec_ev)}],
                     temp=0.1, max_tok=320)
-        # Ollama/backend error — signal caller to skip cycle, not record a false FAIL
+        # Ollama/backend error â€” signal caller to skip cycle, not record a false FAIL
         if raw.startswith("[ERR:"):
             return "ERR", 0.0, raw[:80], {}
         def _fget(src, key, default=0.3):
@@ -615,7 +616,7 @@ class Trainer:
             try:
                 d = json.loads(m.group()) if m else {}
             except (json.JSONDecodeError, ValueError):
-                d = {}  # JSON malformed — _fget regex fallback will handle extraction
+                d = {}  # JSON malformed â€” _fget regex fallback will handle extraction
             spec  = _fget(d, "spec",  0.3)
             exec_ = _fget(d, "exec",  0.3)
             innov = _fget(d, "innov", 0.3)
@@ -628,7 +629,7 @@ class Trainer:
             return "FAIL", 0.0, raw[:80], {}
 
     def _try_extract_wisdom(self, proposal, goal, score, vstr):
-        # Tier 1: insight (what worked) — only for high-scoring PASSes
+        # Tier 1: insight (what worked) â€” only for high-scoring PASSes
         if vstr == "PASS" and score >= self._wisdom_thresh:
             r = _call(META, [{"role": "user", "content":
                               f"In 90 chars max, what is the KEY INSIGHT from this successful "
@@ -636,7 +637,7 @@ class Trainer:
                       temp=0.3, max_tok=55)
             if r and not r.startswith("[ERR"):
                 _save_wisdom(r.strip(), "insights", self.domain)
-        # Tier 2: warning (what fails) — always save low-score FAILs regardless of threshold
+        # Tier 2: warning (what fails) â€” always save low-score FAILs regardless of threshold
         elif vstr == "FAIL" and score < 0.40:
             r = _call(META, [{"role": "user", "content":
                               f"In 90 chars max, what ANTI-PATTERN caused this proposal to fail "
@@ -694,7 +695,7 @@ class Trainer:
         self.conn.commit()
         print(f"  PCL:      hz={hz:.0f}  rgb=({rc},{gc},{bc})  [{sparkline(self.scores)}]")
 
-    # ── main cycle ────────────────────────────────────────────────────────────
+    # â”€â”€ main cycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def run_cycle(self, goal=None):
         self.cycle += 1
@@ -708,23 +709,23 @@ class Trainer:
 
         print(f"\n-- CYCLE {self.cycle:03d} -- {goal[:58]}")
 
-        # 1. PROPOSE (Groq — only call that touches quota)
+        # 1. PROPOSE (Groq â€” only call that touches quota)
         raw      = _call(PROPOSER, [{"role":"user","content":self._propose_prompt(goal)}],
                          temp=0.72, max_tok=2048)
         proposal = _strip_think(raw)
         if proposal.startswith("[ERR:"):
-            print(f"  PROPOSE:  ERROR — skipping cycle: {proposal[:60]}")
+            print(f"  PROPOSE:  ERROR â€” skipping cycle: {proposal[:60]}")
             self.cycle -= 1
             return None
         print(f"  PROPOSE:  {_trunc(proposal, 85)}")
 
-        # 2. DEBATE — Critic attacks, Verifier revises (both Ollama, free)
+        # 2. DEBATE â€” Critic attacks, Verifier revises (both Ollama, free)
         proposal, attack = self._debate(proposal, goal)
         if attack:
             print(f"  ATTACK:   {_trunc(attack, 78)}")
             print(f"  REVISED:  {_trunc(proposal, 78)}")
 
-        # 3. SANDBOX — execute any embedded Python code, feed results to verifier
+        # 3. SANDBOX â€” execute any embedded Python code, feed results to verifier
         exec_ev = ""
         code    = _extract_code(proposal)
         if code:
@@ -733,10 +734,10 @@ class Trainer:
             exec_ev = f"{tag}: {(stdout or stderr)[:150]}"
             print(f"  SANDBOX:  {tag} | {(stdout or stderr)[:68]}")
 
-        # 4. VERIFY — 4-axis rubric (specificity/executability/innovation/reversibility)
+        # 4. VERIFY â€” 4-axis rubric (specificity/executability/innovation/reversibility)
         vstr, score, rationale, axes = self._verify(proposal, goal, exec_ev)
         if vstr == "ERR":
-            print(f"  VERIFY:   ERR — skipping cycle (verifier offline): {rationale[:60]}")
+            print(f"  VERIFY:   ERR â€” skipping cycle (verifier offline): {rationale[:60]}")
             self.cycle -= 1
             return None
         print(f"  VERIFY:   {vstr} {score:.3f}  "
@@ -781,7 +782,7 @@ class Trainer:
         self._try_extract_wisdom(proposal, goal, score, vstr)
         self._try_compact_wisdom()
 
-        # 9. FalsificationMonitor — 6 auto-intervention conditions
+        # 9. FalsificationMonitor â€” 6 auto-intervention conditions
         self.monitor.check(self, self.cycle, goal, score, reward, self.domain)
 
         # 10. Goal evolution
@@ -797,7 +798,7 @@ class Trainer:
         if self.cycle % 5 == 0:
             self._flush_spin()
 
-        # Economy bridge — real work earns real credits
+        # Economy bridge â€” real work earns real credits
         if _eco:
             if vstr == "PASS":
                 _eco.on_kairos_pass(self.domain, score)
@@ -811,7 +812,7 @@ class Trainer:
         elapsed = time.time() - t0
         print(f"  TIME:     {elapsed:.1f}s")
 
-        # Slack notification — PASS cycles and every 10th cycle
+        # Slack notification â€” PASS cycles and every 10th cycle
         if _slack and (vstr == "PASS" or self.cycle % 10 == 0):
             _slack.notify_cycle(
                 cycle=self.cycle, goal=goal, verdict=vstr, score=score,
@@ -822,7 +823,7 @@ class Trainer:
         self.save()
         return R(self.cycle, goal, proposal, score, reward)
 
-    # ── run loop ──────────────────────────────────────────────────────────────
+    # â”€â”€ run loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def run(self, n=None):
         dom_label = self.domain.upper().center(17)
