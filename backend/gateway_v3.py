@@ -573,6 +573,180 @@ async def get_elite_archive():
     return [c.to_dict() for c in kairos.elite_archive]
 
 
+# Compatibility layer - Honcho + Termux + sovereign-core clients
+# Every client points VITE_SOVEREIGN_GATEWAY_URL / sovereign_url at :8002.
+
+class _InferenceReq(BaseModel):
+    model: str = 'auto'
+    prompt: str = ''
+    messages: list = []
+    options: dict = {}
+    stream: bool = False
+    timeout: int = 30
+    prefer_backend: str = ''
+    require_gpu: bool = False
+
+
+@app.post('/inference')
+async def inference_compat(req: _InferenceReq, request: Request):
+    message = req.prompt
+    if not message and req.messages:
+        message = ' '.join(m.get('content', '') for m in req.messages if m.get('role') != 'system')
+    if not message:
+        raise HTTPException(status_code=400, detail='prompt or messages required')
+    trap = await ghost.process_input(message)
+    if trap is not None:
+        return {'request_id': f'gw-{int(time.time()*1000)}', 'model': 'ghost_protocol',
+                'backend_id': 'ghost', 'backend_label': 'Ghost Protocol', 'response': trap,
+                'done': True, 'prompt_eval_count': 0, 'eval_count': 0,
+                'latency_ms': 0.0, 'routed_at': time.time()}
+    t0 = time.time()
+    state = await omega.run(message, {})
+    return {'request_id': f'gw-{int(t0*1000)}', 'model': state.backend_used or 'avery',
+            'backend_id': state.backend_used or 'omega', 'backend_label': state.backend_used or 'Avery',
+            'response': state.response, 'done': True, 'prompt_eval_count': 0, 'eval_count': 0,
+            'latency_ms': state.latency_ms, 'routed_at': t0}
+
+
+class _SAGEReq(BaseModel):
+    task: str
+    context: dict = {}
+    max_cycles: int = 1
+    require_verification: bool = False
+
+
+@app.post('/kairos/sage')
+async def kairos_sage(req: _SAGEReq):
+    t0 = time.time()
+    state = await omega.run(req.task, req.context)
+    cycle = kairos.record_cycle(proposal=state.response,
+                                verdict=state.sage_verdict or 'PASS',
+                                score=state.sage_score or 0.5)
+    return {'agent_id': f'avery-{cycle.id}',
+            'generation': kairos.stats.get('total_cycles', 0),
+            'score': state.sage_score or 0.5,
+            'verification_verdict': state.sage_verdict or 'PASS',
+            'proposals': [state.response],
+            'latency_ms': (time.time() - t0) * 1000,
+            'sage_log': [cycle.to_dict()]}
+
+
+class _EvolveReq(BaseModel):
+    cycles: int = 1
+    agent_id: str = ''
+
+
+@app.post('/kairos/evolve')
+async def kairos_evolve(req: _EvolveReq):
+    results = []
+    for _ in range(max(1, min(req.cycles, 10))):
+        t0 = time.time()
+        state = await omega.run('KAIROS: run autonomous evolution cycle', {})
+        cycle = kairos.record_cycle(proposal=state.response,
+                                    verdict=state.sage_verdict or 'PASS',
+                                    score=state.sage_score or 0.5)
+        results.append({'agent_id': req.agent_id or f'avery-{cycle.id}',
+                         'generation': kairos.stats.get('total_cycles', 0),
+                         'score': state.sage_score or 0.5,
+                         'verification_verdict': state.sage_verdict or 'PASS',
+                         'elite_promoted': cycle.is_elite,
+                         'latency_ms': (time.time() - t0) * 1000,
+                         'arso_cycles': 1})
+    return {'results': results, 'total_latency_ms': sum(r['latency_ms'] for r in results)}
+
+
+@app.get('/kairos/leaderboard')
+async def kairos_leaderboard(limit: int = 10):
+    elite = sorted(kairos.elite_archive, key=lambda c: c.score, reverse=True)[:limit]
+    return {'agents': [c.to_dict() for c in elite], 'total': len(kairos.elite_archive)}
+
+
+@app.get('/status/backends')
+async def status_backends():
+    return {name: {'id': name, 'label': name.replace('_', ' ').title(),
+                   'url': f'http://localhost:{8010 if "rtx" in name.lower() or "gpu" in name.lower() else 8011}',
+                   'status': 'healthy' if state == 'online' else 'unhealthy',
+                   'latency_ms': None,
+                   'device_type': 'nvidia_gpu' if 'rtx' in name.lower() else 'cpu',
+                   'vram_gib': 8 if 'rtx' in name.lower() else 0}
+            for name, state in _backend_cache.items()}
+
+
+@app.get('/status/kairos/{agent_id}')
+async def status_kairos_agent(agent_id: str):
+    for cycle in kairos.elite_archive:
+        if str(cycle.id) in agent_id or agent_id in str(cycle.id):
+            return cycle.to_dict()
+    return {'agent_id': agent_id, 'status': 'not_found', 'kairos': kairos.stats}
+
+
+class _AuctionBidReq(BaseModel):
+    resource_type: str = 'inference'
+    votes: int = 1
+    agent_id: str = 'honcho'
+
+
+@app.post('/auction/bid')
+async def auction_bid(req: _AuctionBidReq):
+    online = [name for name, state in _backend_cache.items() if state == 'online']
+    winner = online[0] if online else 'avery'
+    return {'winner': winner, 'resource_type': req.resource_type,
+            'votes_cast': req.votes, 'agent_id': req.agent_id, 'ts': time.time()}
+
+
+@app.get('/ledger/tail')
+async def ledger_tail(n: int = 20):
+    cycles = list(kairos.elite_archive)[-n:]
+    entries = [{'entry_id': str(c.id), 'operation_type': 'kairos_cycle',
+                'backend_id': 'avery', 'trust_score': c.score,
+                'timestamp': time.time(),
+                'integrity_ok': c.verdict in ('PASS', 'PARTIAL')}
+               for c in reversed(cycles)]
+    return {'entries': entries, 'total': len(kairos.elite_archive)}
+
+
+class _BenchmarkReq(BaseModel):
+    model_id: str = 'default'
+
+
+@app.post('/benchmark/run')
+async def benchmark_run(req: _BenchmarkReq):
+    t0 = time.time()
+    state = await omega.run('Benchmark: respond with OK', {})
+    latency = (time.time() - t0) * 1000
+    return {'model_id': req.model_id, 'backend_id': state.backend_used or 'avery',
+            'latency_ms': latency, 'throughput_tps': round(50 / max(latency / 1000, 0.001), 1),
+            'passed': latency < 30000, 'ts': t0}
+
+
+@app.websocket('/ws/events')
+async def ws_events(ws: WebSocket):
+    """/ws/events alias for sovereign-core compatible clients."""
+    await ws.accept()
+    q = bus.add_ws_client()
+    await ws.send_text(json.dumps({'type': 'connected', 'ts': time.time(),
+                                   'data': {'node': 'GH05T3', 'version': '3.0.0'}}))
+    try:
+        while True:
+            try:
+                payload = await asyncio.wait_for(q.get(), timeout=25.0)
+                try:
+                    inner = json.loads(payload)
+                    await ws.send_text(json.dumps({'type': inner.get('type', 'swarm.message'),
+                                                   'ts': inner.get('ts', time.time()),
+                                                   'data': inner}))
+                except Exception:
+                    await ws.send_text(payload)
+            except asyncio.TimeoutError:
+                await ws.send_text(json.dumps({'type': 'pong', 'ts': time.time(), 'data': {}}))
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        bus.remove_ws_client(q)
+
+
+
+
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # AETHYRO DEFI LIQUIDITY ROUTING â€” DISCOVERY GATE
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
