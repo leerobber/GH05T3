@@ -18,7 +18,6 @@ env:
   PACT_PROVIDER: gh05t3-oss
 
 jobs:
-  # ── Backend unit tests + syntax checks ───────────────────────────────────────
   backend:
     name: Backend — tests & syntax
     runs-on: ubuntu-latest
@@ -95,7 +94,6 @@ jobs:
           PYTHONPATH: backend
           AETHYRO_SKIP_LICENSE: "1"
 
-  # ── Pact Consumer (generate + optional publish) ──────────────────────────────
   pact-consumer:
     name: Pact Consumer — publish pacts
     runs-on: ubuntu-latest
@@ -139,7 +137,6 @@ jobs:
             --branch "$GIT_BRANCH" \
             --tag ci
 
-  # ── Pact Provider Verification ───────────────────────────────────────────────
   pact-provider:
     name: Pact Provider Verification
     runs-on: ubuntu-latest
@@ -165,7 +162,6 @@ jobs:
           PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL || '' }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN || '' }}
 
-  # ── Can-I-Deploy Gate ────────────────────────────────────────────────────────
   can-i-deploy:
     name: Can-I-Deploy Gate
     runs-on: ubuntu-latest
@@ -190,7 +186,6 @@ jobs:
             --tag ci \
             --strict
 
-  # ── Full-stack with mocks ────────────────────────────────────────────────────
   fullstack-mock:
     name: Full-stack OSS (mocked inference + Sovereign)
     runs-on: ubuntu-latest
@@ -209,7 +204,6 @@ jobs:
         env:
           AETHYRO_SKIP_LICENSE: "1"
 
-  # ── Staging smoke (manual workflow_dispatch) ─────────────────────────────────
   staging-smoke:
     name: Staging Smoke + Verification
     runs-on: ubuntu-latest
@@ -237,7 +231,6 @@ jobs:
             --provider-name "${{ env.PACT_PROVIDER }}" \
             --consumer-tag ci
 
-  # ── Frontend build check ─────────────────────────────────────────────────────
   frontend:
     name: Frontend — build
     runs-on: ubuntu-latest
