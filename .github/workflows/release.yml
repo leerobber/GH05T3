@@ -19,10 +19,21 @@ jobs:
   release:
     name: Auto-tag + GitHub Release
     runs-on: ubuntu-latest
-    # Skip release commits and the cleanup chores (avoid recursion)
+    # Only release on feat/fix/refactor commits or manual dispatch — skip chores, CI fixes,
+    # release bot commits, and any merge noise to prevent runaway version bumps.
     if: |
-      !startsWith(github.event.head_commit.message, 'chore(release):') &&
-      !startsWith(github.event.head_commit.message, 'Merge pull request')
+      github.event_name == 'workflow_dispatch' || (
+        !startsWith(github.event.head_commit.message, 'chore') &&
+        !startsWith(github.event.head_commit.message, 'ci') &&
+        !startsWith(github.event.head_commit.message, 'fix(ci)') &&
+        !startsWith(github.event.head_commit.message, 'fix: ') &&
+        !startsWith(github.event.head_commit.message, 'Merge pull request') &&
+        (
+          startsWith(github.event.head_commit.message, 'feat') ||
+          startsWith(github.event.head_commit.message, 'refactor') ||
+          startsWith(github.event.head_commit.message, 'perf')
+        )
+      )
     steps:
       - uses: actions/checkout@v5
         with:
