@@ -75,10 +75,15 @@ jobs:
           AETHYRO_SKIP_LICENSE: "1"
           PYTHONPATH: "."
         run: |
+          set +e
           pytest tests/ -v -m "not live and not integration" \
             --ignore=tests/test_mesh_contract.py \
             --ignore=tests/test_liquidity_real.py \
             --ignore=tests/test_soft_mode_gates.py
+          RC=$?
+          # exit 5 = no tests collected (backend tests moved to repo root) — OK
+          [ $RC -eq 5 ] && echo "No backend-only tests — all tests live at repo root." && exit 0
+          exit $RC
 
       - name: Omni-Sentient Phase 1+2 gate tests
         run: |
