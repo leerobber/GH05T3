@@ -3,6 +3,18 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.10.2 — 2026-07-01
+
+### What changed since v0.10.1
+
+#### Fixes
+- fix: update Node.js to 22 and add Cloudflare Pages deployment (4354ed5)
+
+### Stats
+- 1 commits
+- 1 contributor(s)
+
+
 ## v0.10.1 — 2026-07-01
 
 ### What changed since v0.10.0
