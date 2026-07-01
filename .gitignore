@@ -115,6 +115,14 @@ tailscale_ip.txt
 *.deb
 *.dylib
 
+# Large checkpoint and dataset files — exceed GitHub 100 MB limit
+checkpoints/*.pt
+checkpoints/*.pth
+checkpoints/*.bin
+checkpoints/*.safetensors
+data_disabled/*.jsonl
+data_disabled/*.json
+
 # Model weights — large binaries, pulled from Kaggle/HuggingFace at deploy time
 # Configs/metadata (adapter_config.json, training_config.json, tokenizer*.json) ARE tracked
 backend/models/**/*.safetensors
