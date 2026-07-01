@@ -3,6 +3,24 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.9.0 — 2026-07-01
+
+### What changed since v0.8.0
+
+#### Features
+- feat(oss): MA-INBL attention substrate, LivingLoop evolution, governance, and language binary coding (2066276)
+
+#### Fixes
+- fix(tests): resolve package shadowing so all 16 ignored test files collect and pass (dbeb204)
+
+#### Maintenance
+- chore: exclude large checkpoint and dataset files from git (07fe883)
+
+### Stats
+- 3 commits
+- 1 contributor(s)
+
+
 ## v0.7.1 — 2026-06-20
 
 ### What changed since v0.7.0
