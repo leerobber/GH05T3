@@ -27,8 +27,6 @@ def test_tunnel_config_ingress():
 
 
 def test_deploy_workflow_exists():
-    wf = _ROOT / ".github" / "workflows" / "deploy-aethyro.yml"
-    assert wf.is_file()
-    text = wf.read_text(encoding="utf-8")
-    assert "deploy-aethyro" in text
-    assert "test_oss_economy.py" in text
+    # CI workflows removed — deploy is configured via vercel.json + cloudflare-pages.toml
+    assert (_ROOT / "deploy" / "vercel.json").is_file()
+    assert (_ROOT / "deploy" / "cloudflare-pages.toml").is_file()
