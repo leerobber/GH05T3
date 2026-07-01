@@ -50,6 +50,19 @@ def genome_to_linguistic_traits(genome: KernelGenome) -> LinguisticTraits:
     )
 
 
+def genome_quantizer_for_language(genome: KernelGenome) -> "BinaryQuantizer":
+    """
+    Return a BinaryQuantizer configured by the genome's quant_mode.
+
+    Used to hook quantization into MA-INBL projection layers at inference time
+    without hard-wiring a specific quantizer into the attention module.
+    """
+    from oss.quantization.binary_quant import BinaryQuantConfig, BinaryQuantizer  # noqa: PLC0415
+
+    mode = getattr(genome, "quant_mode", "ternary")
+    return BinaryQuantizer(BinaryQuantConfig(mode=mode))
+
+
 def dominant_mode(traits: LinguisticTraits) -> str:
     """
     Return the conversation mode name most aligned with these traits.

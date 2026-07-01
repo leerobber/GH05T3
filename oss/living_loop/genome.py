@@ -29,6 +29,7 @@ class KernelGenome:
     temperature: float = 1.0
     max_growth: float = 0.5
     use_torch: bool = False
+    quant_mode: str = "ternary"    # "ternary" | "binary" — weight quantization mode
 
     def mutate(self) -> None:
         """Mutate this genome in place."""
@@ -43,6 +44,7 @@ class KernelGenome:
         self.max_growth = _clamp(
             self.max_growth + random.uniform(-0.1, 0.1), 0.0, 2.0)
         self.use_torch = random.choice([True, False])
+        self.quant_mode = random.choice(["ternary", "binary"])
 
     def crossover(self, other: "KernelGenome") -> "KernelGenome":
         """Uniform crossover — produce a child genome combining genes from both parents."""
@@ -55,4 +57,5 @@ class KernelGenome:
         child.temperature = (self.temperature + other.temperature) / 2.0
         child.max_growth = (self.max_growth + other.max_growth) / 2.0
         child.use_torch = random.choice([self.use_torch, other.use_torch])
+        child.quant_mode = random.choice([self.quant_mode, other.quant_mode])
         return child

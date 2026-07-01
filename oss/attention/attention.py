@@ -1,7 +1,12 @@
 """MA_INBLAttention — high-level module wrapping the MA-INBL kernel."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from oss.quantization.binary_quant import BinaryQuantizer
 
 from oss.attention.kernel import (
     TRITON_AVAILABLE,
@@ -54,6 +59,8 @@ class MA_INBLAttention:
         binary_ratio: float = 0.0,
         # Backend selection: "auto" | "numpy" | "triton"
         backend: str = "auto",
+        # Optional quantizer — if set, _project() uses it for float projections
+        quantizer: "BinaryQuantizer | None" = None,
     ) -> None:
         resolved_d = d_model if d_model is not None else (embed_dim if embed_dim is not None else 256)
         resolved_h = n_heads if n_heads is not None else (num_heads if num_heads is not None else 8)
@@ -72,6 +79,7 @@ class MA_INBLAttention:
         self.max_growth = max_growth
         self.n_int4 = n_int4
         self.w_scale = w_scale
+        self.quantizer = quantizer
 
         # Backend selection
         if backend == "triton" and not TRITON_AVAILABLE:
@@ -121,6 +129,26 @@ class MA_INBLAttention:
                 Q, _ = np.linalg.qr(M)
                 ors[h] = Q
             self._ors_mat = ors
+
+    # ------------------------------------------------------------------
+    def _project(self, x: np.ndarray, W: np.ndarray) -> np.ndarray:
+        """
+        Linear projection with optional quantization.
+
+        When self.quantizer is set the projection uses BinaryQuantizer.matmul()
+        (addition-only, ternary/binary weights).  Without a quantizer it falls
+        back to a plain float32 matmul — identical to the packed-bit path but
+        expressed as a float multiply for simplicity here.
+
+        x : [..., d_model]
+        W : [d_model, d_model] float32
+        Returns : [..., d_model]
+        """
+        if self.quantizer is not None:
+            W_q, W_scale = self.quantizer.quantize_weights(W)
+            x_q, x_scale = self.quantizer.quantize_activations(x)
+            return self.quantizer.matmul(x_q, W_q, W_scale) * x_scale
+        return x @ W
 
     # ------------------------------------------------------------------
     def forward(self, x: np.ndarray) -> tuple[np.ndarray, dict]:
