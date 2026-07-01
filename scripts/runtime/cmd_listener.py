@@ -56,18 +56,7 @@ def _save_seen(seen: set):
 
 
 def _get_channel_id(name: str) -> str | None:
-    token = os.environ.get("SLACK_BOT_TOKEN", "")
-    # AUTO-DISABLED by GH05T3 aggressive engine: r = requests.get(
-    pass  # safe placeholder
-        "https://slack.com/api/conversations.list",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"limit": 200, "types": "public_channel,private_channel"},
-        timeout=10,
-    )
-    for ch in r.json().get("channels", []):
-        if ch["name"] == name:
-            return ch["id"]
-    return None
+    return None  # Slack API disabled — configure SLACK_BOT_TOKEN to enable
 
 
 def _get_messages(channel_id: str, oldest: str = "") -> list:
