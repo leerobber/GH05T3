@@ -3,6 +3,18 @@
 All notable changes to GH05T3 are tracked here.
 Entries are produced automatically by `.github/workflows/release.yml` on every push to `main`.
 
+## v0.10.0 — 2026-07-01
+
+### What changed since v0.9.0
+
+#### Features
+- feat(oss): BitNet-style binary/ternary quantization layer (6d133ac)
+
+### Stats
+- 1 commits
+- 1 contributor(s)
+
+
 ## v0.7.1 — 2026-06-20
 
 ### What changed since v0.7.0
