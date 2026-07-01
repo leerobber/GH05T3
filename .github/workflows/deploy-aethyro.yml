@@ -35,15 +35,23 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
 
       - name: Build frontend
-        run: |
-          cd frontend
-          npm install
-          npm run build
+        working-directory: frontend
+        run: npm run build
         env:
           REACT_APP_GW3_URL: https://api.aethyro.com
 
       - name: Deploy to Cloudflare Pages
-        run: echo "Deploy step — configure CLOUDFLARE_API_TOKEN secret"
+        uses: cloudflare/pages-action@1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ${{ secrets.CLOUDFLARE_PAGES_PROJECT_NAME }}
+          directory: frontend/build
+          branch: main
