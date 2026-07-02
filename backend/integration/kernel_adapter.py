@@ -1,10 +1,28 @@
-"""Glue layer between GH05T3 and the sovereign-core Runtime."""
+"""Glue layer between GH05T3 expert agents and the sovereign-core Python Runtime.
+
+KernelAdapter always uses the pure-Python sovereign-core Runtime because
+expert agents extend Agent and rely on its inbox/state-machine API.
+
+The Rust sovereign_core_rs backend is used by KernelBridge (HyperAgents)
+for block-level dispatch via WASM agents — those two runtimes have different
+interfaces and serve different purposes.
+
+Set SOVEREIGN_CORE_PATH=/path/to/sovereign-core to locate the Python package.
+sovereign_core_rs (Rust) is detected here only for informational purposes.
+"""
 from __future__ import annotations
 
 import sys
 import os
 
-# Allow sovereign-core to be a sibling checkout or installed package.
+# Detect whether the Rust extension is available (for status reporting).
+try:
+    import sovereign_core_rs as _scrs  # type: ignore[import]
+    _RUST_AVAILABLE = True
+except ImportError:
+    _RUST_AVAILABLE = False
+
+# Python sovereign-core — required for expert agent step() loop.
 _SOVEREIGN_PATH = os.environ.get("SOVEREIGN_CORE_PATH", "")
 if _SOVEREIGN_PATH and _SOVEREIGN_PATH not in sys.path:
     sys.path.insert(0, _SOVEREIGN_PATH)
@@ -16,7 +34,13 @@ from src.semantics.semantic_word import SemanticWord, WordType, IntentType, Chan
 
 
 class KernelAdapter:
-    """Wraps sovereign-core Runtime for GH05T3 agents."""
+    """Wraps sovereign-core Python Runtime for GH05T3 expert agents.
+
+    Uses the Python Runtime's inbox/state-machine API.
+    For block-level Rust+WASM dispatch use KernelBridge (hyper/kernel_bridge.py).
+    """
+
+    rust_backend: bool = False  # KernelAdapter always uses Python Runtime
 
     def __init__(self) -> None:
         self.runtime = Runtime()
@@ -88,4 +112,5 @@ class KernelAdapter:
     def status(self) -> dict:
         s = self.runtime.status()
         s["roles"] = dict(self._agent_roles)
+        s["rust_available"] = _RUST_AVAILABLE
         return s
