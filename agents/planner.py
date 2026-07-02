@@ -19,6 +19,7 @@ class PlannerAgent:
         "default"  — CPU/WASM planning via KernelBridge
         "gpu"      — GPU planner pipeline via UnifiedGpu
         "graph"    — GPU BFS/topo reasoning over a graph
+        "gnn"      — GraphSAGE-Mean GNN embedding via UnifiedGpu
     """
 
     def __init__(
@@ -29,13 +30,32 @@ class PlannerAgent:
         self.reasoning_mode = reasoning_mode
         self.gpu: Any = None
 
-        if _HAS_GPU and reasoning_mode in ("gpu", "graph"):
+        if _HAS_GPU and reasoning_mode in ("gpu", "graph", "gnn"):
             self.gpu = UnifiedGpu(backend=gpu_backend)
 
+        # CSR + feature data for GNN mode — set via load_gnn_data()
+        self._gnn_row_ptr:    list[int]   = []
+        self._gnn_col_idx:    list[int]   = []
+        self._gnn_node_feats: list[float] = []
+        self._gnn_weight:     list[float] = []
+
     def load_graph(self, n_nodes: int, edges: list[tuple[int, int]]) -> None:
-        """Load a graph for GPU graph-reasoning mode."""
+        """Load a graph for GPU graph-reasoning or GNN mode."""
         if self.gpu is not None:
             self.gpu.load_graph(n_nodes, edges)
+
+    def load_gnn_data(
+        self,
+        row_ptr:    list[int],
+        col_idx:    list[int],
+        node_feats: list[float],
+        weight:     list[float],
+    ) -> None:
+        """Store CSR + feature/weight arrays for GNN reasoning mode."""
+        self._gnn_row_ptr    = row_ptr
+        self._gnn_col_idx    = col_idx
+        self._gnn_node_feats = node_feats
+        self._gnn_weight     = weight
 
     def plan(self, block: bytes | dict | None = None) -> bytes | list[int] | None:
         """
@@ -62,13 +82,29 @@ class PlannerAgent:
             payload_ref = block[0] if block else 0
             return self.gpu.bfs(payload_ref)
 
+        if self.reasoning_mode == "gnn" and self.gpu is not None:
+            if not self._gnn_row_ptr:
+                return None
+            return self.gpu.embed(
+                self._gnn_row_ptr,
+                self._gnn_col_idx,
+                self._gnn_node_feats,
+                self._gnn_weight,
+            )
+
         # CPU/WASM path — return None, caller uses KernelBridge
         return None
 
-    def embed(self, node_id: int) -> list[float]:
-        """GNN embedding for a node (GPU path only)."""
+    def embed(
+        self,
+        row_ptr:    list[int],
+        col_idx:    list[int],
+        node_feats: list[float],
+        weight:     list[float],
+    ) -> list[float]:
+        """GraphSAGE-Mean GNN: embed all nodes (GPU path only)."""
         if self.gpu is not None:
-            return self.gpu.embed(node_id)
+            return self.gpu.embed(row_ptr, col_idx, node_feats, weight)
         return []
 
     def status(self) -> dict:
@@ -77,4 +113,5 @@ class PlannerAgent:
             "gpu_available":  self.gpu is not None,
             "gpu_backend":    self.gpu.backend if self.gpu else None,
             "planner_ready":  self.gpu.planner_ready() if self.gpu else False,
+            "gnn_data_loaded": bool(self._gnn_row_ptr),
         }
