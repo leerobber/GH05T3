@@ -1,5 +1,9 @@
 use crate::gh05t3::core_loop::create_gh05t3_agent;
-use crate::kernel::{executor::execute_block, payload::ModelCallPayload, KernelState};
+use crate::kernel::{
+    executor::execute_block,
+    payload::{KernelRunSummary, ModelCallPayload, MultiModelCallPayload},
+    KernelState,
+};
 use std::collections::HashMap;
 
 #[no_mangle]
@@ -19,6 +23,25 @@ pub extern "C" fn gh05t3_run_core_loop() -> *mut std::os::raw::c_char {
     c_string.into_raw()
 }
 
+/// Same run as gh05t3_run_core_loop, but returns a real JSON envelope
+/// (KernelRunSummary) instead of a Debug-formatted string, so Python can
+/// actually parse it instead of guessing at Rust's {:?} format.
+#[no_mangle]
+pub extern "C" fn gh05t3_run_core_loop_json() -> *mut std::os::raw::c_char {
+    let mut kernel = KernelState::new();
+    let mut agent = create_gh05t3_agent();
+
+    let core_loop = agent.core_loop.clone();
+    execute_block(&core_loop, &mut agent, &mut kernel);
+
+    let summary = KernelRunSummary {
+        tick: kernel.tick,
+        short_term: agent.memory.short_term,
+    };
+
+    std::ffi::CString::new(summary.to_json()).unwrap().into_raw()
+}
+
 /// v2 MODEL_CALL contract: builds the JSON envelope shared by the exported
 /// FFI symbol below and by `kernel::executor::model_call` — same crate, so
 /// no need to round-trip through the C ABI to call this from within Rust.
@@ -32,6 +55,25 @@ pub fn model_call_summary(
         backend: backend.to_string(),
         prompt: prompt.to_string(),
         version: version.to_string(),
+        meta,
+    }
+    .to_json()
+}
+
+/// v4 multi-model MODEL_CALL contract: same in-crate-shared pattern as
+/// model_call_summary above, one struct per contract version.
+pub fn model_call_blend_summary(
+    backends: Vec<String>,
+    prompt: &str,
+    version: &str,
+    blend_strategy: &str,
+    meta: HashMap<String, String>,
+) -> String {
+    MultiModelCallPayload {
+        backends,
+        prompt: prompt.to_string(),
+        version: version.to_string(),
+        blend_strategy: blend_strategy.to_string(),
         meta,
     }
     .to_json()

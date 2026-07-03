@@ -55,6 +55,8 @@ fn sense_in(_: &GlyphInstance, _: &mut AgentRuntime, _: &mut KernelState) {}
 
 fn model_call(instance: &GlyphInstance, agent: &mut AgentRuntime, _: &mut KernelState) {
     let mut backend_name = "claude".to_string();
+    let mut backends: Option<Vec<String>> = None;
+    let mut blend_strategy: Option<String> = None;
     let mut prompt = "Default prompt from GH05T3 core loop".to_string();
     let mut version = "v2".to_string();
     let mut meta = std::collections::HashMap::new();
@@ -63,6 +65,10 @@ fn model_call(instance: &GlyphInstance, agent: &mut AgentRuntime, _: &mut Kernel
         for (k, v) in m {
             match k.as_str() {
                 "backend" => backend_name = v.clone(),
+                "backends" => {
+                    backends = Some(v.split(',').map(|s| s.trim().to_string()).collect())
+                }
+                "blend_strategy" => blend_strategy = Some(v.clone()),
                 "prompt" => prompt = v.clone(),
                 "version" => version = v.clone(),
                 _ => {
@@ -72,7 +78,14 @@ fn model_call(instance: &GlyphInstance, agent: &mut AgentRuntime, _: &mut Kernel
         }
     }
 
-    let response = crate::ffi::model_call_summary(&backend_name, &prompt, &version, meta);
+    // v4: "backends" + "blend_strategy" present -> multi-model payload.
+    // Otherwise: v2 single-backend payload (unchanged behavior).
+    let response = match (backends, blend_strategy) {
+        (Some(backends), Some(strategy)) => {
+            crate::ffi::model_call_blend_summary(backends, &prompt, &version, &strategy, meta)
+        }
+        _ => crate::ffi::model_call_summary(&backend_name, &prompt, &version, meta),
+    };
     agent.memory.short_term.push(response);
 }
 

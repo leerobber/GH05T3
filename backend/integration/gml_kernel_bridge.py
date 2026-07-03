@@ -30,6 +30,7 @@ _LIB_PATH = os.path.join(
 _gml = ctypes.CDLL(_LIB_PATH)
 
 _gml.gh05t3_run_core_loop.restype = ctypes.c_void_p
+_gml.gh05t3_run_core_loop_json.restype = ctypes.c_void_p
 
 _gml.gh05t3_model_call.restype = ctypes.c_void_p
 _gml.gh05t3_model_call.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
@@ -54,6 +55,14 @@ def run_gh05t3_kernel_core() -> str:
     """
     raw = _gml.gh05t3_run_core_loop()
     return _take_string(raw)
+
+
+def run_gh05t3_kernel_core_json() -> dict:
+    """Same run as run_gh05t3_kernel_core(), but via the JSON-returning FFI
+    export (kernel::payload::KernelRunSummary) instead of Rust's Debug-format
+    string. Returns {"tick": int, "short_term": [str, ...]}."""
+    raw = _gml.gh05t3_run_core_loop_json()
+    return json.loads(_take_string(raw))
 
 
 def call_rust_model_stub(backend: str, prompt: str, version: str = "v2") -> str:
@@ -333,3 +342,151 @@ def handle_model_call_json(payload_json: str) -> str:
             "text": f"[LOCAL_FALLBACK] {prompt}",
             "error": str(e),
         })
+
+
+# ---------------------------------------------------------------------------
+# v4: multi-model blending
+#
+# IMPORTANT LIMITATION: backend.ghost_llm.chat_once has no manual backend
+# selector beyond forcing the local gh05t3 model via LLM_PROVIDER=gh05t3.
+# Every other tier (ollama, groq, google, openrouter, anthropic) runs in a
+# fixed priority cascade regardless of LLM_PROVIDER's value — there is no
+# way to hard-pin e.g. "anthropic" specifically without disabling every
+# cheaper tier ahead of it. So requesting backends=["claude","gpt"] will run
+# the normal auto-cascade for both and most likely get the SAME provider
+# back for each (whichever wins the cascade first). This is a real ceiling
+# of the underlying system, not a bug in this code. Each result's
+# "provider_used" field reports what actually answered, not what was asked
+# for — use that field, not the "backend" label, to see what really ran.
+# ---------------------------------------------------------------------------
+
+_REQUIRED_MULTI_MODEL_CALL_FIELDS = ("backends", "prompt", "version", "blend_strategy")
+_LOCAL_BACKEND_ALIASES = {"gh05t3", "local_llama", "local", "local_fallback"}
+
+
+def _call_backend_once(backend: str, prompt: str) -> tuple[str, str]:
+    """One best-effort call for a single requested backend name. Not safe
+    to call concurrently from multiple threads/tasks — it mutates the
+    process-wide LLM_PROVIDER env var for the duration of the call."""
+    from backend.ghost_llm import chat_once
+
+    prior = os.environ.get("LLM_PROVIDER")
+    try:
+        if backend.lower() in _LOCAL_BACKEND_ALIASES:
+            os.environ["LLM_PROVIDER"] = "gh05t3"
+        return asyncio.run(chat_once(session="gml_kernel", system="", user=prompt))
+    finally:
+        if prior is None:
+            os.environ.pop("LLM_PROVIDER", None)
+        else:
+            os.environ["LLM_PROVIDER"] = prior
+
+
+def _blend_concat(results: list[dict]) -> str:
+    return "\n---\n".join(f"[{r['backend']}:{r['provider_used']}] {r['text']}" for r in results)
+
+
+def _blend_vote(results: list[dict]) -> str:
+    from collections import Counter
+
+    texts = [r["text"] for r in results if r["text"]]
+    if not texts:
+        return ""
+    return Counter(texts).most_common(1)[0][0]
+
+
+def _blend_rank(results: list[dict]) -> str:
+    candidates = [r for r in results if r["text"] and "[MODEL_ERROR]" not in r["text"]]
+    pool = candidates or results
+    return max(pool, key=lambda r: len(r["text"] or ""))["text"]
+
+
+def _blend_chain(results: list[dict]) -> str:
+    combined = ""
+    for r in results:
+        combined = f"{combined}\n{r['text']}".strip() if combined else (r["text"] or "")
+    return combined
+
+
+_BLEND_STRATEGIES = {
+    "concat": _blend_concat,
+    "vote": _blend_vote,
+    "rank": _blend_rank,
+    "chain": _blend_chain,
+}
+
+
+def run_multi_model_via_ghost_llm(
+    backends: list[str], prompt: str, blend_strategy: str = "concat", version: str = "v4"
+) -> dict:
+    """v4 multi-model MODEL_CALL: calls each requested backend (best-effort,
+    see module-level note above) and combines results per blend_strategy
+    (concat/vote/rank/chain). Never raises — per-backend failures fall back
+    to LOCAL_FALLBACK/MODEL_ERROR text rather than propagating."""
+    deps = check_dependencies()
+    ghost_ok = deps.get("ghost_llm", {}).get("ok", False)
+    net_ok = deps.get("net", {}).get("ok", False)
+
+    results = []
+    for backend in backends:
+        if not ghost_ok or not net_ok:
+            results.append({
+                "backend": backend, "provider_used": None,
+                "text": f"[LOCAL_FALLBACK] backend={backend},prompt={prompt}",
+            })
+            continue
+        try:
+            text, provider_used = _call_backend_once(backend, prompt)
+            results.append({"backend": backend, "provider_used": provider_used, "text": text})
+        except Exception as e:
+            results.append({
+                "backend": backend, "provider_used": None,
+                "text": f"[MODEL_ERROR] {backend} failure: {e!r}",
+            })
+
+    strategy_fn = _BLEND_STRATEGIES.get(blend_strategy, _blend_concat)
+    blended = strategy_fn(results)
+
+    return {
+        "backends": backends,
+        "version": version,
+        "blend_strategy": blend_strategy,
+        "results": results,
+        "blended": blended,
+    }
+
+
+def handle_multi_model_call_json(payload_json: str) -> str:
+    """v4 multi-model MODEL_CALL contract: JSON in, JSON out.
+
+    Input shape (matches Rust's kernel::payload::MultiModelCallPayload):
+      {"backends": [str, ...], "prompt": str, "version": str,
+       "blend_strategy": str, "meta": {...}}
+
+    Output: run_multi_model_via_ghost_llm()'s dict, JSON-encoded, plus
+    "error": None on success. Never raises.
+    """
+    try:
+        payload = json.loads(payload_json)
+    except json.JSONDecodeError as e:
+        return json.dumps({"error": f"invalid JSON: {e}", "blended": None, "results": None})
+
+    missing = [f for f in _REQUIRED_MULTI_MODEL_CALL_FIELDS if f not in payload]
+    if missing:
+        return json.dumps({
+            "error": f"missing field(s): {', '.join(missing)}",
+            "blended": None, "results": None,
+        })
+
+    backends = payload["backends"]
+    if not isinstance(backends, list) or not backends:
+        return json.dumps({"error": "backends must be a non-empty list", "blended": None, "results": None})
+
+    result = run_multi_model_via_ghost_llm(
+        backends=backends,
+        prompt=payload["prompt"],
+        blend_strategy=payload["blend_strategy"],
+        version=payload["version"],
+    )
+    result["error"] = None
+    return json.dumps(result)
