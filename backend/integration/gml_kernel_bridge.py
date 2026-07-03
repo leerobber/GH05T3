@@ -11,8 +11,19 @@ import ctypes
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import time
+
+# backend/ghost_llm.py uses bare sibling imports (e.g. "from ollama_gateway
+# import call"), which only resolve when backend/ itself is on sys.path.
+# That holds when these scripts are launched directly from backend/ (as
+# run.bat does), but not when this bridge imports backend.ghost_llm as a
+# submodule from the repo root. Replicate the same sys.path entry here so
+# ghost_llm's internal imports work regardless of caller cwd.
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
 
 _REQUIRED_MODEL_CALL_FIELDS = ("backend", "prompt", "version")
 _SUPPORTED_MODEL_CALL_VERSIONS = {"v1", "v2"}
@@ -281,6 +292,43 @@ def run_model_via_ghost_llm(backend: str, prompt: str, version: str = "v1") -> s
         return text
     except Exception as e:
         return f"[MODEL_ERROR] ghost_llm failure: {e!r}; prompt={prompt}"
+
+
+def stream_model_via_ghost_llm(
+    prompt: str, backend: str = "claude", version: str = "v3",
+) -> tuple[str, list[str]]:
+    """v3 streaming MODEL_CALL: routes through backend.ghost_llm.chat_stream
+    (Ollama only — see that function's docstring for why it doesn't cascade
+    through the cloud tiers). Returns (full_text, chunks).
+
+    Same dependency pre-check as run_model_via_ghost_llm: skips straight to
+    LOCAL_FALLBACK if ghost_llm/net aren't healthy. If the pre-check passes
+    but streaming itself fails partway through, returns whatever chunks
+    arrived plus a trailing MODEL_ERROR chunk rather than losing partial
+    output.
+    """
+    deps = check_dependencies()
+    ghost_ok = deps.get("ghost_llm", {}).get("ok", False)
+    net_ok = deps.get("net", {}).get("ok", False)
+
+    if not ghost_ok or not net_ok:
+        fallback = f"[LOCAL_FALLBACK] backend={backend},version={version},prompt={prompt}"
+        return fallback, [fallback]
+
+    from backend.ghost_llm import chat_stream  # deferred: pulls in httpx et al.
+
+    chunks: list[str] = []
+
+    async def _run() -> None:
+        async for text, _provider_used in chat_stream(session="gml_kernel", system="", user=prompt):
+            chunks.append(text)
+
+    try:
+        asyncio.run(_run())
+    except Exception as e:
+        chunks.append(f"[MODEL_ERROR] ghost_llm streaming failure: {e!r}; prompt={prompt}")
+
+    return "".join(chunks), chunks
 
 
 def handle_model_call_json(payload_json: str) -> str:

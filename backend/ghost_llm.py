@@ -22,6 +22,7 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import AsyncGenerator, Tuple
 
 import httpx
 from dotenv import load_dotenv
@@ -460,6 +461,54 @@ async def chat_once(session: str, system: str, user: str,
         "Free cloud fallbacks: Groq (console.groq.com) · Gemini (aistudio.google.com) · "
         "OpenRouter (openrouter.ai). Set keys in LLM Config panel or backend/.env."
     )
+
+
+async def chat_stream(
+    session: str, system: str, user: str, role: str = "proposer",
+) -> AsyncGenerator[Tuple[str, str], None]:
+    """Streaming counterpart to chat_once — yields (chunk_text, provider_name)
+    tuples as they arrive.
+
+    Unlike chat_once, this has no cascade: it streams from Ollama only (the
+    same always-on local backbone chat_once tries first), via its OpenAI-
+    compatible SSE endpoint. None of the cloud tiers (Groq/Google/OpenRouter/
+    Anthropic) are wired for streaming here — if Ollama isn't reachable this
+    raises rather than silently falling through to a non-streaming cloud call.
+    """
+    url = ollama_resolved_url()
+    if not url:
+        raise NoLLMError("OLLAMA_GATEWAY_URL not configured — chat_stream requires Ollama")
+    if not await ollama_available():
+        raise NoLLMError("Ollama is not reachable at OLLAMA_GATEWAY_URL")
+
+    model = OLLAMA_PREFERRED.get(role) or OLLAMA_PREFERRED.get("proposer") or "qwen2.5:0.5b"
+    provider_name = f"ollama:{model}"
+
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": 0.6,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("POST", f"{url}/v1/chat/completions", json=body) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    delta = json.loads(data)["choices"][0]["delta"].get("content")
+                except Exception:
+                    continue
+                if delta:
+                    yield delta, provider_name
 
 
 async def _openai_tools_loop(

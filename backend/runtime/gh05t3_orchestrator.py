@@ -13,6 +13,7 @@ from backend.integration.gml_kernel_bridge import (
     run_gh05t3_kernel_core_json,
     run_model_via_ghost_llm,
     run_multi_model_via_ghost_llm,
+    stream_model_via_ghost_llm,
 )
 
 
@@ -36,6 +37,13 @@ def handle_model_calls(kernel_view: Dict[str, Any]) -> List[str]:
     (kernel::payload::MultiModelCallPayload). This scans for those and
     fulfills each via the real ghost_llm cascade. Non-JSON entries (e.g.
     the DEPENDENCY_CHECK/SENTINEL_DEP placeholder strings) are skipped.
+
+    version:
+      - "v1"/"v2": non-streaming via run_model_via_ghost_llm
+      - "v3": streaming via stream_model_via_ghost_llm
+      - "v4": multi-backend blending via run_multi_model_via_ghost_llm
+        (detected by the "backends" key, not by version string, since v4
+        payloads carry their own version field independently)
     """
     outputs: List[str] = []
 
@@ -56,13 +64,19 @@ def handle_model_calls(kernel_view: Dict[str, Any]) -> List[str]:
                 version=payload.get("version", "v4"),
             )
             outputs.append(result["blended"])
-        elif "backend" in payload:  # v2 single-backend
-            text = run_model_via_ghost_llm(
-                backend=payload.get("backend", "claude"),
-                prompt=payload.get("prompt", ""),
-                version=payload.get("version", "v2"),
-            )
-            outputs.append(text)
+        elif "backend" in payload:  # v1/v2/v3 single-backend
+            version = payload.get("version", "v2")
+            prompt = payload.get("prompt", "")
+            backend = payload.get("backend", "claude")
+
+            if version == "v3":
+                full_text, _chunks = stream_model_via_ghost_llm(
+                    prompt=prompt, backend=backend, version=version,
+                )
+                outputs.append(full_text)
+            else:
+                text = run_model_via_ghost_llm(backend=backend, prompt=prompt, version=version)
+                outputs.append(text)
 
     return outputs
 
