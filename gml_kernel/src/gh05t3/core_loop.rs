@@ -63,7 +63,7 @@ fn build_gh05t3_core_loop() -> GlyphBlock {
     let model_call_blend = GlyphInstance {
         glyph: GLYPHS.iter().find(|g| g.code == "MODEL_CALL").unwrap(),
         params: GlyphParams::Map(std::collections::HashMap::from([
-            ("backends".into(), "claude,gpt,local_llama".into()),
+            ("backends".into(), "local_llama,local_mistral,local_phi".into()),
             (
                 "prompt".into(),
                 "Cross-check the proposed next actions across models.".into(),
@@ -76,7 +76,7 @@ fn build_gh05t3_core_loop() -> GlyphBlock {
     let model_call_stream = GlyphInstance {
         glyph: GLYPHS.iter().find(|g| g.code == "MODEL_CALL").unwrap(),
         params: GlyphParams::Map(std::collections::HashMap::from([
-            ("backend".into(), "claude".into()),
+            ("backend".into(), "local_llama".into()),
             (
                 "prompt".into(),
                 "Narrate the current cycle's reasoning as it unfolds.".into(),

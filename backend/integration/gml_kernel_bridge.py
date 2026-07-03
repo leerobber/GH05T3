@@ -260,10 +260,12 @@ def run_model_via_ghost_llm(backend: str, prompt: str, version: str = "v1") -> s
     """Routes a MODEL_CALL glyph's prompt through GH05T3's real LLM cascade
     (backend.ghost_llm.chat_once) instead of the Rust echo-stub.
 
-    chat_once has no backend/version selector of its own — it picks a
-    provider via internal task classification and the LLM_PROVIDER env var.
-    backend/version are accepted here for parity with the glyph schema but
-    are not currently forwarded into the cascade.
+    If `backend` names an entry in backend.ghost_llm.BACKENDS
+    ("local_llama"/"local_mistral"/"local_phi"), that specific local Ollama
+    model is hard-pinned instead of running the auto-cascade — real backend
+    selection, unlike the "claude"/"gpt" cascade hints used elsewhere. Any
+    other backend name falls through to chat_once's default cascade, which
+    has no manual selector of its own.
 
     Checks check_dependencies() first: if ghost_llm isn't importable or
     outbound net is down, skips straight to LOCAL_FALLBACK rather than
@@ -274,7 +276,7 @@ def run_model_via_ghost_llm(backend: str, prompt: str, version: str = "v1") -> s
 
     Uses asyncio.run, so call this from sync code only. If the caller is
     already inside an event loop (e.g. a FastAPI handler), await
-    chat_once(...) directly instead.
+    chat_once(...)/BACKENDS[backend](...) directly instead.
     """
     deps = check_dependencies()
     ghost_ok = deps.get("ghost_llm", {}).get("ok", False)
@@ -283,7 +285,16 @@ def run_model_via_ghost_llm(backend: str, prompt: str, version: str = "v1") -> s
     if not ghost_ok or not net_ok:
         return f"[LOCAL_FALLBACK] backend={backend},version={version},prompt={prompt}"
 
-    from backend.ghost_llm import chat_once  # deferred: pulls in httpx et al.
+    from backend.ghost_llm import BACKENDS, chat_once  # deferred: pulls in httpx et al.
+
+    if backend in BACKENDS:
+        try:
+            text, _provider_used = asyncio.run(
+                BACKENDS[backend](session="gml_kernel", system="", user=prompt)
+            )
+            return text
+        except Exception as e:
+            return f"[MODEL_ERROR] backend={backend} failure: {e!r}; prompt={prompt}"
 
     try:
         text, _provider_used = asyncio.run(
@@ -295,11 +306,15 @@ def run_model_via_ghost_llm(backend: str, prompt: str, version: str = "v1") -> s
 
 
 def stream_model_via_ghost_llm(
-    prompt: str, backend: str = "claude", version: str = "v3",
+    prompt: str, backend: str = "local_llama", version: str = "v3",
 ) -> tuple[str, list[str]]:
-    """v3 streaming MODEL_CALL: routes through backend.ghost_llm.chat_stream
-    (Ollama only — see that function's docstring for why it doesn't cascade
-    through the cloud tiers). Returns (full_text, chunks).
+    """v3 streaming MODEL_CALL. Returns (full_text, chunks).
+
+    If `backend` names an entry in backend.ghost_llm.STREAM_BACKENDS
+    ("local_llama"/"local_mistral"/"local_phi"), that specific local Ollama
+    model is hard-pinned. Any other backend name falls through to
+    chat_stream's default (Ollama-only, no cloud-tier cascade — see that
+    function's docstring).
 
     Same dependency pre-check as run_model_via_ghost_llm: skips straight to
     LOCAL_FALLBACK if ghost_llm/net aren't healthy. If the pre-check passes
@@ -315,18 +330,19 @@ def stream_model_via_ghost_llm(
         fallback = f"[LOCAL_FALLBACK] backend={backend},version={version},prompt={prompt}"
         return fallback, [fallback]
 
-    from backend.ghost_llm import chat_stream  # deferred: pulls in httpx et al.
+    from backend.ghost_llm import STREAM_BACKENDS, chat_stream  # deferred: pulls in httpx et al.
 
+    stream_fn = STREAM_BACKENDS.get(backend, chat_stream)
     chunks: list[str] = []
 
     async def _run() -> None:
-        async for text, _provider_used in chat_stream(session="gml_kernel", system="", user=prompt):
+        async for text, _provider_used in stream_fn(session="gml_kernel", system="", user=prompt):
             chunks.append(text)
 
     try:
         asyncio.run(_run())
     except Exception as e:
-        chunks.append(f"[MODEL_ERROR] ghost_llm streaming failure: {e!r}; prompt={prompt}")
+        chunks.append(f"[MODEL_ERROR] backend={backend} streaming failure: {e!r}; prompt={prompt}")
 
     return "".join(chunks), chunks
 
@@ -395,32 +411,48 @@ def handle_model_call_json(payload_json: str) -> str:
 # ---------------------------------------------------------------------------
 # v4: multi-model blending
 #
-# IMPORTANT LIMITATION: backend.ghost_llm.chat_once has no manual backend
-# selector beyond forcing the local gh05t3 model via LLM_PROVIDER=gh05t3.
-# Every other tier (ollama, groq, google, openrouter, anthropic) runs in a
-# fixed priority cascade regardless of LLM_PROVIDER's value — there is no
-# way to hard-pin e.g. "anthropic" specifically without disabling every
-# cheaper tier ahead of it. So requesting backends=["claude","gpt"] will run
-# the normal auto-cascade for both and most likely get the SAME provider
-# back for each (whichever wins the cascade first). This is a real ceiling
-# of the underlying system, not a bug in this code. Each result's
-# "provider_used" field reports what actually answered, not what was asked
-# for — use that field, not the "backend" label, to see what really ran.
+# Real hard-pinning is only possible for entries in backend.ghost_llm.
+# BACKENDS (local_llama/local_mistral/local_phi -> specific Ollama model
+# tags) and the gh05t3 fine-tuned model (via LLM_PROVIDER=gh05t3). Any other
+# backend name (e.g. "claude", "gpt") has no manual selector and falls
+# through to chat_once's normal auto-cascade — every cloud tier (groq,
+# google, openrouter, anthropic) runs in a fixed priority order regardless
+# of what's requested, so requesting backends=["claude","gpt"] will run the
+# same cascade for both and most likely get the SAME provider back for each
+# (whichever wins first). This is a real ceiling of the underlying system,
+# not a bug in this code. Each result's "provider_used" field reports what
+# actually answered, not what was asked for — use that field, not the
+# "backend" label, to see what really ran.
 # ---------------------------------------------------------------------------
 
 _REQUIRED_MULTI_MODEL_CALL_FIELDS = ("backends", "prompt", "version", "blend_strategy")
-_LOCAL_BACKEND_ALIASES = {"gh05t3", "local_llama", "local", "local_fallback"}
+_GH05T3_FINE_TUNED_ALIASES = {"gh05t3", "local", "local_fallback"}
 
 
 def _call_backend_once(backend: str, prompt: str) -> tuple[str, str]:
-    """One best-effort call for a single requested backend name. Not safe
-    to call concurrently from multiple threads/tasks — it mutates the
-    process-wide LLM_PROVIDER env var for the duration of the call."""
-    from backend.ghost_llm import chat_once
+    """One best-effort call for a single requested backend name.
+
+    Resolution order:
+      1. backend.ghost_llm.BACKENDS[backend] — real hard-pinned local
+         Ollama model (local_llama/local_mistral/local_phi). Same registry
+         run_model_via_ghost_llm/stream_model_via_ghost_llm use, so
+         "local_llama" means the same thing across v2/v3/v4.
+      2. backend in {"gh05t3","local","local_fallback"} — forces
+         LLM_PROVIDER=gh05t3, pinning the fine-tuned model server instead
+         of a raw Ollama tag. Mutates the process-wide env var for the
+         call's duration — not safe to call concurrently from multiple
+         threads/tasks.
+      3. anything else — chat_once's normal auto-cascade (no manual
+         selector beyond cases 1-2 — see module docstring above).
+    """
+    from backend.ghost_llm import BACKENDS, chat_once
+
+    if backend in BACKENDS:
+        return asyncio.run(BACKENDS[backend](session="gml_kernel", system="", user=prompt))
 
     prior = os.environ.get("LLM_PROVIDER")
     try:
-        if backend.lower() in _LOCAL_BACKEND_ALIASES:
+        if backend.lower() in _GH05T3_FINE_TUNED_ALIASES:
             os.environ["LLM_PROVIDER"] = "gh05t3"
         return asyncio.run(chat_once(session="gml_kernel", system="", user=prompt))
     finally:

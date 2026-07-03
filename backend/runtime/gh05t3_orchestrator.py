@@ -90,16 +90,19 @@ def compute_evolution_fitness(
     ghost_ok = deps.get("ghost_llm", {}).get("ok", False)
     net_ok = deps.get("net", {}).get("ok", False)
     fs_ok = deps.get("fs", {}).get("ok", False)
+    gpu_ok = deps.get("gpu", {}).get("ok", False)
 
     errors = sum(1 for o in model_outputs if "[MODEL_ERROR]" in o)
     fallbacks = sum(1 for o in model_outputs if "[LOCAL_FALLBACK]" in o)
 
     fitness = 0.0
     if ghost_ok:
-        fitness += 0.4
-    if net_ok:
         fitness += 0.3
+    if net_ok:
+        fitness += 0.2
     if fs_ok:
+        fitness += 0.2
+    if gpu_ok:
         fitness += 0.3
 
     fitness -= 0.1 * errors
