@@ -10,6 +10,7 @@ import asyncio
 import ctypes
 import json
 import os
+import subprocess
 import tempfile
 import time
 
@@ -135,6 +136,75 @@ def check_net(test_url: str = "https://example.com", timeout: float = 2.0) -> di
     return result
 
 
+def check_gpu() -> dict:
+    """GPU sentinel: prefers torch.cuda if torch is importable, otherwise
+    falls back to `nvidia-smi`. Never hangs — subprocess calls are timed out."""
+    result: dict = {"ok": False, "details": "", "device_count": None, "device_name": None}
+
+    try:
+        import torch
+
+        available = torch.cuda.is_available()
+        result["device_count"] = torch.cuda.device_count() if available else 0
+        if available:
+            result["ok"] = True
+            result["device_name"] = torch.cuda.get_device_name(0)
+            result["details"] = "torch.cuda available"
+        else:
+            result["details"] = "torch installed, no CUDA device visible"
+        return result
+    except Exception as e:
+        result["details"] = f"torch unavailable ({e!r}), falling back to nvidia-smi"
+
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            names = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+            result["ok"] = True
+            result["device_count"] = len(names)
+            result["device_name"] = names[0] if names else None
+            result["details"] = "nvidia-smi reachable"
+        else:
+            result["details"] = f"nvidia-smi failed: {proc.stderr.strip() or proc.returncode}"
+    except FileNotFoundError:
+        result["details"] = "nvidia-smi not found on PATH"
+    except Exception as e:
+        result["details"] = f"nvidia-smi exception: {e!r}"
+
+    return result
+
+
+def check_wsl() -> dict:
+    """WSL sentinel: detects whether we're running inside WSL and confirms
+    basic subprocess execution works."""
+    result: dict = {"ok": False, "is_wsl": False, "details": ""}
+
+    try:
+        with open("/proc/version", "r") as f:
+            version_str = f.read()
+        result["is_wsl"] = "microsoft" in version_str.lower()
+    except Exception as e:
+        result["details"] = f"could not read /proc/version: {e!r}"
+        return result
+
+    try:
+        proc = subprocess.run(["uname", "-r"], capture_output=True, text=True, timeout=5)
+        subprocess_ok = proc.returncode == 0
+    except Exception as e:
+        result["details"] = f"subprocess exec failed: {e!r}"
+        return result
+
+    result["ok"] = subprocess_ok
+    result["details"] = (
+        f"running in WSL ({proc.stdout.strip()})" if result["is_wsl"]
+        else f"not WSL, subprocess exec ok ({proc.stdout.strip()})"
+    )
+    return result
+
+
 def check_dependencies() -> dict:
     """Aggregated dependency health report for GH05T3.
 
@@ -146,6 +216,8 @@ def check_dependencies() -> dict:
 
     status["fs"] = check_fs()
     status["net"] = check_net()
+    status["gpu"] = check_gpu()
+    status["wsl"] = check_wsl()
 
     try:
         import backend.ghost_llm  # noqa: F401
