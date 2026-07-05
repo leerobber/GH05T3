@@ -23,6 +23,7 @@ import os
 import re
 import time
 from pathlib import Path
+from typing import AsyncGenerator, Tuple
 
 import httpx
 from dotenv import load_dotenv
@@ -692,6 +693,170 @@ async def chat_once(session: str, system: str, user: str,
         "Free cloud fallbacks: Groq (console.groq.com) · Gemini (aistudio.google.com) · "
         "OpenRouter (openrouter.ai). Set keys in LLM Config panel or backend/.env."
     )
+
+
+async def chat_stream(
+    session: str, system: str, user: str, role: str = "proposer",
+) -> AsyncGenerator[Tuple[str, str], None]:
+    """Streaming counterpart to chat_once — yields (chunk_text, provider_name)
+    tuples as they arrive.
+
+    Unlike chat_once, this has no cascade: it streams from Ollama only (the
+    same always-on local backbone chat_once tries first), via its OpenAI-
+    compatible SSE endpoint. None of the cloud tiers (Groq/Google/OpenRouter/
+    Anthropic) are wired for streaming here — if Ollama isn't reachable this
+    raises rather than silently falling through to a non-streaming cloud call.
+    """
+    url = ollama_resolved_url()
+    if not url:
+        raise NoLLMError("OLLAMA_GATEWAY_URL not configured — chat_stream requires Ollama")
+    if not await ollama_available():
+        raise NoLLMError("Ollama is not reachable at OLLAMA_GATEWAY_URL")
+
+    model = OLLAMA_PREFERRED.get(role) or OLLAMA_PREFERRED.get("proposer") or "qwen2.5:0.5b"
+    provider_name = f"ollama:{model}"
+
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": 0.6,
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("POST", f"{url}/v1/chat/completions", json=body) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    delta = json.loads(data)["choices"][0]["delta"].get("content")
+                except Exception:
+                    continue
+                if delta:
+                    yield delta, provider_name
+
+
+# ---------------------------------------------------------------------------
+# Explicit backend registry — hard-pinned local Ollama models.
+#
+# chat_once/chat_stream deliberately have no manual backend selector: they
+# auto-cascade and always tried Ollama first regardless of what's asked for.
+# BACKENDS/STREAM_BACKENDS below is the escape hatch for callers that need
+# a *specific* named local model rather than "whatever the cascade picks" —
+# real hard pinning, unlike the "claude"/"gpt" names used elsewhere in this
+# codebase as cascade hints. Model tags are env-overridable (same pattern as
+# OLLAMA_PROPOSER/VERIFIER/CRITIC above) since the literal tag must actually
+# be pulled locally (`ollama pull llama3`, etc.) for these to work.
+# ---------------------------------------------------------------------------
+
+_LOCAL_MODEL_TAGS = {
+    "local_llama":   os.environ.get("OLLAMA_LOCAL_LLAMA_MODEL", "llama3"),
+    "local_mistral": os.environ.get("OLLAMA_LOCAL_MISTRAL_MODEL", "mistral"),
+    "local_phi":     os.environ.get("OLLAMA_LOCAL_PHI_MODEL", "phi3"),
+}
+
+
+async def _call_ollama_openai(model: str, session: str, system: str, user: str) -> Tuple[str, str]:
+    """Generic non-streaming adapter for a specific local Ollama model tag."""
+    url = ollama_resolved_url()
+    if not url:
+        raise NoLLMError("OLLAMA_GATEWAY_URL not configured")
+
+    provider_name = f"ollama:{model}"
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(
+            f"{url}/v1/chat/completions",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                "stream": False,
+            },
+        )
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"]
+        return text, provider_name
+
+
+async def _stream_ollama_openai(
+    model: str, session: str, system: str, user: str,
+) -> AsyncGenerator[Tuple[str, str], None]:
+    """Generic streaming adapter for a specific local Ollama model tag."""
+    url = ollama_resolved_url()
+    if not url:
+        raise NoLLMError("OLLAMA_GATEWAY_URL not configured")
+
+    provider_name = f"ollama:{model}"
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "stream": True,
+    }
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("POST", f"{url}/v1/chat/completions", json=body) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    delta = json.loads(data)["choices"][0]["delta"].get("content")
+                except Exception:
+                    continue
+                if delta:
+                    yield delta, provider_name
+
+
+async def call_local_llama(session: str, system: str, user: str) -> Tuple[str, str]:
+    return await _call_ollama_openai(_LOCAL_MODEL_TAGS["local_llama"], session, system, user)
+
+
+async def call_local_mistral(session: str, system: str, user: str) -> Tuple[str, str]:
+    return await _call_ollama_openai(_LOCAL_MODEL_TAGS["local_mistral"], session, system, user)
+
+
+async def call_local_phi(session: str, system: str, user: str) -> Tuple[str, str]:
+    return await _call_ollama_openai(_LOCAL_MODEL_TAGS["local_phi"], session, system, user)
+
+
+def stream_local_llama(session: str, system: str, user: str) -> AsyncGenerator[Tuple[str, str], None]:
+    return _stream_ollama_openai(_LOCAL_MODEL_TAGS["local_llama"], session, system, user)
+
+
+def stream_local_mistral(session: str, system: str, user: str) -> AsyncGenerator[Tuple[str, str], None]:
+    return _stream_ollama_openai(_LOCAL_MODEL_TAGS["local_mistral"], session, system, user)
+
+
+def stream_local_phi(session: str, system: str, user: str) -> AsyncGenerator[Tuple[str, str], None]:
+    return _stream_ollama_openai(_LOCAL_MODEL_TAGS["local_phi"], session, system, user)
+
+
+BACKENDS = {
+    "local_llama": call_local_llama,
+    "local_mistral": call_local_mistral,
+    "local_phi": call_local_phi,
+}
+
+STREAM_BACKENDS = {
+    "local_llama": stream_local_llama,
+    "local_mistral": stream_local_mistral,
+    "local_phi": stream_local_phi,
+}
 
 
 async def _openai_tools_loop(

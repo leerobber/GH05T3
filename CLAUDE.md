@@ -137,7 +137,11 @@ LLM_PROVIDER=gh05t3
 Then `run.bat` — gh05t3_inference.py loads the adapter on port 8010.
 
 ## Active branch
-`claude/fix-multi-gpu-training-2WHKH` — all current work lives here.
+`main` — all current work lives here. `claude/fix-multi-gpu-training-2WHKH`
+(gml_kernel Rust work, the original training-pipeline history) was
+reconciled back into `main` after diverging since 2026-05-22; see
+`docs/architecture/evolution-systems-inventory.md` for why that divergence
+happened and what it caused.
 
 ## API endpoints added (gateway_v3.py, port 8002)
 | Endpoint | Method | Purpose |
