@@ -1123,10 +1123,25 @@ async def oss_genesis_start():
         gh05t3_root = os.path.join(os.path.dirname(__file__), "..")
         if gh05t3_root not in sys.path:
             sys.path.insert(0, gh05t3_root)
+        import random
         from backend.oss.core.genesis_thread import get_genesis_thread
         from backend.oss.patent_office import get_patent_office
         from backend.oss.genomic.ecosystem import OmniSentientEcosystem
+        from backend.oss.core.aethyro_bridge import get_aethyro_bridge, _DESIRE_MOLS
         eco = OmniSentientEcosystem()
+        if not eco.swarm.agents:
+            for _ in range(10):
+                eco.add_agent()
+            # create_hyper_elite_psychology_genome() gives every fresh agent
+            # identical default molecule values (0.5) -- with zero population
+            # variance, dissent (distance-to-centroid) is always exactly 0 and
+            # spawning can never trigger. Jitter each agent's desire molecules
+            # so the seeded population has real spread for the dissent pass to
+            # act on.
+            for agent in eco.swarm.agents.values():
+                for mol_id in _DESIRE_MOLS:
+                    agent.genome.set_value("desire", mol_id, random.uniform(0.0, 1.0))
+        get_aethyro_bridge().sync_all(eco.swarm.agents)
         gen = get_genesis_thread(swarm=eco.swarm)
         gen._patent_office = get_patent_office()
         gen.start()

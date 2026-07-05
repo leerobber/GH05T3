@@ -89,7 +89,10 @@ ROLE_TIER_SHIFT = 6   # bit offset for role tier within SCRATCH_ROLE_TIER_MASK
 
 DESIRE_NAMES = ["KNOWLEDGE", "SKILL", "STATUS", "EXPERIENCE", "CREATION", "CONNECTION", "FREEDOM"]
 
-_DEFAULT_LEDGER = Path("data/aethyro_swarm.bin")
+REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_LEDGER = Path(
+    os.environ.get("CHRONOS_LEDGER_PATH", str(REPO_ROOT / "data" / "aethyro_swarm.bin"))
+)
 _DEFAULT_CAP    = 10_000
 
 

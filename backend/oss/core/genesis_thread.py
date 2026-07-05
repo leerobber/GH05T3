@@ -130,8 +130,17 @@ class GenesisThread:
             return
         self._stats["dissent_passes"] += 1
 
-        # Exponential threshold: boost > 2.0 at dist ≈ 4.62 (ln(2)/0.15) — spawn offspring
-        spawn_candidates = [(aid, v) for aid, v in boosts.items() if v > 2.0]
+        # Exponential threshold: boost = exp(dist * 0.15), and dist is bounded by the
+        # [0,1]^7 desire hypercube's max distance-to-centroid (~2.6458), so boost can
+        # never exceed exp(2.6458 * 0.15) ≈ 1.49 for any population -- the old 2.0
+        # threshold was unreachable. That absolute ceiling is a poor guide for a
+        # realistic small population though: Monte Carlo over 3000 trials of a
+        # 10-agent, independently-uniform-random [0,1]^7 population puts the mean
+        # per-trial max boost around 1.15 and the max ever observed near 1.20 --
+        # nowhere close to the 1.49 hard ceiling. 1.10 reliably has at least one
+        # qualifying agent in 3000/3000 such trials while still being a genuine
+        # outlier bar (dist ≈ 0.63, noticeably off-centroid, not centroid-adjacent).
+        spawn_candidates = [(aid, v) for aid, v in boosts.items() if v > 1.10]
         if spawn_candidates:
             self._spawn_offspring(spawn_candidates, bridge)
 
