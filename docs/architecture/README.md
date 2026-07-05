@@ -8,9 +8,14 @@ High-level architecture lives in:
 
 This space is for component deep-dives, sequence diagrams, data flows, and subsystem specs.
 
+## Written so far
+
+- [oss-ecosystem-live-telemetry.md](oss-ecosystem-live-telemetry.md) — `oss/ecosystem`'s species-FSM+economy wired to real KAIROS/ledger/Stripe signals instead of a synthetic sandbox
+- [evolution-systems-inventory.md](evolution-systems-inventory.md) — real inventory of the four parallel evolution/genome systems across this repo and its forks, and why they diverged (partially fulfills the genomic-mvs.md suggestion below)
+- [security-and-repo-hygiene-2026-07.md](security-and-repo-hygiene-2026-07.md) — the hardcoded Slack OAuth secret removal, and what generated files were untracked and why
+
 ## Suggested sub-pages (add as needed)
 
-- genomic-mvs.md — Molecule → Locus → Genome → OmniDNA bridge + substrate
 - swarmbus.md — Gateway agents, contracts, delegation
 - sovereign-stack.md — Full economy supervisor + 17 services
 - training-flywheel.md — Continuous learner, ghost trainer, amplifiers
