@@ -93,6 +93,8 @@ backend/memory/palace.db-wal
 backend/memory/conversations.jsonl
 backend/memory/*.db
 backend/evolution/map_elites_archive.pkl
+evolution/kairos_log.jsonl
+backend/evolution/kairos_log.jsonl
 backend/training/checkpoints/
 terminals/
 /models/
