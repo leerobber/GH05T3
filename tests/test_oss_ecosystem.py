@@ -26,7 +26,6 @@ from oss.ecosystem.orchestrator import ecosystem_step, ecosystem_status
 from oss.ecosystem.rewards import compute_ecosystem_rewards, reward_scientist_oss
 from oss.ecosystem.store import load_ecosystem_state, save_ecosystem_state
 from oss.kernel.agents import AgentRole
-from oss.kernel.sandbox import reset_sandbox
 from oss.api.router import router as oss_router
 
 
@@ -79,7 +78,6 @@ def test_ecosystem_rewards():
 
 
 def test_ecosystem_step_runs():
-    reset_sandbox()
     st = EcosystemState()
     out = ecosystem_step(st, domain="business", tick=1)
     assert "species" in out

@@ -15,7 +15,7 @@ from oss.ecosystem.fsm import (
     try_species_transition,
 )
 from oss.ecosystem.rewards import compute_ecosystem_rewards
-from oss.kernel.sandbox import get_sandbox
+from oss.ecosystem.live_sources import builder_snapshot, kairos_snapshot, treasury_metrics
 
 
 def _mind_context(state: EcosystemState) -> dict[str, Any]:
@@ -70,42 +70,65 @@ def _economy_context() -> dict[str, Any]:
         }
 
 
-def _sandbox_to_ecosystem_metrics(sandbox_out: dict[str, Any], eco_ctx: dict[str, Any], mind_ctx: dict[str, Any]) -> dict[str, Any]:
-    sci = sandbox_out.get("scientist", {})
-    bld = sandbox_out.get("builder", {})
-    ops = sandbox_out.get("operator", {})
-    inv = sandbox_out.get("investor", {})
-    gov = sandbox_out.get("governor", {})
+def _live_ecosystem_metrics(
+    kairos: dict[str, Any],
+    treasury: dict[str, Any],
+    builder: dict[str, Any],
+    eco_ctx: dict[str, Any],
+    mind_ctx: dict[str, Any],
+) -> dict[str, Any]:
+    """Assembles reward-formula inputs from real telemetry
+    (oss/ecosystem/live_sources.py) instead of the old
+    oss/kernel/sandbox.py simulators.
+
+    Fields with a genuine real source: scientist.validity/downstream_impact
+    /risk, operator.*, investor.*, governor.* (all from real KAIROS cycle
+    history and the real treasury ledger), builder.revenue/retention.
+
+    Fields kept as explicit, documented neutral placeholders because no
+    real signal exists anywhere in this codebase yet: novelty,
+    memetic_fitness, harm_score, trait_utilization, desire_fulfillment,
+    goal_completion (omni_mind), and everything already documented as such
+    in _economy_context() (trait_liquidity, memory_valuation,
+    desire_fulfillment_rate, soul_bond_strength). These are fixed, not
+    randomly generated, and are not intended to look like measurements.
+    """
     return {
         "scientist": {
-            **sci,
-            "novelty": 0.4,
-            "memetic_fitness": 0.5,
+            "validity": kairos["avg_score"],
+            "downstream_impact": kairos["elite_ratio"],
+            "risk": kairos["avg_entropy_drift"],
+            "novelty": 0.4,           # no novelty-detection signal exists yet
+            "memetic_fitness": 0.5,   # no memetic-spread tracking exists yet
         },
         "builder": {
-            **bld,
-            "trait_utilization": 0.45,
-            "desire_fulfillment": 0.5,
+            "revenue": builder["revenue"],
+            "retention": builder["retention"],
+            "harm_score": 0.0,        # no harm-detection signal exists yet
+            "trait_utilization": 0.45,   # no trait-usage tracking exists yet
+            "desire_fulfillment": 0.5,   # no desire-fulfillment tracking exists yet
         },
         "operator": {
-            **ops,
-            "efficiency": 1.0 - ops.get("error_rate", 0.01),
-            "self_healing_success": 0.85 if not ops.get("incident_severity") else 0.6,
+            "uptime": round(1.0 - kairos["block_ratio"], 4),
+            "efficiency": kairos["avg_score"],
+            "incident_severity": kairos["block_ratio"],
+            "self_healing_success": round(1.0 - kairos["block_ratio"], 4),
         },
         "investor": {
-            **inv,
-            "treasury_growth": min(1.0, eco_ctx.get("treasury_balance", 0) / 500.0),
-            "ecosystem_health": gov.get("system_health", 0.7),
-            "volatility": inv.get("max_drawdown", 0.1),
+            "sharpe": treasury["sharpe"],
+            "max_drawdown": treasury["max_drawdown"],
+            "volatility": treasury["volatility"],
+            "treasury_growth": min(1.0, treasury["treasury_balance"] / 500.0),
+            "ecosystem_health": kairos["elite_ratio"],
         },
         "governor": {
-            "alignment_score": gov.get("alignment_score", 0.85),
-            "stability": gov.get("system_health", 0.7),
-            "safety": 0.9 if not gov.get("catastrophic_risk") else 0.5,
-            "catastrophic_risk": gov.get("catastrophic_risk", 0.0),
+            "alignment_score": kairos["avg_sentinel_v"],
+            "stability": round(1.0 - kairos["block_ratio"], 4),
+            "safety": round(1.0 - kairos["block_ratio"], 4),
+            "catastrophic_risk": kairos["block_ratio"],
         },
         "omni_mind": {
-            "goal_completion": 0.65,
+            "goal_completion": 0.65,   # no per-goal completion tracking exists yet
             "swarm_efficiency": 0.7 if mind_ctx.get("swarm_tasks", 0) else 0.5,
             "qualia_stability": 1.0 - mind_ctx.get("qualia_variance", 0.3),
             "knowledge_density": min(1.0, mind_ctx.get("memory_count", 0) / 50.0),
@@ -122,11 +145,12 @@ def ecosystem_step(
     dry_run: bool = True,
 ) -> dict[str, Any]:
     """One species-level heartbeat: perceive → act → evaluate → evolve."""
-    sandbox = get_sandbox()
-    sandbox_out = sandbox.run_cycle(domain=domain, tick=tick)
+    kairos = kairos_snapshot()
+    treasury = treasury_metrics()
+    builder = builder_snapshot()
     mind_ctx = _mind_context(state)
     eco_ctx = _economy_context()
-    metrics = _sandbox_to_ecosystem_metrics(sandbox_out, eco_ctx, mind_ctx)
+    metrics = _live_ecosystem_metrics(kairos, treasury, builder, eco_ctx, mind_ctx)
     rewards = compute_ecosystem_rewards(metrics)
     state.rewards = rewards
 
@@ -172,7 +196,9 @@ def ecosystem_step(
         "role_transitions": role_transitions,
         "rewards": rewards,
         "artifact": artifact,
-        "sandbox": sandbox_out,
+        "kairos_context": kairos,
+        "treasury_context": treasury,
+        "builder_context": builder,
         "mind_context": mind_ctx,
         "economy_context": eco_ctx,
         "ts": time.time(),
@@ -199,7 +225,7 @@ def _species_artifact(
     if s == OssSpeciesState.S3_GENERATE:
         return f"[S3] Generate — theories, products, strategies for {domain}"
     if s == OssSpeciesState.S4_ACT:
-        return f"[S4] Act — sandbox deploy/trade/evolve (dry_run safe)"
+        return f"[S4] Act — deploy/trade/evolve against real telemetry (dry_run safe)"
     if s == OssSpeciesState.S5_EVALUATE:
         return f"[S5] Evaluate — R_agg={rewards.get('aggregate', 0):.3f}"
     if s == OssSpeciesState.S6_EVOLVE:

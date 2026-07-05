@@ -53,6 +53,9 @@ class NeuroCoin:
     def all_balances(self) -> dict[str, float]:
         return self._ledger.all_balances()
 
+    def history(self, agent_id: str, limit: int = 50) -> list:
+        return self._ledger.history(agent_id, limit=limit)
+
     def stats(self) -> dict[str, Any]:
         base = self._ledger.stats()
         base["currency"] = self.CURRENCY
