@@ -114,20 +114,34 @@ GH05T3/
 - Stripe: live key linked to Substack. Webhook endpoint: /stripe/webhook
   - Env vars needed: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 
-## Training — LOCAL ONLY (Kaggle abandoned)
-Kaggle repeatedly failed: gradient collapse every run despite fp16 fixes (session env unpredictable).
+## Training — LOCAL ONLY (Kaggle training abandoned; Kaggle is still used to *host the dataset*, see below)
+Kaggle *compute* repeatedly failed: gradient collapse every run despite fp16 fixes (session env unpredictable).
 **Canonical training path: `native\windows\train.bat` on TatorTot's RTX 5050.**
 
-- Model: Qwen/Qwen2.5-Coder-3B-Instruct + LoRA rank 16, 7324 examples, 500 steps
+- Model: `Qwen/Qwen2.5-7B-Instruct` by default, 4-bit NF4-quantized (bitsandbytes), auto-falls
+  back to `Qwen/Qwen2.5-Coder-3B-Instruct` on machines with <20GB system RAM; override with
+  `GH05T3_TRAIN_MODEL`. LoRA rank 16, 500 steps by default (`GH05T3_TRAIN_STEPS`).
 - Script: `backend/training/train_local.py`
 - Launcher: `native\windows\train.bat` (auto-installs deps on first run)
 - Output: `backend/models/gh05t3_lora_adapter/`
 - Requires: PyTorch 2.6+cu128 (RTX 5050 is Blackwell sm_120)
+- Training data (`.jsonl` files under `backend/data/training/`) auto-downloads from the
+  `tatortot/gh05t3-datasets` Kaggle dataset if not already cached locally — requires
+  `KAGGLE_API_TOKEN` in the environment (no default baked in; the code used to ship a
+  hardcoded fallback token here, which was a leaked credential — that token must be
+  revoked on Kaggle and a fresh one issued via env var only).
 
-### Critical training fixes (all baked into train_local.py)
-1. Cast LoRA adapters to fp16 after `get_peft_model()` — PEFT inits fp32, causes NaN at step 10
-2. `gradient_checkpointing_kwargs={"use_reentrant": False}` — reentrant mode + fp16 + hooks → NaN gradients
-3. `fp16=True`, `lr=2e-5`, `max_grad_norm=0.3`
+### Critical training fixes (all baked into train_local.py) — matches Rule 1/2 above, do not drift from this again
+1. **No manual fp16 cast, ever** (this is Rule 1). The base model is loaded 4-bit
+   (`BitsAndBytesConfig`, NF4) with `bnb_4bit_compute_dtype` set per-GPU — `bf16` on
+   Ampere+/Blackwell (`gpu.major >= 8`, which includes the RTX 5050's sm_120), `fp16` only
+   as the fallback on older cards. `bitsandbytes` + `prepare_model_for_kbit_training` own
+   adapter precision; nothing in `train_local.py` casts LoRA params to fp16 after
+   `get_peft_model()`, and nothing should.
+2. `gradient_checkpointing_kwargs={"use_reentrant": False}` — reentrant mode + fp16/bf16 +
+   PEFT hooks → NaN gradients. Still required, still in `TrainingArguments`.
+3. `lr=2e-5`, `max_grad_norm=0.3`. Precision (`fp16=`/`bf16=`) is chosen automatically per
+   GPU generation — do not hardcode `fp16=True` in docs or code; on the RTX 5050 it's `bf16`.
 
 ### After training
 ```
@@ -182,7 +196,13 @@ PEFT fp32 adapter + fp16 base model → loss explosion at step 10 (266), then 0.
 Two compounding causes:
 - PEFT inits adapters fp32; fp16=True GradScaler sees NaN → permanently skips updates
 - `gradient_checkpointing` with `use_reentrant=True` (default) reruns forward with fp16 → NaN gradients
-**Fix (both required):** cast adapters to fp16 after get_peft_model() + `gradient_checkpointing_kwargs={"use_reentrant": False}`
+**Current fix (superseded the old "cast adapters to fp16" workaround — do NOT bring that back,
+see Rule 1):** the base model now loads 4-bit quantized (`BitsAndBytesConfig`, NF4) with
+`bnb_4bit_compute_dtype` set to `bf16` on Ampere+/Blackwell GPUs (the RTX 5050 included) —
+`bitsandbytes` and `prepare_model_for_kbit_training` manage precision instead of a manual
+adapter cast, which sidesteps the whole GradScaler/fp16-adapter class of bug. The
+`gradient_checkpointing_kwargs={"use_reentrant": False}` half of the fix is still required
+and still in place.
 Both fixes are in `train_local.py`. Do NOT remove either.
 
 ### 7. Kaggle abandoned

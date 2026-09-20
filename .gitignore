@@ -181,6 +181,11 @@ llama-cpp/
 
 # Local runtime data
 data/
+# Exception: oss/lab/data/ holds committed test fixtures (synthetic users/market
+# for the SaaS product lab), not runtime output — the blanket data/ rule above was
+# silently swallowing them so they never made it into the repo. See test_saas_product_lab.py.
+!oss/lab/data/
+!oss/lab/data/**
 course/
 .claude/
 Tor Browser/

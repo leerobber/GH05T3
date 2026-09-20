@@ -19,7 +19,7 @@ from typing import Dict, Any, List, Optional
 # Pre-compiled templates (perf optimization vs repeated .format() for high cycle counts)
 LIQ_DELTA_TMPL = Template("${delta_str}${fit_improve}${policy_driver}")
 LIQ_ID_TMPL = Template("rt-${ts}-${g}-${rand}")
-LIQ_SAFETY_TMPL = Template("HARD_STOP: deviation ${dev:.1f}% > ${thresh:.1f}% threshold. Architect Multi-Sig required.")
+LIQ_SAFETY_TMPL = Template("HARD_STOP: deviation $dev% > $thresh% threshold. Architect Multi-Sig required.")
 
 # Safety Circuit Breaker threshold (relative deviation from baseline)
 SAFETY_DEVIATION_THRESHOLD = 0.25  # >25% relative slip deviation from baseline → requires expert
@@ -378,7 +378,11 @@ class LiquidityRouter:
         requires_expert = rel_dev > SAFETY_DEVIATION_THRESHOLD or (improvement < -0.05)  # huge negative or huge anomaly
         safety_note = ""
         if requires_expert:
-            safety_note = LIQ_SAFETY_TMPL.substitute(dev=rel_dev*100, thresh=SAFETY_DEVIATION_THRESHOLD*100)
+            # Template.substitute() has no format-spec support (${x:.1f} is invalid
+            # placeholder syntax, not a format spec) — pre-format to 1 decimal instead.
+            safety_note = LIQ_SAFETY_TMPL.substitute(
+                dev=f"{rel_dev*100:.1f}", thresh=f"{SAFETY_DEVIATION_THRESHOLD*100:.1f}",
+            )
 
         # --- Drift (simulated Market vs Model) ---
         drift_score = self._compute_drift_score()

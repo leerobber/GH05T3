@@ -14,7 +14,9 @@ class MockBridge:
         print("[MOCK_BRIDGE] Received schema mode={0}, exec={1}".format(schema.mode, schema.execution_params))
         return {"status": "routed", "mode": schema.mode}
 
-from oss.financial.liquidity_routing import LiquidityEngine, SovereignCorePushSchema
+# liquidity_routing.py lives under backend/oss/financial/, not the top-level oss/
+# package (which has no financial/ submodule at all).
+from backend.oss.financial.liquidity_routing import LiquidityEngine, SovereignCorePushSchema
 
 async def test_case_1_nominal():
     print("\n=== Test Case 1 (Nominal Soft Run) ===")
