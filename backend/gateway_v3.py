@@ -50,8 +50,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from string import Template
 
 # Pre-compiled templates for log content to reduce .format() overhead in KAIROS (892+ cycles) and swarm paths (~31s inference window)
-KAIROS_EMIT_TMPL = Template("Cycle #${id} recorded â€” score=${score:.2f} verdict=${verdict}")
-DISCOVERY_EMIT_TMPL = Template("DISCOVERY complete - slip ${slip:.5f} (improve ${improve}%) shadow=${shadow} p95=${p95}ms expert=${expert}")
+# Template.substitute() has no format-spec support — ${x:.2f} is an invalid
+# placeholder name, not a format spec, and raises ValueError at call time.
+# Pre-format any value that needs decimal precision before substitute().
+KAIROS_EMIT_TMPL = Template("Cycle #${id} recorded — score=${score} verdict=${verdict}")
+DISCOVERY_EMIT_TMPL = Template("DISCOVERY complete - slip ${slip} (improve ${improve}%) shadow=${shadow} p95=${p95}ms expert=${expert}")
 SHADOW_EMIT_TMPL = Template("SHADOW_LOOP completed: max_drift=${max_d} hard_stops=${hard_stops}")
 
 from core.config import (BACKENDS, GATEWAY_HOST, GATEWAY_PORT,
@@ -297,13 +300,27 @@ try:
     import sys as _oss_sys
     from pathlib import Path as _OssPath
     _oss_root = str(_OssPath(__file__).resolve().parent.parent)
-    if _oss_root not in _oss_sys.path:
+    _oss_root_inserted = _oss_root not in _oss_sys.path
+    if _oss_root_inserted:
         _oss_sys.path.insert(0, _oss_root)
-    from oss.api.router import router as _oss_router
-    from oss.pact.provider_states import router as _pact_states_router
-    app.include_router(_oss_router, prefix="/oss")
-    app.include_router(_pact_states_router)
-    log.info("OSS router mounted at /oss")
+    try:
+        from oss.api.router import router as _oss_router
+        from oss.pact.provider_states import router as _pact_states_router
+        app.include_router(_oss_router, prefix="/oss")
+        app.include_router(_pact_states_router)
+        log.info("OSS router mounted at /oss")
+    finally:
+        # Once `oss` is cached in sys.modules, later `import oss.<submodule>`
+        # (e.g. the metrics import further below) resolves via that cached
+        # package's own __path__, not sys.path â€” so it's safe, and necessary,
+        # to undo this insertion right away. Leaving repo root pinned at
+        # sys.path[0] for the rest of the process silently shadows every
+        # later bare import that also exists under backend/ (e.g. `ghostscript`:
+        # backend/ghostscript/ is GH05T3's own async runtime with run_async/
+        # run_file_async; the repo-root ghostscript/ is a different, unrelated
+        # package that has neither) with the repo-root copy instead.
+        if _oss_root_inserted and _oss_root in _oss_sys.path:
+            _oss_sys.path.remove(_oss_root)
 except Exception as _oss_err:
     log.warning("OSS router not mounted: %s", _oss_err)
 
@@ -554,7 +571,7 @@ async def chat(req: ChatRequest, request: Request):
 @app.post("/kairos/cycle")
 async def record_kairos_cycle(req: KAIROSCycleRequest):
     cycle = kairos.record_cycle(proposal=req.proposal, verdict=req.verdict, score=req.score)
-    content = KAIROS_EMIT_TMPL.substitute(id=cycle.id, score=req.score, verdict=req.verdict)
+    content = KAIROS_EMIT_TMPL.substitute(id=cycle.id, score=f"{req.score:.2f}", verdict=req.verdict)
     await bus.emit(
         src="KAIROS",
         content=content,
@@ -777,7 +794,7 @@ async def liq_discover(req: LiquidityDiscoverRequest, shadow: bool = False):
     result = _liq.discover(constraints, shadow=shadow)
     # Use pre-compiled style for perf (template sub if needed; here formatted for latency window)
     content = DISCOVERY_EMIT_TMPL.substitute(
-        slip=result.get('evolved_slippage', 0),
+        slip=f"{result.get('evolved_slippage', 0):.5f}",
         improve=result.get('improvement_pct', 0),
         shadow=shadow,
         p95=result.get('p95_eval_ms', 0),

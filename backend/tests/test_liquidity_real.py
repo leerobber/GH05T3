@@ -11,13 +11,11 @@ import random
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 os.environ['AETHYRO_SKIP_LICENSE'] = '1'
 
-# Real import for test execution from backend dir
-try:
-    from oss.financial.liquidity_routing import get_router
-except ImportError:
-    import sys, os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from oss.financial.liquidity_routing import get_router
+# liquidity_routing.py lives under backend/oss/financial/, not the top-level oss/
+# package (which has no financial/ submodule at all) — conftest.py deliberately
+# pins root oss into sys.modules first, so a bare `oss.financial` import can
+# never resolve here regardless of sys.path order.
+from backend.oss.financial.liquidity_routing import get_router
 
 def test_real_mutation_sweep():
     print("=== REAL MUTATION SWEEP TEST ===")

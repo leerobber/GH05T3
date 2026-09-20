@@ -52,11 +52,21 @@ loguru>=0.7.0
 # ── Contract testing (Pact) for OSS surface + Sovereign bridge ───────────────
 # Consumer-driven contracts for /oss/mvs/* endpoints. Broker publish is optional
 # via PACT_BROKER_URL / PACT_BROKER_TOKEN when infrastructure is available.
+# pact-python 2.x pins cffi~=1.0. pact-python 3.x drops that pin but is a breaking
+# rewrite (its "compat-v2" extra does NOT preserve `from pact import Consumer,
+# Provider, Like, Term, EachLike` — verified: ImportError) which tests/test_oss_pact.py
+# and tests/test_oss_provider_verify.py actually use, so stay on 2.x here rather than
+# migrating that API blind. That makes cryptography's cffi requirement the thing to
+# cap: cryptography>=50.0.0 requires cffi>=2.0, which conflicts with pact-python's
+# cffi~=1.0 and makes pip backtrack pact-python to a version whose sdist doesn't build
+# against modern hatchling. cryptography<50 (through at least 45.x) requires cffi>=1.12,
+# compatible with pact-python 2.x. This cap is CI-only — it does not touch the
+# production cryptography==50.0.0 pin in requirements.txt.
 pact-python>=2.0.0,<3
 pillow>=10.0.0
 websockets>=12.0
 python-dateutil>=2.9.0
-cryptography>=50.0.0
+cryptography>=42.0.0,<50
 networkx>=3.2.0
 prometheus-client>=0.20.0
 

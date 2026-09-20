@@ -68,7 +68,7 @@ BATCH       = int(os.environ.get("GH05T3_TRAIN_BATCH", os.environ.get("BATCH", "
 GRAD_ACCUM  = 4    # effective batch = 8
 
 KAGGLE_DATASET = "tatortot/gh05t3-datasets"
-KAGGLE_TOKEN   = os.environ.get("KAGGLE_API_TOKEN", "KGAT_929e7ea3c862ca57f07ee6ec736adc0d")
+KAGGLE_TOKEN   = os.environ.get("KAGGLE_API_TOKEN")
 
 SYSTEM = (
     "You are GH05T3, an autonomous security and reasoning agent. "
@@ -124,6 +124,15 @@ def ensure_data() -> Path:
     if all((DATA_DIR / f).exists() for f in required):
         log.info("Data cache: %s", DATA_DIR)
         return DATA_DIR
+
+    if not KAGGLE_TOKEN:
+        log.error(
+            "Training data missing from %s and KAGGLE_API_TOKEN is not set.\n"
+            "  Either export KAGGLE_API_TOKEN=<your kaggle key>, or copy the "
+            "required .jsonl files manually to that directory:\n  %s",
+            DATA_DIR, "\n  ".join(required),
+        )
+        sys.exit(1)
 
     log.info("Downloading %s ...", KAGGLE_DATASET)
     DATA_DIR.mkdir(parents=True, exist_ok=True)

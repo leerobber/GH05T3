@@ -1,0 +1,14 @@
+{
+  "competitors": [
+    {"name": "Notion", "pricing_model": "subscription", "strength": "flexibility"},
+    {"name": "Zapier", "pricing_model": "usage-based", "strength": "integrations"},
+    {"name": "Monday.com", "pricing_model": "subscription", "strength": "visual_workflow"}
+  ],
+  "growth_trends": {
+    "ai_automation": 0.4,
+    "workflow_consolidation": 0.3,
+    "usage_based_pricing": 0.2
+  },
+  "market_regime": "steady_demand",
+  "tam_estimate_usd": 4200000000
+}
