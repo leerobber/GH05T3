@@ -63,7 +63,7 @@ loguru>=0.7.0
 # compatible with pact-python 2.x. This cap is CI-only — it does not touch the
 # production cryptography==50.0.0 pin in requirements.txt.
 pact-python>=2.0.0,<3
-pillow>=10.0.0
+pillow>=13.0.0
 websockets>=12.0
 python-dateutil>=2.9.0
 cryptography>=42.0.0,<50
