@@ -18,7 +18,7 @@ chromadb==1.5.8
 click==8.3.2
 cryptography==50.0.0
 distro==1.9.0
-dnspython==2.8.0
+dnspython==2.9.0
 durationpy==0.10
 ecdsa==0.19.2
 email-validator==2.3.0
